@@ -57,7 +57,13 @@ CREATE TABLE items (
 
     -- forward-looking: fins / foils (hard box-fit constraint, see CLAUDE.md)
     box_type            TEXT,    -- US Box | Powerbox | Tuttle | Deep Tuttle
-    fin_length_cm       REAL
+    fin_length_cm       REAL,
+
+    -- archival: broken / retired kit is archived (hidden from the active
+    -- inventory) rather than deleted, so its history and faults are kept.
+    archived            INTEGER NOT NULL DEFAULT 0,
+    archived_at         TEXT,
+    archived_reason     TEXT
 );
 
 -- ---------------------------------------------------------------------------

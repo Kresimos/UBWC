@@ -11,7 +11,8 @@ from streamlit_searchbox import st_searchbox
 
 import db
 import nav
-from views import (add_item, component_list, faults, home, item, login, profile)
+from views import (add_item, archive, component_list, faults, home, item, login,
+                   profile)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -26,6 +27,7 @@ VIEWS = {
     "item": item.render,
     "faults": faults.render,
     "add": add_item.render,
+    "archive": archive.render,
     "login": login.render,
     "profile": profile.render,
 }
@@ -126,6 +128,8 @@ def _sidebar() -> None:
             nav.go("home")
         if st.button("➕ Add item", use_container_width=True):
             nav.go("add")
+        if st.button("🗄 Archived", use_container_width=True):
+            nav.go("archive")
         st.divider()
         st.caption("Coming soon")
         if st.button("🔒 Admin login", use_container_width=True):

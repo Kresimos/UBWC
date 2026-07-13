@@ -79,10 +79,31 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the initial release — applied to an existing kit.db via
+# ALTER TABLE so app-added data is never lost. Fresh builds get them straight
+# from schema.sql.
+_ITEM_COLUMN_MIGRATIONS = {
+    "archived": "INTEGER NOT NULL DEFAULT 0",
+    "archived_at": "TEXT",
+    "archived_reason": "TEXT",
+}
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Idempotently add any columns missing from an older kit.db."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
+    for col, decl in _ITEM_COLUMN_MIGRATIONS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
+    conn.commit()
+
+
 def ensure_db() -> None:
-    """Build kit.db from the xlsx on first run if it doesn't exist yet."""
+    """Build kit.db from the xlsx on first run, then bring the schema up to date."""
     if not DB_PATH.exists():
         migrate.rebuild()
+    with connect() as conn:
+        _ensure_schema(conn)
 
 
 def rebuild_from_xlsx() -> dict:
@@ -99,14 +120,25 @@ def _as_type_list(component_types: Union[str, Iterable[str]]) -> list:
     return list(component_types)
 
 
-def get_items(component_types: Union[str, Iterable[str]]) -> list:
+def get_items(component_types: Union[str, Iterable[str]],
+              include_archived: bool = False) -> list:
     types = _as_type_list(component_types)
     placeholders = ", ".join("?" for _ in types)
+    sql = f"SELECT * FROM items WHERE component_type IN ({placeholders})"
+    if not include_archived:
+        sql += " AND archived = 0"
+    sql += " ORDER BY manufacturer, model, id"
+    with connect() as conn:
+        rows = conn.execute(sql, types).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_archived_items() -> list:
+    """All archived (broken / retired) items, most recently archived first."""
     with connect() as conn:
         rows = conn.execute(
-            f"SELECT * FROM items WHERE component_type IN ({placeholders}) "
-            "ORDER BY manufacturer, model, id",
-            types,
+            "SELECT * FROM items WHERE archived = 1 "
+            "ORDER BY archived_at DESC, manufacturer, model"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -117,15 +149,16 @@ def get_item(item_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def search_items(term: str, limit: int = 10) -> list:
+def search_items(term: str, limit: int = 10, include_archived: bool = False) -> list:
     """Fuzzy-ish item lookup for the search bar: match manufacturer/model/type."""
     like = f"%{term.strip()}%"
+    sql = ("SELECT * FROM items WHERE (manufacturer LIKE ? OR model LIKE ? "
+           "OR type LIKE ?)")
+    if not include_archived:
+        sql += " AND archived = 0"
+    sql += " ORDER BY manufacturer, model LIMIT ?"
     with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM items WHERE manufacturer LIKE ? OR model LIKE ? "
-            "OR type LIKE ? ORDER BY manufacturer, model LIMIT ?",
-            (like, like, like, limit),
-        ).fetchall()
+        rows = conn.execute(sql, (like, like, like, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -162,6 +195,28 @@ def spec_rows(item: dict) -> list:
 def item_title(item: dict) -> str:
     parts = [item.get("manufacturer") or "", item.get("model") or ""]
     return " ".join(p for p in parts if p).strip() or f"Item #{item['id']}"
+
+
+def archive_item(item_id: int, reason: Optional[str] = None) -> None:
+    """Retire a broken item: hide it from the active inventory, keep the record."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE items SET archived = 1, archived_at = datetime('now'), "
+            "archived_reason = ? WHERE id = ?",
+            (reason, item_id),
+        )
+        conn.commit()
+
+
+def unarchive_item(item_id: int) -> None:
+    """Restore an archived item back into the active inventory."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE items SET archived = 0, archived_at = NULL, "
+            "archived_reason = NULL WHERE id = ?",
+            (item_id,),
+        )
+        conn.commit()
 
 
 # --------------------------------------------------------------------------- #

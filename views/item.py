@@ -17,6 +17,11 @@ def render() -> None:
     st.subheader(db.item_title(item))
     st.caption(db.COMPONENT_LABELS.get(item["component_type"], item["component_type"]))
 
+    if item.get("archived"):
+        reason = item.get("archived_reason") or "no reason given"
+        st.error(f"🗄 **Archived** on {item.get('archived_at') or '—'} — {reason}. "
+                 "Hidden from the active inventory.")
+
     left, right = st.columns([1, 2])
 
     with left:
@@ -58,6 +63,27 @@ def render() -> None:
 
     if st.button("⚠ Report a fault", type="primary"):
         nav.go("faults", item_id=item["id"])
+
+    st.divider()
+
+    # --- Archive / restore ---
+    if item.get("archived"):
+        st.markdown("### Restore")
+        st.caption("Bring this item back into the active inventory.")
+        if st.button("♻ Restore to inventory"):
+            db.unarchive_item(item["id"])
+            st.rerun()
+    else:
+        with st.expander("🗄 Archive this item (broken / retired)"):
+            st.caption("Archiving hides the item from the active inventory but keeps "
+                       "its record and fault history. Use it for kit that's broken "
+                       "beyond use or retired.")
+            reason = st.text_input("Reason (optional)", key=f"archive_reason_{item['id']}",
+                                   placeholder="e.g. snapped mast, beyond repair")
+            if st.button("Archive item"):
+                db.archive_item(item["id"], reason.strip() or None)
+                st.success("Item archived.")
+                st.rerun()
 
     # --- Rating widget (stub for the future rating system) ---
     with st.expander("Rate this item (coming soon)"):

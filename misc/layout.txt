@@ -1,0 +1,44 @@
+all pages:
+
+ - UBWC logo center top
+ - search bar below which works like a bloomberg terminal. uses commands
+    - boards
+    - sails
+    - booms
+    - fins
+    - foils
+    - masts
+    - sails
+    to navigate to the relevant 'component' pages. components should be autocompleted by tab and navigated to if enter is pressed. once a component type is completed, the user can use the arrow keys to choose an item of that component type
+- openable sidebar button top right (3 lines icon) listing component pages
+
+
+home page:
+ - otherwise blank for now
+
+component pages should all follow this layout:
+ - autofill the start of the terminal search bar with the component type, then arrow keys can be used to cycle trhough items
+ - scrollable grid layout showing manufacturer model and size along with a picture
+ - clicking on an item will take to to an ITEM page
+
+Item page:
+-image of item
+-table of specifications with specification names as the left hand column
+-list of known faults
+-report a fault button (takes you to faults page)
+
+Faults page:
+- takes the size, model and make of the item on the page where the button was clicked
+- user input for text description of new fault, entering submits it to database#
+- photo of fault input
+- list of current faults which can be cleared
+
+Add item page: 
+- user able to input a new item for any compontent type, but all fields for that component type must be filled.
+- accessible at any time by green square button in the top left corner
+
+
+
+
+
+ 

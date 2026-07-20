@@ -9,16 +9,18 @@ from pathlib import Path
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
+import auth
 import db
 import nav
 from views import (add_item, archive, component_list, faults, home, item, login,
-                   profile)
+                   members, profile)
 
 ROOT = Path(__file__).resolve().parent
 
 st.set_page_config(page_title="UBWC Kit", page_icon="🏄", layout="wide")
 
 db.ensure_db()
+auth.ensure_admin()   # bootstrap an admin account if none exists
 nav.init_state()
 
 VIEWS = {
@@ -29,6 +31,7 @@ VIEWS = {
     "add": add_item.render,
     "archive": archive.render,
     "login": login.render,
+    "members": members.render,
     "profile": profile.render,
 }
 
@@ -119,6 +122,14 @@ def _header() -> None:
 
 def _sidebar() -> None:
     with st.sidebar:
+        # Login status.
+        user = auth.current_user()
+        if user:
+            badge = "Admin" if user.get("is_admin") else "Member"
+            st.caption(f"👤 **{user['username']}** · {badge}")
+        else:
+            st.caption("👤 Not logged in")
+
         st.markdown("### Components")
         for cmd in ["boards", "sails", "booms", "masts", "fins", "foils", "misc"]:
             if st.button(cmd.capitalize(), key=f"nav_{cmd}", use_container_width=True):
@@ -131,9 +142,12 @@ def _sidebar() -> None:
         if st.button("🗄 Archived", use_container_width=True):
             nav.go("archive")
         st.divider()
-        st.caption("Coming soon")
-        if st.button("🔒 Admin login", use_container_width=True):
+        login_label = "🔐 Account" if user else "🔐 Log in / Register"
+        if st.button(login_label, use_container_width=True):
             nav.go("login")
+        if auth.is_admin() and st.button("👥 Manage members", use_container_width=True):
+            nav.go("members")
+        st.caption("Coming soon")
         if st.button("👤 My profile", use_container_width=True):
             nav.go("profile")
 

@@ -1,8 +1,15 @@
-"""Item page — image, spec table, known faults, and a report-fault button."""
+"""Item page — image, spec table, known faults, ratings, and a report-fault button."""
 import streamlit as st
 
+import auth
 import db
 import nav
+import validation
+
+
+def _stars(n) -> str:
+    n = int(round(n or 0))
+    return "★" * n + "☆" * (5 - n)
 
 
 def render() -> None:
@@ -66,8 +73,16 @@ def render() -> None:
 
     st.divider()
 
-    # --- Archive / restore ---
-    if item.get("archived"):
+    # --- Ratings (just below faults) ---
+    _ratings_section(item)
+
+    st.divider()
+
+    # --- Archive / restore (admin only) ---
+    if not auth.is_admin():
+        if item.get("archived"):
+            st.caption("🔒 Only an admin can restore archived items.")
+    elif item.get("archived"):
         st.markdown("### Restore")
         st.caption("Bring this item back into the active inventory.")
         if st.button("♻ Restore to inventory"):
@@ -85,8 +100,88 @@ def render() -> None:
                 st.success("Item archived.")
                 st.rerun()
 
-    # --- Rating widget (stub for the future rating system) ---
-    with st.expander("Rate this item (coming soon)"):
-        st.caption("TODO: ratings — requires the login/profile system. "
-                   "See the `ratings` table in schema.sql.")
-        st.feedback("stars", disabled=True)
+
+def _ratings_section(item: dict) -> None:
+    st.markdown("### Ratings")
+
+    avg, count = db.get_rating_summary(item["id"])
+    if count:
+        st.markdown(f"**{avg:.1f} ★**  ·  {count} rating{'s' if count != 1 else ''}")
+    else:
+        st.caption("No ratings yet.")
+
+    user = auth.current_user()
+    admin = auth.is_admin()
+
+    # List of ratings, each showing the reviewer's username + wind/ability context.
+    for r in db.get_ratings(item["id"]):
+        cols = st.columns([6, 1])
+        context = "  ·  ".join(
+            x for x in [r.get("wind_strength"),
+                        (r.get("rider_ability") or "").capitalize()] if x
+        )
+        meta = f"  <span style='color:#9ca3af;'>· {context}</span>" if context else ""
+        cols[0].markdown(
+            f"{_stars(r['stars'])}  **{r['username']}**{meta}<br>"
+            f"<span>{r['comment'] or ''}</span>  "
+            f"<span style='color:#c0c0c0; font-size:0.8em;'>{r['created_at']}</span>",
+            unsafe_allow_html=True,
+        )
+        can_delete = (user and r["user_id"] == user["id"]) or admin
+        if can_delete and cols[1].button("Delete", key=f"delrate_{r['id']}"):
+            db.delete_rating(r["id"])
+            st.rerun()
+
+    # Your rating form (members only).
+    if not user:
+        st.caption("🔒 Log in to rate this item.")
+        if st.button("Log in", key=f"ratelogin_{item['id']}"):
+            nav.go("login")
+        return
+
+    existing = db.get_user_rating(item["id"], user["id"])
+    st.markdown("**Edit your review**" if existing else "**Add your review**")
+    with st.form(f"rating_form_{item['id']}", clear_on_submit=False):
+        stars = st.selectbox(
+            "Rating", [1, 2, 3, 4, 5],
+            index=(existing["stars"] - 1) if existing else 4,
+            format_func=lambda s: f"{s} ★",
+        )
+        wind = st.selectbox(
+            "Wind strength", db.WIND_STRENGTH_OPTIONS,
+            index=(db.WIND_STRENGTH_OPTIONS.index(existing["wind_strength"])
+                   if existing and existing.get("wind_strength") in db.WIND_STRENGTH_OPTIONS
+                   else None),
+            placeholder="Choose…",
+        )
+        ability = st.selectbox(
+            "Your ability", validation.ABILITY_LEVELS,
+            index=(validation.ABILITY_LEVELS.index(existing["rider_ability"])
+                   if existing and existing.get("rider_ability") in validation.ABILITY_LEVELS
+                   else None),
+            format_func=str.capitalize, placeholder="Choose…",
+        )
+        comment = st.text_input(
+            f"Comment (max {db.RATING_WORD_LIMIT} words)",
+            value=existing["comment"] if existing else "",
+        )
+        submitted = st.form_submit_button(
+            "Update rating" if existing else "Add rating", type="primary")
+        if submitted:
+            words = len(comment.split())
+            if wind is None or ability is None:
+                st.error("Please choose a wind strength and your ability.")
+            elif not comment.strip():
+                st.error("Please add a short comment.")
+            elif words > db.RATING_WORD_LIMIT:
+                st.error(f"Comment is {words} words — keep it to "
+                         f"{db.RATING_WORD_LIMIT} or fewer.")
+            else:
+                db.upsert_rating(item["id"], user["id"], stars, comment.strip(),
+                                 wind, ability)
+                st.success("Rating saved.")
+                st.rerun()
+
+    if existing and st.button("Remove my rating", key=f"removerate_{item['id']}"):
+        db.delete_rating(existing["id"])
+        st.rerun()

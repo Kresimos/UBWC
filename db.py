@@ -68,6 +68,20 @@ COMPONENT_LABELS = {
     "mast": "Mast", "fin": "Fin", "foil": "Foil", "misc": "Misc",
 }
 
+# Ratings: wind-strength bands (knots) and the comment word cap.
+WIND_STRENGTH_OPTIONS = ["0–10 kn", "10–15 kn", "15–20 kn", "20–25 kn", "25+ kn"]
+RATING_WORD_LIMIT = 30
+
+# Saved setups: which item slots a setup has, as (column, component_type) pairs.
+# The setups table also has extension_id, left unused (extensions aren't items).
+SETUP_SLOTS = [
+    ("board_id", "board"),
+    ("sail_id", "sail"),
+    ("mast_id", "mast"),
+    ("boom_id", "boom"),
+    ("fin_id", "fin"),
+]
+
 
 # --------------------------------------------------------------------------- #
 # Connection / lifecycle
@@ -87,14 +101,22 @@ _ITEM_COLUMN_MIGRATIONS = {
     "archived_at": "TEXT",
     "archived_reason": "TEXT",
 }
+_RATING_COLUMN_MIGRATIONS = {
+    "wind_strength": "TEXT",
+    "rider_ability": "TEXT",
+}
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Idempotently add any columns missing from an older kit.db."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
-    for col, decl in _ITEM_COLUMN_MIGRATIONS.items():
-        if col not in existing:
-            conn.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
+    """Idempotently add any columns/indexes missing from an older kit.db."""
+    for table, migrations in (("items", _ITEM_COLUMN_MIGRATIONS),
+                              ("ratings", _RATING_COLUMN_MIGRATIONS)):
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for col, decl in migrations.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ratings_user_item "
+                 "ON ratings(user_id, item_id)")
     conn.commit()
 
 
@@ -251,4 +273,93 @@ def clear_fault(fault_id: int, cleared_by: Optional[str] = None) -> None:
             "cleared_at = datetime('now') WHERE id = ?",
             (cleared_by, fault_id),
         )
+        conn.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Ratings (one editable rating per member per item)
+# --------------------------------------------------------------------------- #
+def get_ratings(item_id: int) -> list:
+    """All ratings for an item, newest first, each including the reviewer's username."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT r.*, u.username FROM ratings r JOIN users u ON u.id = r.user_id "
+            "WHERE r.item_id = ? ORDER BY r.created_at DESC, r.id DESC",
+            (item_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_rating_summary(item_id: int) -> tuple:
+    """(average, count) for an item; average is None when there are no ratings."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT AVG(stars), COUNT(*) FROM ratings WHERE item_id = ?", (item_id,)
+        ).fetchone()
+    return (row[0], row[1])
+
+
+def get_user_rating(item_id: int, user_id: int) -> Optional[dict]:
+    """A member's own rating of an item (for prefilling / editing), or None."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM ratings WHERE item_id = ? AND user_id = ?",
+            (item_id, user_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_rating(item_id: int, user_id: int, stars: int, comment: str,
+                  wind_strength: Optional[str] = None,
+                  rider_ability: Optional[str] = None) -> None:
+    """Insert or replace a member's rating (one per member per item)."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO ratings (item_id, user_id, stars, comment, "
+            "wind_strength, rider_ability) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, item_id) DO UPDATE SET "
+            "stars = excluded.stars, comment = excluded.comment, "
+            "wind_strength = excluded.wind_strength, "
+            "rider_ability = excluded.rider_ability, "
+            "created_at = datetime('now')",
+            (item_id, user_id, stars, comment, wind_strength, rider_ability),
+        )
+        conn.commit()
+
+
+def delete_rating(rating_id: int) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM ratings WHERE id = ?", (rating_id,))
+        conn.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Saved setups (a member's favourite board + rig combinations)
+# --------------------------------------------------------------------------- #
+def get_setups(user_id: int) -> list:
+    """A member's saved setups, newest first."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM setups WHERE user_id = ? ORDER BY created_at DESC, id DESC",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_setup(user_id: int, name: str, board_id: Optional[int] = None,
+                 sail_id: Optional[int] = None, mast_id: Optional[int] = None,
+                 boom_id: Optional[int] = None, fin_id: Optional[int] = None) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO setups (user_id, name, board_id, sail_id, mast_id, "
+            "boom_id, fin_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, name, board_id, sail_id, mast_id, boom_id, fin_id),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def delete_setup(setup_id: int) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM setups WHERE id = ?", (setup_id,))
         conn.commit()

@@ -113,14 +113,19 @@ CREATE TABLE setups (
 );
 
 CREATE TABLE ratings (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    item_id     INTEGER REFERENCES items(id) ON DELETE CASCADE,
-    setup_id    INTEGER REFERENCES setups(id) ON DELETE CASCADE,
-    stars       INTEGER CHECK (stars BETWEEN 1 AND 5),
-    comment     TEXT,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    item_id       INTEGER REFERENCES items(id) ON DELETE CASCADE,
+    setup_id      INTEGER REFERENCES setups(id) ON DELETE CASCADE,
+    stars         INTEGER CHECK (stars BETWEEN 1 AND 5),
+    comment       TEXT,
+    wind_strength TEXT,   -- knot band the review was made in
+    rider_ability TEXT,   -- beginner | intermediate | advanced
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One (editable) rating per member per item.
+CREATE UNIQUE INDEX idx_ratings_user_item ON ratings(user_id, item_id);
 
 -- ---------------------------------------------------------------------------
 -- Per-type views: reproduce each sheet's exact column layout for display/export.

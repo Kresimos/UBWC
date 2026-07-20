@@ -5,6 +5,7 @@ open an item or restore it straight from here.
 """
 import streamlit as st
 
+import auth
 import db
 import nav
 
@@ -13,6 +14,10 @@ def render() -> None:
     st.subheader("🗄 Archived items")
     st.caption("Broken or retired kit. Hidden from the component pages and search, "
                "kept here for the record.")
+
+    admin = auth.is_admin()
+    if not admin:
+        st.caption("🔒 Only an admin can restore archived items.")
 
     items = db.get_archived_items()
     if not items:
@@ -30,7 +35,7 @@ def render() -> None:
                            f"{item.get('archived_reason') or 'no reason given'}")
             if cols[1].button("View", key=f"arch_view_{item['id']}", use_container_width=True):
                 nav.go("item", item_id=item["id"])
-            if cols[2].button("♻ Restore", key=f"arch_restore_{item['id']}",
-                              use_container_width=True):
+            if admin and cols[2].button("♻ Restore", key=f"arch_restore_{item['id']}",
+                                        use_container_width=True):
                 db.unarchive_item(item["id"])
                 st.rerun()

@@ -5,6 +5,7 @@ a fault' button was clicked), per layout.txt.
 """
 import streamlit as st
 
+import auth
 import db
 import nav
 
@@ -26,9 +27,11 @@ def render() -> None:
     )
 
     # Report a new fault.
+    user = auth.current_user()
     with st.form("report_fault", clear_on_submit=True):
         description = st.text_area("Describe the new fault")
-        reporter = st.text_input("Your name (optional)")
+        reporter = st.text_input("Your name (optional)",
+                                 value=user["username"] if user else "")
         submitted = st.form_submit_button("Submit fault", type="primary")
         if submitted:
             if description.strip():
@@ -41,6 +44,9 @@ def render() -> None:
 
     # Current open faults, each clearable.
     st.markdown("### Current faults")
+    admin = auth.is_admin()
+    if not admin:
+        st.caption("🔒 Only an admin can clear faults.")
     open_faults = db.get_faults(item["id"], status="open")
     if not open_faults:
         st.success("No open faults.")
@@ -53,10 +59,9 @@ def render() -> None:
                 f"{f['reported_by'] or 'unknown'} on {f['created_at']}</span>",
                 unsafe_allow_html=True,
             )
-            # NOTE: future admin-approval flow will gate clearing behind login
-            # (see faults.approved in schema.sql).
-            if cols[1].button("Clear", key=f"clear_{f['id']}"):
-                db.clear_fault(f["id"])
+            # Clearing is admin-only; members can report but not clear.
+            if admin and cols[1].button("Clear", key=f"clear_{f['id']}"):
+                db.clear_fault(f["id"], cleared_by=auth.current_user()["username"])
                 st.rerun()
 
     st.divider()

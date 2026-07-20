@@ -20,6 +20,10 @@ VOLUME_MULTIPLIER = {
     "advanced": (0.85, 1.05),
 }
 
+# Shared rider-ability vocabulary (reused by the ratings UI so reviews and the
+# board-sizing logic speak the same language).
+ABILITY_LEVELS = list(VOLUME_MULTIPLIER)
+
 
 @dataclass
 class Result:

@@ -12,7 +12,7 @@
 import { html, mount, num, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
-import { store, siteLabel, subscribe } from '../store.js';
+import { store, siteLabel, subscribe, isCommittee } from '../store.js';
 import { conditionClass, worstFault, sitePill } from '../ui/bits.js';
 import { pickSite, needCommittee } from '../ui/chrome.js';
 import { chooser, formSheet, toast } from '../ui/overlay.js';
@@ -26,11 +26,13 @@ const state = {
   view: localStorage.getItem(VIEW_KEY) || 'grid',
   selecting: false,
   selected: new Set(),
+  archived: false,
 };
 
 export async function render(root) {
   state.selecting = false;
   state.selected.clear();
+  state.archived = false;
 
   mount(root, shell());
   const listNode = root.querySelector('[data-list]');
@@ -43,7 +45,10 @@ export async function render(root) {
     loading = true;
     paint();
     try {
-      const data = await api.items({ type: state.type, site: store.site, q: state.q });
+      const data = await api.items({
+        type: state.type, site: store.site, q: state.q,
+        archived: state.archived || undefined,
+      });
       items = data.items;
     } catch (error) {
       toast(error.message, true);
@@ -63,6 +68,8 @@ export async function render(root) {
     });
     root.querySelector('[data-count]').innerHTML = countLabel(items.length, loading);
     root.querySelector('[data-select]').textContent = state.selecting ? 'Done' : 'Select';
+    const archBtn = root.querySelector('[data-archived-toggle]');
+    if (archBtn) archBtn.classList.toggle('on', state.archived);
     root.querySelector('.searchbar').classList.toggle('filled', Boolean(state.q));
 
     if (loading) {
@@ -168,6 +175,13 @@ export async function render(root) {
     state.type = value;
     load();
   });
+  const archivedToggle = root.querySelector('[data-archived-toggle]');
+  if (archivedToggle) archivedToggle.addEventListener('click', () => {
+    state.archived = !state.archived;
+    state.selecting = false;
+    state.selected.clear();
+    load();
+  });
   onClick(root, 'data-view', (value) => {
     state.view = value;
     localStorage.setItem(VIEW_KEY, value);
@@ -227,6 +241,7 @@ function shell() {
 
     <div class="subbar">
       <span class="count" data-count></span>
+      ${isCommittee() ? html`<button class="chip" data-archived-toggle>Archived</button>` : ''}
       <button class="selbtn" data-select>Select</button>
       <div class="viewtoggle">
         <button data-view="grid" aria-label="Grid view">${icon('gridIcon')}</button>
@@ -246,6 +261,14 @@ function countLabel(count, loading) {
 }
 
 function emptyState() {
+  if (state.archived) {
+    return html`
+      <div class="emptystate">
+        ${icon('box')}
+        <b>Nothing archived</b>
+        <span>Broken or retired kit shows up here once a committee member archives it from its item page.</span>
+      </div>`;
+  }
   return html`
     <div class="emptystate">
       ${icon('box')}

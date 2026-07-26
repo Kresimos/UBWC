@@ -188,6 +188,12 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
     if "spot" not in _columns(conn, "items"):
         conn.execute("ALTER TABLE items ADD COLUMN spot TEXT")
 
+    item_cols = _columns(conn, "items")
+    if "archived" not in item_cols:
+        conn.execute("ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE items ADD COLUMN archived_at TEXT")
+        conn.execute("ALTER TABLE items ADD COLUMN archived_reason TEXT")
+
     if "sites" not in tables:
         conn.execute("""
             CREATE TABLE sites (
@@ -414,9 +420,23 @@ def get_item(item_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def all_items() -> list:
+def all_items(include_archived: bool = False) -> list:
+    sql = "SELECT * FROM items"
+    if not include_archived:
+        sql += " WHERE archived = 0"
+    sql += " ORDER BY id"
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM items ORDER BY id").fetchall()
+        rows = conn.execute(sql).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_archived_items() -> list:
+    """Archived (broken / retired) items, most recently archived first."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM items WHERE archived = 1 "
+            "ORDER BY archived_at DESC, manufacturer, model"
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -476,6 +496,29 @@ def delete_item(item_id: int) -> None:
         conn.commit()
 
 
+def archive_item(item_id: int, reason: Optional[str] = None) -> None:
+    """Committee-only. Retire a broken/retired item: hide it from the active
+    catalogue and rig picker, keep its faults/comments/ratings history intact."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE items SET archived = 1, archived_at = datetime('now'), "
+            "archived_reason = ? WHERE id = ?",
+            (reason, item_id),
+        )
+        conn.commit()
+
+
+def unarchive_item(item_id: int) -> None:
+    """Committee-only. Restore an archived item back into the active catalogue."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE items SET archived = 0, archived_at = NULL, "
+            "archived_reason = NULL WHERE id = ?",
+            (item_id,),
+        )
+        conn.commit()
+
+
 def move_items(item_ids: list, site: str, spot: Optional[str] = None) -> int:
     """Committee move / bulk-move. Overwrites location; there is no separate home."""
     if not item_ids:
@@ -519,7 +562,8 @@ def get_sites() -> list:
     with connect() as conn:
         rows = conn.execute(
             "SELECT s.name, "
-            "  (SELECT COUNT(*) FROM items i WHERE i.location = s.name) AS n_items "
+            "  (SELECT COUNT(*) FROM items i WHERE i.location = s.name "
+            "     AND i.archived = 0) AS n_items "
             "FROM sites s ORDER BY s.sort, s.name"
         ).fetchall()
     return [dict(r) for r in rows]

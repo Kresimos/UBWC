@@ -74,7 +74,13 @@ CREATE TABLE items (
     -- free-text catch-all for anything the typed columns don't cover. This is
     -- the "place for everything" for genuinely weird pieces (spares, oddities,
     -- extra spec printed on the kit) that don't warrant their own column.
-    notes               TEXT
+    notes               TEXT,
+
+    -- archival: broken / retired kit is archived (hidden from the catalogue
+    -- and rig picker) rather than deleted, so its history and faults are kept.
+    archived            INTEGER NOT NULL DEFAULT 0,
+    archived_at         TEXT,
+    archived_reason     TEXT
 );
 
 -- ---------------------------------------------------------------------------

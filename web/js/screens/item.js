@@ -150,12 +150,40 @@ export async function render(root, params) {
         sub: 'Committee actions on this piece.',
         rows: [
           { value: 'move', label: 'Change location', sub: `Now at ${item.site}${item.spot ? ' · ' + item.spot : ''}` },
+          item.archived
+            ? { value: 'unarchive', label: 'Restore this item', sub: 'Brings it back into the active catalogue' }
+            : { value: 'archive', label: 'Archive this item', sub: 'Hides it from the catalogue and rig picker; keeps its history' },
           { value: 'delete', label: 'Delete this item', sub: 'Removes it and its faults, notes and ratings' },
         ],
       });
       if (choice === 'move') return moveOne();
+      if (choice === 'archive') return archiveOne();
+      if (choice === 'unarchive') return unarchiveOne();
       if (choice === 'delete') return deleteOne();
     });
+  }
+
+  async function archiveOne() {
+    if (!(await needCommittee('Archiving kit is a committee action.'))) return;
+    const values = await formSheet({
+      title: `Archive ${fullName(item)}?`,
+      sub: 'Hides it from the catalogue and rig picker. Its faults, notes and ratings stay on record, and it can be restored later.',
+      fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'Snapped mast, written off' }],
+      submitLabel: 'Archive it',
+    });
+    if (!values) return;
+    await api.archiveItem(id, values.reason);
+    item = await api.item(id);
+    paint();
+    toast('Archived.');
+  }
+
+  async function unarchiveOne() {
+    if (!(await needCommittee('Restoring kit is a committee action.'))) return;
+    await api.unarchiveItem(id);
+    item = await api.item(id);
+    paint();
+    toast('Restored to the active catalogue.');
   }
 
   async function moveOne() {
@@ -245,6 +273,13 @@ function screen(item, historyOpen) {
             ? html`<button class="btn ghost" data-admin aria-label="Committee actions">${icon('move')}</button>`
             : ''}
         </div>
+
+        ${item.archived ? html`
+          <div class="info">
+            ${icon('info')}
+            <p>Archived${item.archived_reason ? `: ${item.archived_reason}` : ''}. Hidden from the
+              catalogue and rig picker until a committee member restores it.</p>
+          </div>` : ''}
 
         ${open.length ? html`<div class="faults">${open.map(faultBox)}</div>` : ''}
 

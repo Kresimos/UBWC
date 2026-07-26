@@ -54,6 +54,8 @@ export const api = {
   createItem: (payload) => request('POST', '/api/items', payload),
   updateItem: (id, payload) => request('PUT', `/api/items/${id}`, payload),
   deleteItem: (id) => request('DELETE', `/api/items/${id}`),
+  archiveItem: (id, reason) => request('POST', `/api/items/${id}/archive`, { reason }),
+  unarchiveItem: (id) => request('POST', `/api/items/${id}/unarchive`, {}),
   moveItems: (itemIds, site, spot) =>
     request('POST', '/api/items/move', { item_ids: itemIds, site, spot }),
 

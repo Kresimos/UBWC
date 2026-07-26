@@ -126,6 +126,9 @@ def item_card(item: dict, rating: dict = None, faults: list = None) -> dict:
                    for f in (faults or [])],
         "rig_kind": rigkit.rig_kind(item),
         "cams": bool(item.get("cams")),
+        "archived": bool(item.get("archived")),
+        "archived_at": item.get("archived_at"),
+        "archived_reason": item.get("archived_reason"),
     }
 
 
@@ -219,20 +222,25 @@ def committee(request: Request, response: Response, pin: str = Body(..., embed=T
 def list_items(request: Request,
                type: Optional[str] = Query(None),
                site: Optional[str] = Query(None),
-               q: Optional[str] = Query(None)):
+               q: Optional[str] = Query(None),
+               archived: bool = Query(False)):
     """The catalogue, filtered by type chip, site selector and search text.
 
     Out-of-action kit stays visible (this is the catalogue, not the rig picker)
     but sorts to the bottom, so what a member can actually use reads first.
+    Archived kit is a committee-only view, off by default (`archived=true`).
     """
     who = identity(request)
     user_id = who["user"]["id"] if who["user"] else None
+    if archived:
+        require_committee(request)
     ratings = db.ratings_by_item(user_id)
     faults = db.open_faults_by_item()
 
     needle = (q or "").strip().lower()
     rows = []
-    for item in db.all_items():
+    source = db.get_archived_items() if archived else db.all_items()
+    for item in source:
         if type and type != "all" and item["component_type"] != type:
             continue
         if site and site != "all" and item.get("location") != site:
@@ -336,6 +344,25 @@ def _write_faults(item_id: int, faults: list, request: Request) -> None:
 def remove_item(item_id: int, request: Request):
     require_committee(request)
     db.delete_item(item_id)
+    return {"ok": True}
+
+
+@app.post("/api/items/{item_id}/archive")
+def archive_item(item_id: int, request: Request, payload: dict = Body({})):
+    """Retire broken/retired kit without losing its history (see delete, above)."""
+    require_committee(request)
+    if not db.get_item(item_id):
+        raise HTTPException(404, "No such item.")
+    db.archive_item(item_id, (payload or {}).get("reason"))
+    return {"ok": True}
+
+
+@app.post("/api/items/{item_id}/unarchive")
+def unarchive_item(item_id: int, request: Request):
+    require_committee(request)
+    if not db.get_item(item_id):
+        raise HTTPException(404, "No such item.")
+    db.unarchive_item(item_id)
     return {"ok": True}
 
 

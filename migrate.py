@@ -38,8 +38,8 @@ SHEETS = {
             "Size (m^2)": "size_m2",
             "Condition": "condition",
             "Location": "location",
-            "Mast Length": "req_mast_length_cm",
-            "Extension": "req_extension_cm",
+            # "Mast Length" + "Extension" are summed into luff_cm below (the DB
+            # stores the luff, not a specific recommended mast + extension).
             "Boom": "req_boom_cm",
             "Cams": "cams",
         },
@@ -129,6 +129,14 @@ def rebuild(db_path: Path = DB_PATH, xlsx_path: Path = XLSX_PATH) -> dict:
             # cams -> 0/1
             if "cams" in record and record["cams"] is not None:
                 record["cams"] = 1 if record["cams"] in (True, 1, "TRUE", "True", "yes", "Yes") else 0
+
+            # Sails: the sheet stores "Mast Length" + "Extension"; the DB stores
+            # their sum as luff_cm (any mast + extension totalling this fits).
+            if "Mast Length" in col_index or "Extension" in col_index:
+                ml = _clean(row[col_index["Mast Length"]]) if "Mast Length" in col_index else None
+                ex = _clean(row[col_index["Extension"]]) if "Extension" in col_index else None
+                if ml is not None or ex is not None:
+                    record["luff_cm"] = (ml or 0) + (ex or 0)
 
             # Resolve component_type (literal or based on the Type cell).
             ctype = cfg["component_type"]

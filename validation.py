@@ -43,49 +43,59 @@ def validate_rig(sail: dict,
                  boom: Optional[dict] = None) -> Result:
     """Check a rig (sail + mast + extension + boom) fits together.
 
-    The sail's required luff length is its recorded Mast Length + Extension
-    (e.g. a 460 mast + 30 extension = 490cm luff). The chosen mast plus the
-    extension used must add up to that same luff.
+    The sail requires a luff length. It does not matter which mast + extension
+    combination is used, only that they total the luff (a 490cm-luff sail takes
+    460+30, 470+20, 490+0...). Sails with an adjustable head
+    (`top_extension_max_cm` > 0) also accept a longer total, up to that much of
+    the mast poking out the top.
 
     Hard rules (errors):
-      * mast.length_cm + extension_cm == (sail.req_mast_length_cm
-        + sail.req_extension_cm)  (±tolerance)
+      * sail.luff_cm <= mast.length_cm + extension_cm
+        <= sail.luff_cm + sail.top_extension_max_cm   (±tolerance)
       * boom.min_size_cm <= sail.req_boom_cm <= boom.max_size_cm
-    Soft rules (warnings): using a non-recommended mast size; implausible
-    extension length; mast brand != sail brand (flex/IMCS not guaranteed,
-    matters most for cambered sails).
+    Soft rules (warnings): implausible extension length; mast brand != sail
+    brand (flex/IMCS not guaranteed, matters most for cambered sails).
     """
     res = Result()
-    rec_mast = sail.get("req_mast_length_cm")
-    rec_ext = sail.get("req_extension_cm")
-    req_luff = None if rec_mast is None else rec_mast + (rec_ext or 0)
+    req_luff = sail.get("luff_cm")
+    top_max = sail.get("top_extension_max_cm") or 0
     req_boom = sail.get("req_boom_cm")
 
-    # Mast + extension vs required luff length.
+    # Mast + extension total vs the sail's luff (plus any adjustable-head room).
     if mast is not None:
         mast_len = mast.get("length_cm")
-        ext = extension_cm if extension_cm is not None else sail.get("req_extension_cm") or 0
         if req_luff is None:
             res.warnings.append(
-                "Sail has no required mast length recorded — can't verify the mast fit."
+                "Sail has no luff length recorded — can't verify the mast fit."
             )
         elif mast_len is None:
             res.warnings.append("Mast has no length recorded — can't verify the mast fit.")
         else:
+            # Default: assume just enough extension to reach the luff.
+            ext = extension_cm if extension_cm is not None else max(req_luff - mast_len, 0)
             total = mast_len + (ext or 0)
-            if abs(total - req_luff) > MAST_LENGTH_TOLERANCE_CM:
+            low = req_luff - MAST_LENGTH_TOLERANCE_CM
+            high = req_luff + top_max + MAST_LENGTH_TOLERANCE_CM
+            if total < low:
                 res.errors.append(
                     f"Mast {mast_len:g}cm + extension {ext or 0:g}cm = {total:g}cm, "
-                    f"but the sail needs a {req_luff:g}cm luff "
-                    f"({rec_mast:g}cm mast + {rec_ext or 0:g}cm extension, "
-                    f"±{MAST_LENGTH_TOLERANCE_CM}cm)."
+                    f"short of the sail's {req_luff:g}cm luff (±{MAST_LENGTH_TOLERANCE_CM}cm) "
+                    f"— use a longer mast or more extension."
                 )
-            # Non-recommended mast size (fits via extension, but flag it).
-            if rec_mast is not None and abs(mast_len - rec_mast) > MAST_LENGTH_TOLERANCE_CM:
-                res.warnings.append(
-                    f"Sail recommends a {rec_mast:g}cm mast; you're using {mast_len:g}cm "
-                    f"and making up the difference with extension."
-                )
+            elif total > high:
+                over = total - req_luff
+                if top_max:
+                    res.errors.append(
+                        f"Mast {mast_len:g}cm + extension {ext or 0:g}cm = {total:g}cm, "
+                        f"{over:g}cm past the {req_luff:g}cm luff; this sail's adjustable "
+                        f"head only allows {top_max:g}cm out the top."
+                    )
+                else:
+                    res.errors.append(
+                        f"Mast {mast_len:g}cm + extension {ext or 0:g}cm = {total:g}cm, "
+                        f"longer than the sail's {req_luff:g}cm luff "
+                        f"(±{MAST_LENGTH_TOLERANCE_CM}cm)."
+                    )
             # Implausible extension length.
             if ext is not None and not (0 <= ext <= 50):
                 res.warnings.append(
@@ -156,6 +166,104 @@ def fin_fits_board(fin: dict, board: dict) -> Result:
         res.errors.append(
             f"Fin box ({fb}) doesn't match the board's box ({bb}) — physically incompatible."
         )
+    return res
+
+
+# Fields the add/edit form will not save without, per component type. These are
+# the numbers the rig rules above read: a sail with no luff cannot be matched to
+# a mast, a fin with no box cannot be matched to a board. Everything else is
+# optional, so a half-known piece can still be recorded rather than left out of
+# the inventory entirely.
+REQUIRED_FIELDS = {
+    "board": ["manufacturer", "model", "size_l", "condition", "location"],
+    "sail":  ["manufacturer", "model", "type", "size_m2", "luff_cm",
+              "req_boom_cm", "condition", "location"],
+    "wing":  ["manufacturer", "model", "size_m2", "condition", "location"],
+    "boom":  ["manufacturer", "model", "min_size_cm", "max_size_cm",
+              "condition", "location"],
+    "mast":  ["manufacturer", "model", "length_cm", "condition", "location"],
+    "fin":   ["manufacturer", "model", "box_type", "fin_length_cm",
+              "condition", "location"],
+    "foil":  ["manufacturer", "model", "box_type", "condition", "location"],
+    "misc":  ["manufacturer", "model", "type", "condition", "location"],
+}
+
+FIELD_NAMES = {
+    "manufacturer": "manufacturer", "model": "model", "type": "type",
+    "size_l": "volume in litres", "size_m2": "size in m²",
+    "luff_cm": "luff length", "req_boom_cm": "boom length",
+    "min_size_cm": "shortest boom length", "max_size_cm": "longest boom length",
+    "length_cm": "length", "fin_length_cm": "fin length", "box_type": "box type",
+    "condition": "condition", "location": "site",
+}
+
+# Plausible ranges, used only to warn. A number outside these is far more often
+# a typo (a 49 cm luff, a 4900 cm one) than a real piece of kit, but the club
+# owns odd things, so this never blocks a save.
+PLAUSIBLE = {
+    "size_m2": (0.5, 15, "m²"),
+    "size_l": (50, 260, "litres"),
+    "luff_cm": (250, 620, "cm"),
+    "req_boom_cm": (100, 300, "cm"),
+    "length_cm": (300, 560, "cm"),
+    "fin_length_cm": (8, 80, "cm"),
+    "top_extension_max_cm": (0, 60, "cm"),
+}
+
+
+def check_item(record: dict) -> Result:
+    """Validate one item as typed into the add or edit form.
+
+    Errors block the save, because this database is the club's ground truth
+    from now on and bad data is what the spreadsheet already suffers from.
+    Warnings are shown and ignorable.
+    """
+    res = Result()
+    ctype = record.get("component_type")
+    if ctype not in REQUIRED_FIELDS:
+        res.errors.append("Pick what kind of kit this is.")
+        return res
+
+    for field in REQUIRED_FIELDS[ctype]:
+        value = record.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            res.errors.append(f"Needs a {FIELD_NAMES.get(field, field)}.")
+
+    for field, (low, high, unit) in PLAUSIBLE.items():
+        value = record.get(field)
+        if value in (None, ""):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            res.errors.append(f"{FIELD_NAMES.get(field, field).capitalize()} "
+                              f"has to be a number.")
+            continue
+        if not low <= number <= high:
+            res.warnings.append(
+                f"{FIELD_NAMES.get(field, field).capitalize()} of {number:g}{unit} is "
+                f"outside the usual {low:g}-{high:g}{unit} — worth a double-check."
+            )
+
+    # A boom that adjusts backwards would silently match nothing in the wizard.
+    lo, hi = record.get("min_size_cm"), record.get("max_size_cm")
+    if lo not in (None, "") and hi not in (None, ""):
+        try:
+            if float(lo) > float(hi):
+                res.errors.append("The shortest boom length has to be under the longest.")
+        except (TypeError, ValueError):
+            res.errors.append("Boom lengths have to be numbers.")
+
+    # A cambered sail's cams are moulded to one diameter, and the app has no
+    # column for it yet, so say so rather than quietly offering every mast.
+    if ctype == "sail" and record.get("cams"):
+        notes = (record.get("notes") or "").strip().upper()
+        if not notes.startswith(("RDM", "SDM")):
+            res.warnings.append(
+                "Cambered sail: start the notes with RDM or SDM so the rig "
+                "assistant only offers masts the cams actually fit."
+            )
+
     return res
 
 

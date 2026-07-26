@@ -1,0 +1,470 @@
+/* ==========================================================================
+   UBWC Kit — design tokens and app chrome.
+
+   The palette, radii and type scale come straight from the sketches so the
+   built app and the mock-ups are the same object. Two rules keep it coherent:
+   teal is the only accent (actions, the active tab, anything settled), and
+   green/amber/red mean exactly one thing each — a rule met, a fault you can
+   sail with, a fault you cannot.
+
+   No emoji anywhere. Every glyph in this app is a drawn SVG (js/icons.js),
+   including the thumbs of the kit rating.
+   ========================================================================== */
+
+.phone {
+  --app-ink: #14211F;
+  --app-muted: #5C6B6A;
+  --app-faint: #8A9998;
+  --app-line: #E4EAEA;
+  --app-bg: #FFFFFF;
+  --app-bg2: #F1F5F5;
+  --teal: #10788A;
+  --teal-ink: #0A5966;
+  --teal-tint: #E4F1F2;
+  --warn: #B5761A;
+  --warn-tint: #FBF0DA;
+  --warn-line: #EBD9AE;
+  --warn-ink: #7A5211;
+  --crit: #B23A2E;
+  --crit-tint: #F7E4E1;
+  --crit-line: #E7C3BD;
+  --crit-ink: #8A2D22;
+  --ok: #2E7D5B;
+  --ok-tint: #EAF4EF;
+  --ok-line: #CBE4D6;
+  --star: #E8A63D;
+  --shot: linear-gradient(160deg, #F5F8F8, #E7EFEF);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  /* White is the app's own top colour, and it is what iOS Safari samples to
+     tint the status-bar and toolbar areas around the page. The laptop handset
+     frame paints its own grey surround over this (see the desktop media block
+     below); on a phone the whole backdrop is white so nothing greys the edges. */
+  background: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #182321;
+}
+
+button { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--teal, #10788A); outline-offset: 2px; border-radius: 8px; }
+
+/* -------------------------------------------------------------- the device */
+.phone {
+  width: 100%;
+  height: 100%;
+  background: var(--app-bg);
+}
+
+.screen {
+  position: relative;
+  height: 100%;
+  background: var(--app-bg2);
+  color: var(--app-ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* When installed to the home screen, iOS runs the app fullscreen with content
+   extending up under the notch. Two things keep the very top clean and white:
+   a white bar pinned across the status-bar safe area, and top content padded
+   down so the logo and the item-page buttons clear the notch. On a laptop, or
+   on a phone with no notch, env(safe-area-inset-top) is 0 and none of this
+   shows. The white also overrides the pale backdrop iOS would otherwise paint
+   the reserved status-bar area with. */
+@media (max-width: 619px) {
+  .screen::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top, 0px);
+    background: #fff;
+    z-index: 32;
+    pointer-events: none;
+  }
+
+  .appbar { padding-top: calc(2px + env(safe-area-inset-top, 0px)); }
+  [data-screen="item"] .hero-nav { top: calc(14px + env(safe-area-inset-top, 0px)); }
+}
+
+/* The handset frame only exists where there is room for it: on a phone the app
+   is the app, and the real status bar and home indicator are the device's. */
+.notch, .statusbar, .home-ind { display: none; }
+
+@media (min-width: 620px) and (min-height: 700px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    /* the grey surround the phone mock-up floats on — laptop only */
+    background: #EAEEEE;
+  }
+  .phone {
+    width: 390px;
+    height: 812px;
+    background: #0B0F0F;
+    border-radius: 52px;
+    padding: 13px;
+    box-shadow: 0 1px 0 #3a4443 inset,
+                0 30px 60px -24px rgba(6, 26, 30, .55),
+                0 8px 22px -12px rgba(6, 26, 30, .4);
+  }
+  .screen { border-radius: 40px; }
+
+  .notch {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 118px;
+    height: 30px;
+    background: #0B0F0F;
+    border-radius: 0 0 18px 18px;
+    z-index: 20;
+  }
+  .statusbar {
+    flex: none;
+    display: flex;
+    height: 52px;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 30px 8px;
+    font-size: 15px;
+    font-weight: 600;
+    background: var(--app-bg);
+    position: relative;
+    z-index: 12;
+  }
+  .statusbar .dots { display: flex; align-items: center; gap: 6px; }
+  .sig { width: 17px; height: 11px; }
+  .batt {
+    width: 24px; height: 12px; border: 1.4px solid var(--app-ink);
+    border-radius: 3px; position: relative; opacity: .9;
+  }
+  .batt::after {
+    content: ""; position: absolute; inset: 2px; right: 5px;
+    background: var(--app-ink); border-radius: 1px;
+  }
+  .batt::before {
+    content: ""; position: absolute; right: -3px; top: 3px; width: 2px;
+    height: 6px; background: var(--app-ink); border-radius: 0 1px 1px 0;
+  }
+  .home-ind {
+    display: block; flex: none; height: 22px; background: var(--app-bg);
+    position: relative;
+  }
+  .home-ind::after {
+    content: ""; position: absolute; bottom: 8px; left: 50%;
+    transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px;
+    background: #0B0F0F; opacity: .22;
+  }
+}
+
+/* A screen owns its own header and footer, so the router swaps the whole
+   middle: [appbar] [scrolling body] [action bar]. */
+.app {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #C3CFCF transparent;
+}
+.body::-webkit-scrollbar { width: 6px; }
+.body::-webkit-scrollbar-track { background: transparent; }
+.body::-webkit-scrollbar-thumb { background: #C3CFCF; border-radius: 3px; }
+.body > * { flex-shrink: 0; }
+
+.body.pad {
+  padding: 14px 15px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.booting { flex: 1; background: var(--app-bg); }
+
+/* ------------------------------------------------------------- the app bar */
+.appbar {
+  flex: none;
+  background: var(--app-bg);
+  padding: 2px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  border-bottom: 1px solid var(--app-line);
+  position: relative;
+  z-index: 10;
+}
+.appbar .row { display: flex; align-items: center; gap: 12px; }
+.appbar .ttl { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+.appbar .ttl.sm { font-size: 18px; font-weight: 750; }
+.backbtn {
+  width: 34px; height: 34px; margin-left: -6px; border: 0; background: transparent;
+  color: var(--app-ink); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex: none;
+}
+.backbtn svg { width: 23px; height: 23px; }
+
+.brand { display: flex; align-items: center; gap: 9px; }
+.brand .mark { width: 36px; height: 36px; flex: none; object-fit: contain; display: block; }
+.brand .wm { display: flex; flex-direction: column; line-height: 1; }
+.brand .wm b { font-size: 15px; letter-spacing: .02em; }
+.brand .wm span {
+  font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--app-faint); margin-top: 3px;
+}
+
+/* The site selector: which site am I at, and therefore what kit is near me. */
+.sitebtn {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--teal-tint);
+  color: var(--teal-ink); font-weight: 600; font-size: 13.5px; padding: 7px 12px;
+  border-radius: 999px; border: 0; cursor: pointer; max-width: 58%;
+}
+.sitebtn svg { width: 13px; height: 13px; flex: none; }
+.sitebtn .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sitebtn .caret { width: 11px; height: 11px; }
+
+.appbar .site {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 600; color: var(--teal-ink);
+  background: var(--teal-tint); padding: 6px 10px; border-radius: 999px;
+  border: 0; cursor: pointer;
+}
+.appbar .site svg { width: 13px; height: 13px; }
+
+.appbar .clock {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 700; color: var(--app-muted);
+  background: var(--app-bg2); padding: 6px 11px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.appbar .clock svg { width: 13px; height: 13px; color: var(--teal); }
+.appbar .clock b { color: var(--app-ink); font-weight: 750; }
+
+/* Who is signed in. Tapping it is how you switch member or unlock committee. */
+.whobtn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 650; color: var(--app-muted); background: var(--app-bg2);
+  padding: 5px 10px 5px 6px; border-radius: 999px; border: 0; cursor: pointer; flex: none;
+}
+.whobtn .av {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--teal); color: #fff;
+  font-size: 10px; font-weight: 750; display: flex; align-items: center; justify-content: center;
+}
+.whobtn.out .av { background: var(--app-faint); }
+.whobtn .key { width: 12px; height: 12px; color: var(--teal); }
+
+.searchbar {
+  display: flex; align-items: center; gap: 9px; background: var(--app-bg2);
+  border: 1px solid var(--app-line); border-radius: 13px; padding: 0 13px;
+  color: var(--app-faint);
+}
+.searchbar svg { width: 17px; height: 17px; flex: none; }
+.searchbar input {
+  flex: 1; border: 0; background: transparent; padding: 11px 0; font-size: 15px;
+  color: var(--app-ink); min-width: 0;
+}
+.searchbar input::placeholder { color: var(--app-faint); }
+.searchbar input:focus { outline: none; }
+.searchbar .clearbtn {
+  border: 0; background: transparent; color: var(--app-faint); cursor: pointer;
+  padding: 4px; display: none;
+}
+.searchbar.filled .clearbtn { display: flex; }
+.searchbar .clearbtn svg { width: 15px; height: 15px; }
+
+/* ------------------------------------------------------------- the tab bar */
+.tabbar {
+  flex: none;
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-start;
+  padding: 8px 8px 10px;
+  border-top: 1px solid var(--app-line);
+  background: var(--app-bg);
+  position: relative;
+  z-index: 10;
+}
+@media (max-width: 619px) {
+  .tabbar { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+}
+.tab {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  color: var(--app-faint); font-size: 10.5px; font-weight: 600;
+  border: 0; background: transparent; cursor: pointer; padding: 2px 8px;
+  flex: 1;
+}
+.tab svg { width: 24px; height: 24px; }
+.tab.on { color: var(--teal); }
+.tab .dotmark {
+  position: absolute; margin: -2px 0 0 16px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--teal); border: 1.5px solid var(--app-bg);
+}
+
+/* ------------------------------------------------------------- primitives */
+.starrow { position: relative; display: inline-block; line-height: 1; letter-spacing: 2px; white-space: nowrap; }
+.starrow .base { color: #D8DEDE; }
+.starrow .fill {
+  position: absolute; top: 0; left: 0; overflow: hidden; color: var(--star); white-space: nowrap;
+}
+
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2.5px solid var(--app-line); border-top-color: var(--teal);
+  animation: spin .7s linear infinite; margin: 34px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.emptystate {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 46px 26px; text-align: center; color: var(--app-faint);
+}
+.emptystate svg { width: 34px; height: 34px; opacity: .6; }
+.emptystate b { font-size: 14.5px; font-weight: 750; color: var(--app-muted); }
+.emptystate span { font-size: 12.5px; line-height: 1.5; max-width: 34ch; }
+
+.actionbar {
+  flex: none; background: var(--app-bg); border-top: 1px solid var(--app-line);
+  padding: 11px 16px 14px; display: flex; flex-direction: column; gap: 8px;
+  position: relative; z-index: 10;
+}
+.actionbar .helper {
+  font-size: 11.5px; color: var(--app-faint); text-align: center; line-height: 1.45;
+}
+.bigbtn {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  font-size: 15.5px; font-weight: 750; padding: 15px; border-radius: 15px; border: 0;
+  width: 100%; background: var(--teal); color: #fff;
+  box-shadow: 0 10px 22px -10px rgba(10, 80, 92, .7); cursor: pointer;
+  transition: background .18s ease, transform .12s ease;
+}
+.bigbtn svg { width: 18px; height: 18px; }
+.bigbtn:active { transform: scale(.985); }
+.bigbtn.done { background: var(--ok); box-shadow: 0 10px 22px -10px rgba(46, 125, 91, .7); }
+.bigbtn.mute {
+  background: var(--app-bg2); color: var(--app-faint); box-shadow: none; cursor: default;
+}
+.bigbtn.ghost {
+  background: var(--app-bg); color: var(--app-ink); border: 1px solid var(--app-line);
+  box-shadow: none; font-size: 14.5px; font-weight: 700; padding: 13px;
+}
+
+/* --------------------------------------------------------------- overlays */
+.overlay {
+  position: absolute; inset: 0; z-index: 40; background: rgba(9, 22, 25, .58);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.overlay[hidden] { display: none; }
+.overlay.centred { align-items: center; padding: 26px; }
+
+.sheet {
+  width: 100%; background: var(--app-bg); border-radius: 24px 24px 0 0;
+  padding: 8px 0 max(18px, env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; max-height: 82%;
+  animation: rise .24s cubic-bezier(.32, .72, 0, 1);
+}
+@keyframes rise { from { transform: translateY(14px); opacity: .4; } }
+.sheet .grip {
+  width: 38px; height: 4px; border-radius: 3px; background: #D5DEDE;
+  margin: 4px auto 10px; flex: none;
+}
+.sheet h2 {
+  margin: 0; padding: 0 20px 10px; font-size: 16px; font-weight: 780;
+  letter-spacing: -.01em; flex: none;
+}
+.sheet .sub {
+  margin: -6px 0 0; padding: 0 20px 12px; font-size: 12.5px; line-height: 1.5;
+  color: var(--app-muted); flex: none;
+}
+.sheet .list { overflow-y: auto; padding: 0 12px 6px; }
+.sheetrow {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  border: 0; background: transparent; padding: 13px 12px; border-radius: 12px;
+  cursor: pointer; color: inherit;
+}
+.sheetrow:hover { background: var(--app-bg2); }
+.sheetrow.on { background: var(--teal-tint); }
+.sheetrow .rn { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.sheetrow .rn b { font-size: 14.5px; font-weight: 700; }
+.sheetrow .rn span { font-size: 11.5px; color: var(--app-faint); }
+.sheetrow .av {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--teal-tint);
+  color: var(--teal-ink); font-size: 13px; font-weight: 750; flex: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.sheetrow .tick { color: var(--teal); display: none; flex: none; }
+.sheetrow .tick svg { width: 18px; height: 18px; }
+.sheetrow.on .tick { display: flex; }
+.sheet .foot { padding: 10px 20px 0; display: flex; flex-direction: column; gap: 9px; flex: none; }
+
+.sheet .field { padding: 4px 20px 10px; display: flex; flex-direction: column; gap: 7px; }
+.sheet label {
+  font-size: 11.5px; letter-spacing: .03em; font-weight: 700; color: var(--app-muted);
+}
+.sheet input, .sheet textarea, .sheet select {
+  font: inherit; font-size: 15px; padding: 12px 13px; border: 1px solid var(--app-line);
+  border-radius: 11px; background: var(--app-bg2); color: var(--app-ink); width: 100%;
+  resize: vertical;
+}
+.sheet input:focus, .sheet textarea:focus, .sheet select:focus {
+  outline: 2px solid var(--teal); outline-offset: 1px;
+}
+.sheet .err { padding: 0 20px 8px; font-size: 12px; font-weight: 650; color: var(--crit); }
+
+/* The photo popup behind a spot or a fault image. */
+.lbcard {
+  width: 100%; max-width: 320px; background: var(--app-bg); border-radius: 18px;
+  overflow: hidden; box-shadow: 0 24px 50px -20px rgba(6, 26, 30, .6);
+}
+.lbphoto {
+  aspect-ratio: 4 / 3; background: var(--shot); display: flex; align-items: center;
+  justify-content: center; color: #A9B8B8;
+}
+.lbphoto svg { width: 42px; height: 42px; }
+.lbphoto img { width: 100%; height: 100%; object-fit: cover; }
+.lbcap { padding: 13px 15px 4px; display: flex; flex-direction: column; gap: 3px; }
+.lbcap b { font-size: 14.5px; font-weight: 780; }
+.lbcap span { font-size: 12.5px; color: var(--app-muted); line-height: 1.45; }
+.lbclose {
+  display: block; width: calc(100% - 30px); margin: 12px 15px 15px; padding: 11px;
+  border-radius: 11px; border: 0; background: var(--app-bg2); font-size: 13.5px;
+  font-weight: 700; color: var(--app-ink); cursor: pointer;
+}
+
+/* A short-lived confirmation. Never used for anything the member must read. */
+.toast {
+  position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%);
+  z-index: 60; max-width: 78%; background: var(--app-ink); color: #F1F6F5;
+  font-size: 12.5px; font-weight: 600; line-height: 1.45; padding: 11px 15px;
+  border-radius: 12px; box-shadow: 0 14px 30px -12px rgba(6, 20, 20, .6);
+  animation: toastin .22s ease;
+}
+.toast.bad { background: var(--crit); }
+@keyframes toastin { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

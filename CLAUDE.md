@@ -18,7 +18,7 @@ The spreadsheet (and future DB) has one table per component type:
 | Sheet/Type | Key fields | Notes |
 |---|---|---|
 | Boards | `Size (L)` = volume in litres, `Type` (e.g. Freewave) | Board box for fin sold separately per model (not yet tracked as a column) |
-| Sails + Wings | `Size (m^2)`, `Mast Length`, `Extension`, `Boom`, `Cams` | `Type` is `Sail` or `Wing`; wings don't use Mast/Extension/Boom/Cams |
+| Sails + Wings | `Size (m^2)`, `Luff`, `Adjustable Top`, `Boom`, `Cams` | `Type` is `Sail` or `Wing`; wings don't use Luff/Boom/Cams |
 | Masts | `Size` = length in cm | |
 | Booms | `Min size` / `Max size` = adjustable outhaul range in cm | |
 | Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast base extensions, wetsuits, etc.) |
@@ -44,23 +44,36 @@ sails suits this board" soft one.
 
 ## Rig sizing: how Sail, Mast, Extension and Boom must fit
 
-This is the strict, measurement-driven part. Every sail has three numbers
-printed on it by the manufacturer, and the DB should treat them as the sail's
-required-parts spec (already captured as columns on `Sails + Wings`, taken
-from the Bic Techno 7.8 example row):
+This is the strict, measurement-driven part. What a sail actually requires is a
+**luff length** and a **boom length** (printed on it by the manufacturer),
+stored as columns on `Sails + Wings`:
 
-- **Mast Length** (`Sails + Wings.Mast Length`, cm) — the mast **size** the sail
-  is designed around (i.e. which mast to grab off the rack), *not* the full luff.
-- **Extension** (`Sails + Wings.Extension`, cm) — the extension setting used with
-  that mast. The sail's actual **luff length = Mast Length + Extension**.
-  - Example in the data: Bic Techno 7.8 → 460cm mast + 30cm extension = a
-    490cm luff, paired with the Bic Techno mast (`Masts.Size = 460`).
-  - **Validation rule**: `mast.Size + extension_used == (sail.Mast Length +
-    sail.Extension)`, i.e. the mast + extension must add up to the sail's luff
-    (±2cm tolerance for adjustable extensions). Using the recommended mast size
-    means using the recommended extension; using a different mast size is
-    allowed but flagged (extension makes up the difference, within its ~0–50cm
-    physical range).
+- **Luff** (`Sails + Wings.Luff`, cm) — the sail's luff length. It does **not**
+  matter which mast + extension combination is used, only that they **total**
+  the luff. Do not store or require a specific "recommended mast": any mast of
+  the right diameter class (see diameter below) whose length plus a legal
+  extension reaches the luff is fine.
+  - Example: Bic Techno 7.8 → a 490cm luff. It rigs on 460+30, 470+20, 490+0,
+    etc. equally.
+  - **Validation rule**: `sail.Luff <= mast.Size + extension_used <= sail.Luff
+    + sail.Adjustable Top` (±2cm tolerance for adjustable extensions), with the
+    extension in its ~0–50cm physical range. A mast+extension total short of the
+    luff can't tension the sail; one over it is only allowed by the adjustable
+    top (below).
+  - **Display-only "recommended mast + extension"** (item page, beginner aid):
+    the DB stores *only* the luff, but the item page shows a worked example so a
+    newcomer can rig from the sail's spec without the wizard. Compute it, don't
+    store it: pick the **biggest standard mast ≤ luff** (standard sizes **370 /
+    400 / 430 / 460 cm**), then **extension = luff − that mast**. E.g. 490 → 460
+    + 30; 450 → 430 + 20; 460 → 460 + 0. Label it clearly as a suggestion since
+    any mast+extension totalling the luff is equally valid.
+- **Adjustable Top** (`Sails + Wings.Adjustable Top`, cm, default 0) — some sails
+  have an adjustable head / open-topped luff that lets a **longer** mast poke out
+  the top by an adjustable amount (effectively a negative extension). Default
+  **0** means a fixed luff (mast tip fully in the sleeve, total must equal the
+  luff). When it is greater than 0, the accepted total widens to `Luff` up to
+  `Luff + Adjustable Top`, so one sail can take a range of mast sizes. Store the
+  maximum the head can open to; the rig maths reads it as the upper bound above.
 - **Boom** (`Sails + Wings.Boom`, cm) — the sail's recommended boom (outhaul)
   length. Must fall inside the chosen boom's adjustable range.
   - **Validation rule**: `boom.Min size <= sail.Boom <= boom.Max size`.
@@ -72,12 +85,19 @@ from the Bic Techno 7.8 example row):
   (below) matters more for cammed sails than for camless ones.
 
 Mast **diameter class** also matters even though it isn't a spreadsheet column
-yet: masts and matching sail luff sleeves are either **SDM** (Standard
-Diameter Mast) or **RDM** (Reduced Diameter Mast, more common on modern
-freeride/freewave sails up to ~7-8m²). A sail can only use a mast of its
-designed diameter class — this is a harder constraint than brand, and if/when
-it's added to the schema it should be validated exactly (`sail.diameter_class
-== mast.diameter_class`), not just warned about.
+yet: masts are either **SDM** (Standard Diameter Mast) or **RDM** (Reduced
+Diameter Mast, more common on modern freeride/freewave rigs up to ~7-8m²).
+Crucially, the diameter constraint is only hard for **cambered sails**: a
+cambered sail's cams are moulded to one diameter, so it needs a mast of that
+exact class (or the right cam spacers), whereas a **camless sail has a luff
+sleeve that fits either RDM or SDM** at the correct length. So diameter is a
+soft/ignorable factor for camless sails and a hard constraint for cammed ones.
+When it's added to the schema, validate it conditionally: enforce
+`sail.diameter_class == mast.diameter_class` **only when `cams` is true**; for
+camless sails accept either diameter (length/luff and boom are what must match).
+Note the **extension** must still match the mast's diameter (an RDM mast takes
+an RDM extension, an SDM mast an SDM one) regardless of the sail, since the
+extension bolts into the mast base.
 
 ## Board sizing: volume vs. sail size and rider
 
@@ -140,12 +160,18 @@ setup:
 ## Practical implications for the app
 
 - **Add Item validation** (green-button flow in [misc/layout.txt](misc/layout.txt)):
-  enforce the hard numeric rules above (mast+extension == sail's Mast Length;
-  sail's Boom within boom's Min/Max range) at input time so bad data can't
-  enter the DB, since this is the club's ground truth going forward.
+  enforce the hard numeric rules above (mast + extension totals the sail's Luff,
+  within its Adjustable Top; sail's Boom within boom's Min/Max range) at input
+  time so bad data can't enter the DB, since this is the club's ground truth
+  going forward.
 - **Search/autocomplete ranking**: when a user has selected a sail, rank
   masts/extensions/booms that satisfy the exact-fit rules first, then
   same-brand items, then everything else.
 - **Item page "known faults"**: faults are per physical item, not per
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
-  Location), matching the existing `Faults` column and the Faults page spec.
+  Location), matching the `faults` table and the Faults page spec. Each fault
+  has a **title** (flag label), a **description** (diagnosis + fix) and a
+  **severity**: `usable` (amber flag, item stays in the catalogue and rig
+  picker) or `out_of_action` (red flag, hidden from the rig picker, shown in
+  the catalogue but **sorted to the bottom of lists by default**). A single
+  item can carry several faults, each surfaced as its own flag.

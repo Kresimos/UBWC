@@ -60,13 +60,23 @@ q.print_ascii(invert=True)
 EOF
 }
 
+# banner <url> [second address] [note]
+# The QR always encodes the first URL; a second address, if given, is shown
+# under it and explained by the note below the code.
 banner() {
   echo
   echo "  ------------------------------------------------------------"
   echo "  $1"
+  if [ -n "${2:-}" ]; then
+    echo "  $2"
+  fi
   echo "  ------------------------------------------------------------"
   echo
   qr "$1"
+  if [ -n "${3:-}" ]; then
+    echo "  $3"
+    echo
+  fi
   echo "  Ctrl-C to stop."
   echo
 }
@@ -77,6 +87,13 @@ lan_ip() {
     ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
     [ -n "$ip" ] && { echo "$ip"; return; }
   done
+}
+
+# This Mac's Bonjour name. Unlike the IP it survives the router handing out a
+# new lease, so it is the address to put on a phone's home screen.
+mdns_host() {
+  name=$(scutil --get LocalHostName 2>/dev/null || true)
+  [ -n "$name" ] && echo "$name.local"
 }
 
 # UBWC_DEV stops the phone caching stale CSS and JS between edits.
@@ -105,7 +122,15 @@ if [ "$MODE" = "lan" ]; then
     exit 1
   fi
   export UBWC_HOST=0.0.0.0
-  banner "http://$IP:$PORT"
+  HOST=$(mdns_host)
+  if [ -n "$HOST" ]; then
+    banner "http://$IP:$PORT" \
+           "http://$HOST:$PORT   (same server, stable address)" \
+           "The .local address survives this Mac getting a new IP, so use it
+  for a home-screen icon. Same wifi only, and a few networks block it."
+  else
+    banner "http://$IP:$PORT"
+  fi
   exec "$PY" server.py
 fi
 

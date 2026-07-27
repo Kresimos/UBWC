@@ -21,14 +21,18 @@ dependencies. After that it starts instantly.
 | Phone must be on your wifi | yes | no |
 | Works on eduroam | **no** | yes |
 | Works on mobile data | no | yes |
-| HTTPS (needed to install to the home screen on iOS) | no | yes |
+| HTTPS | no | yes |
+| Same URL every run | yes | **no**, a new random one each time |
 | Someone else can test it | only in the same room | yes, send them the link |
 | Extra install | none | `brew install cloudflared`, once |
 
-**Use `--share` by default.** It is the one that always works, it gives you
-HTTPS so you can test the app as an installed home-screen app, and it is the
-only way Ben can see what you are looking at. Plain `./run.sh` is slightly
-faster and works with no internet at all, which matters at the lake.
+**Use `--share` when the phone is not on your wifi**, or when Ben needs to see
+what you are looking at. It is the one that always works.
+
+**Use plain `./run.sh` for your own day-to-day testing on your own wifi**, and
+in particular for anything you keep on the home screen: it hands out the same
+address every time, so the icon carries over between sessions. It is also
+slightly faster and needs no internet at all, which matters at the lake.
 
 The `--share` link is a fresh random `something.trycloudflare.com` address
 every time, alive only while the command is running. Nobody can find it by
@@ -60,11 +64,27 @@ The committee PIN is `1878` unless `UBWC_COMMITTEE_PIN` is set.
 ## Installing it to the home screen
 
 Worth doing at least once, because the app is built to run fullscreen with no
-browser chrome and it looks quite different that way. Needs an HTTPS link, so
-use `--share`.
+browser chrome and it looks quite different that way.
 
-- **iOS Safari**: Share button, then *Add to Home Screen*.
-- **Android Chrome**: menu, then *Add to Home screen* / *Install app*.
+- **iOS Safari**: Share button, then *Add to Home Screen*. Works over plain
+  `http`, so `./run.sh` is enough; the app goes fullscreen off the
+  `apple-mobile-web-app-capable` tag, not off HTTPS.
+- **Android Chrome**: menu, then *Add to Home screen* / *Install app*. A real
+  fullscreen install here does need HTTPS, so use `--share`. Over `http` you
+  get a shortcut that opens in Chrome instead.
+
+**Use `./run.sh` for an icon you want to keep**, since a `--share` URL is dead
+by the next session and you would be re-adding the icon every time. Better
+still, install the Bonjour address the script prints under the QR:
+
+```
+http://Johnnys-MacBook-Air.local:8000
+```
+
+That is the same server as the IP address above it, but it follows this Mac
+when the router gives it a new IP, so the icon does not quietly break. Same
+wifi only, and a few networks block Bonjour, in which case fall back to the
+IP.
 
 Note that an installed iOS app keeps its own cookie store, so you will be
 asked to pick your name again the first time.

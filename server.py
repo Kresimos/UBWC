@@ -544,4 +544,8 @@ def index(path: str):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=False)
+    # Loopback by default. Set UBWC_HOST=0.0.0.0 to reach the app from a phone
+    # on the same network (including an offline iPhone hotspot).
+    host = os.environ.get("UBWC_HOST", "127.0.0.1")
+    port = int(os.environ.get("UBWC_PORT", "8000"))
+    uvicorn.run("server:app", host=host, port=port, reload=False)

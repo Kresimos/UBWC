@@ -223,3 +223,6 @@ __marimo__/
 
 # Playwright MCP
 .playwright-mcp/
+
+# Dev screenshots taken while iterating on the UI (kept out of the repo)
+/*.png

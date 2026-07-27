@@ -324,6 +324,36 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ------------------------------------------------------------- primitives */
+
+/* A measurement inside a sentence: tabular so a column of them lines up, and a
+   shade heavier so the number is what the eye lands on. */
+.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* The grid/list switch. The Catalogue and Build show the same kit the same two
+   ways, so they show it through the same control. */
+.viewtoggle {
+  display: flex; background: var(--app-bg2); border: 1px solid var(--app-line);
+  border-radius: 10px; padding: 3px; flex: none;
+}
+.viewtoggle button {
+  border: 0; background: transparent; padding: 5px 8px; border-radius: 7px;
+  color: var(--app-faint); display: flex; cursor: pointer;
+}
+.viewtoggle button.on {
+  background: var(--app-bg); color: var(--teal-ink); box-shadow: 0 1px 2px rgba(10, 60, 70, .12);
+}
+.viewtoggle svg { width: 16px; height: 16px; }
+
+/* The fault flag over a product shot, wherever that shot is drawn. */
+.flagchip {
+  position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center;
+  gap: 3px; padding: 4px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700;
+  background: var(--warn-tint); color: var(--warn-ink);
+  box-shadow: 0 2px 6px rgba(10, 40, 45, .12);
+}
+.flagchip.oos { background: var(--crit-tint); color: var(--crit-ink); }
+.flagchip svg { width: 11px; height: 11px; }
+
 .starrow { position: relative; display: inline-block; line-height: 1; letter-spacing: 2px; white-space: nowrap; }
 .starrow .base { color: #D8DEDE; }
 .starrow .fill {

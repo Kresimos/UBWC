@@ -17,6 +17,7 @@ import { store, setSetup } from '../store.js';
 import { refreshSetup } from '../ui/chrome.js';
 import { lightbox, toast } from '../ui/overlay.js';
 import { go, back } from '../router.js';
+import { building } from '../rig/session.js';
 
 export async function render(root) {
   let setup = store.setup || (await refreshSetup());
@@ -67,6 +68,9 @@ export async function render(root) {
     try {
       const data = await api.derig(setup.id);
       setSetup(data.setup);
+      // The rig is over, so the half-built one Build and Your rig share goes
+      // with it — otherwise the Rig tab reopens a setup already put away.
+      building.clear();
       toast('De-rigged. Your session is waiting in the log.');
       go('/log', { replace: true });
     } catch (error) {

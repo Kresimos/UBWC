@@ -57,11 +57,30 @@ export function el(markup) {
 }
 
 /**
- * Delegated click handling: one listener per screen, matched by a data
- * attribute. The handler gets (value, element, event).
+ * Delegated event handling, matched by a data attribute or a selector. The
+ * handler gets (value, element, event) for clicks, (event, element) otherwise.
+ *
+ * Registering the same key twice on the same element replaces the first
+ * handler rather than adding a second. That matters because these are bound to
+ * the screen root, which the router reuses for every screen: without it, going
+ * to a screen twice would leave the first visit's handler live, and a single
+ * click would run both — once with the state it has now, and once with the
+ * state it had last time.
  */
+const bound = new WeakMap();
+
+function delegate(root, type, key, listener) {
+  let onRoot = bound.get(root);
+  if (!onRoot) bound.set(root, (onRoot = new Map()));
+  const id = `${type}:${key}`;
+  const previous = onRoot.get(id);
+  if (previous) root.removeEventListener(type, previous);
+  onRoot.set(id, listener);
+  root.addEventListener(type, listener);
+}
+
 export function onClick(root, attribute, handler) {
-  root.addEventListener('click', (event) => {
+  delegate(root, 'click', attribute, (event) => {
     const target = event.target.closest(`[${attribute}]`);
     if (target && root.contains(target)) {
       handler(target.getAttribute(attribute), target, event);
@@ -70,10 +89,22 @@ export function onClick(root, attribute, handler) {
 }
 
 export function on(root, type, selector, handler) {
-  root.addEventListener(type, (event) => {
+  delegate(root, type, selector, (event) => {
     const target = event.target.closest(selector);
     if (target && root.contains(target)) handler(event, target);
   });
+}
+
+/**
+ * The same text, with every number in it wrapped so it can be set in tabular
+ * figures and a heavier weight. The value is escaped first, so this cannot be
+ * used to smuggle markup in through an item's model name.
+ */
+export function numify(value) {
+  return raw(esc(value).replace(
+    /\d+(?:\.\d+)?(?:\s?[-–]\s?\d+(?:\.\d+)?)?/g,
+    (match) => `<span class="num">${match}</span>`,
+  ));
 }
 
 /** Numbers as a person writes them: 6.5, not 6.50; 490, not 490.0. */

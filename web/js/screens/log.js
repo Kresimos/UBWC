@@ -14,6 +14,7 @@ import { starIcons } from '../ui/bits.js';
 import { refreshSetup, needUser } from '../ui/chrome.js';
 import { confirmSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
+import { building } from '../rig/session.js';
 
 const state = { scope: 'club' };
 let feedCache = [];
@@ -77,6 +78,9 @@ export async function render(root) {
     try {
       const saved = await api.saveSetup(session.site, pieces);
       setSetup(saved.setup);
+      // Your rig rebuilds its working state from the setup it finds, so the
+      // stale half-built one from last time has to go first.
+      building.clear();
       go('/setup');
       toast('Same kit as last time. Here is where each piece lives.');
     } catch (error) {

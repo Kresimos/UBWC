@@ -13,8 +13,8 @@ import { initChrome, setActiveTab } from './ui/chrome.js';
 
 import * as catalogue from './screens/catalogue.js';
 import * as item from './screens/item.js';
-import * as rig from './screens/rig.js';
-import * as setup from './screens/setup.js';
+import * as build from './screens/build.js';
+import * as yourrig from './screens/yourrig.js';
 import * as derig from './screens/derig.js';
 import * as log from './screens/log.js';
 import * as compose from './screens/compose.js';
@@ -26,8 +26,8 @@ const ROUTES = [
   { path: '/item/:id', screen: 'item', tab: 'catalogue', render: item.render },
   { path: '/edit/:id', screen: 'form', tab: 'catalogue', render: form.render },
 
-  { path: '/rig', screen: 'rig', tab: 'rig', render: rig.render },
-  { path: '/setup', screen: 'setup', tab: 'rig', render: setup.render },
+  { path: '/rig', screen: 'build', tab: 'rig', render: build.render },
+  { path: '/setup', screen: 'yourrig', tab: 'rig', render: yourrig.render },
   { path: '/derig', screen: 'derig', tab: 'rig', render: derig.render },
 
   { path: '/log', screen: 'log', tab: 'log', render: log.render },

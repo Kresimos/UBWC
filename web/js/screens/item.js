@@ -45,6 +45,12 @@ export async function render(root, params) {
       });
     });
 
+    // Moving one piece is the commonest committee job on this page, since kit
+    // walks between racks constantly, so it gets its own pencil rather than
+    // being three taps down the committee menu. It asks for the PIN like any
+    // other way in, so the icon can be there for everyone.
+    onClick(root, 'data-move', () => moveOne());
+
     onClick(root, 'data-fault-toggle', (_, node) => {
       node.closest('.faultitem').classList.toggle('open');
     });
@@ -271,10 +277,13 @@ function screen(item, historyOpen) {
               ? html`<span class="pill cond ${conditionClass(item.condition)}">${item.condition} condition</span>`
               : ''}
           </div>
-          <button class="loc" data-spot>
-            ${icon('pin')}<b>${item.site || 'Location unknown'}</b>${item.spot ? ` · ${item.spot}` : ''}
-            <span class="spotcam">${icon('camera')}</span>
-          </button>
+          <div class="locrow">
+            <button class="loc" data-spot>
+              ${icon('pin')}<b>${item.site || 'Location unknown'}</b>${item.spot ? ` · ${item.spot}` : ''}
+              <span class="spotcam">${icon('camera')}</span>
+            </button>
+            <button class="locedit" data-move aria-label="Change where this lives">${icon('edit')}</button>
+          </div>
         </div>
 
         <div class="cta">

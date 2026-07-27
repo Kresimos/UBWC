@@ -146,11 +146,21 @@
 [data-screen="item"] .pill.cond.fair { color: var(--warn); background: var(--warn-tint); }
 [data-screen="item"] .pill.cond.poor { color: var(--crit); background: var(--crit-tint); }
 [data-screen="item"] .pill.cam { color: var(--teal-ink); background: var(--teal-tint); }
+[data-screen="item"] .locrow { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 [data-screen="item"] .loc {
   display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px;
-  color: var(--app-muted); margin-top: 2px; border: 0; background: transparent;
+  color: var(--app-muted); border: 0; background: transparent;
   padding: 0; cursor: pointer; text-align: left;
 }
+/* The pencil that moves this one piece. Sized to the line it sits on, not to a
+   toolbar: it is a footnote to the location, not a second action beside it. */
+[data-screen="item"] .locedit {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--app-line); background: var(--app-bg); color: var(--teal);
+  display: grid; place-items: center;
+}
+[data-screen="item"] .locedit svg { width: 13px; height: 13px; }
+[data-screen="item"] .locedit:active { background: var(--app-bg2); }
 [data-screen="item"] .loc svg { width: 15px; height: 15px; color: var(--teal); flex: none; }
 [data-screen="item"] .loc b { color: var(--app-ink); font-weight: 600; }
 [data-screen="item"] .spotcam {

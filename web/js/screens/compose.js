@@ -33,8 +33,10 @@ export async function render(root, _params, query) {
     return;
   }
 
+  // No stars until the member gives them: an unasked question must not answer
+  // itself, and a pre-filled four would go into the feed as their verdict.
   const draft = {
-    stars: 4,
+    stars: 0,
     note: '',
     wind: null,
     windEdited: false,
@@ -52,6 +54,7 @@ export async function render(root, _params, query) {
   };
 
   mount(root, screen(setup, draft));
+  paintStars();
   paintWind();
   fetchWind();
 
@@ -122,7 +125,9 @@ export async function render(root, _params, query) {
     root.querySelectorAll('[data-star]').forEach((button) => {
       button.querySelector('svg').classList.toggle('off', Number(button.getAttribute('data-star')) > draft.stars);
     });
-    root.querySelector('[data-starlabel]').innerHTML = `<b>${draft.stars}</b> / 5 · how was the whole session?`;
+    root.querySelector('[data-starlabel]').innerHTML = draft.stars
+      ? `<b>${draft.stars}</b> / 5 · how was the whole session?`
+      : 'How was the whole session? Tap a star.';
   }
 
   function paintWind() {
@@ -176,7 +181,9 @@ export async function render(root, _params, query) {
       wind_gust_kn: draft.wind ? draft.wind.gust_kn : null,
       wind_dir: draft.wind ? draft.wind.dir : null,
       wind_source: draft.wind ? draft.wind.source : 'manual',
-      stars: draft.stars,
+      // An untouched rating is no rating, not a nought: the column only accepts
+      // 1 to 5, and the feed reads a missing one as "they did not say".
+      stars: draft.stars || null,
       note: draft.note.trim() || null,
       pieces: draft.pieces.map((piece) => ({
         role: piece.role,
@@ -237,7 +244,7 @@ function screen(setup, draft) {
               <button data-star="${n}" aria-label="${n} stars">${
                 icon('star')}</button>`)}
           </span>
-          <span class="lb" data-starlabel><b>${draft.stars}</b> / 5 · how was the whole session?</span>
+          <span class="lb" data-starlabel>How was the whole session? Tap a star.</span>
         </div>
       </div>
 

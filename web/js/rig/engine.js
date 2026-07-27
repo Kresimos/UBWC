@@ -398,7 +398,9 @@ export function tagsForPiece(key, piece, picks, isBest) {
   if (key === 'fin' && piece.box && picks.board && picks.board.box === piece.box) {
     tags.push({ t: 'box match' });
   }
-  if (isBest) tags.push({ t: 'best match' });
+  // Green, because it is the one chip that is a verdict rather than a fact:
+  // of everything that fits, this is the one the app would take.
+  if (isBest) tags.push({ t: 'best match', ok: true });
 
   if ((key === 'mast' || key === 'ext') && piece.diam) {
     const other = key === 'mast' ? picks.ext : picks.mast;
@@ -424,9 +426,17 @@ export function shoppingList(picks) {
 
   if (sail && known(sail.luff)) {
     const book = textbookRig(sail.luff);
-    const alt = STD_MASTS.filter((size) => size < book.mast && sail.luff - size <= EXT_MAX).pop();
+    // The second option the club's own how-to reaches for first: the next mast
+    // up, with the sail's head opened to swallow the overshoot. That only
+    // exists on a sail with an adjustable top, so a shorter mast on a longer
+    // extension is the fallback for a fixed-luff sail.
+    const taller = STD_MASTS.find((size) =>
+      size > sail.luff && size - sail.luff <= (sail.topExt || 0));
+    const shorter = STD_MASTS.filter((size) =>
+      size < book.mast && sail.luff - size <= EXT_MAX).pop();
     let line = `A ${book.mast} mast and an extension set to +${book.ext}`;
-    if (alt) line += `, or a ${alt} mast set to +${Math.round(sail.luff - alt)}`;
+    if (taller) line += `, or a ${taller} mast with the sail top opened ${fmt(taller - sail.luff)} cm`;
+    else if (shorter) line += `, or a ${shorter} mast set to +${Math.round(sail.luff - shorter)}`;
     line += `. Anything totalling ${fmt(sail.luff)} works`;
     if (sail.topExt > 0) line += `, up to ${fmt(sail.luff + sail.topExt)} with the head open`;
     lines.push(`${line}.`);
@@ -446,7 +456,12 @@ export function shoppingList(picks) {
   return lines;
 }
 
-/** The six steps, carrying this rig's numbers rather than describing rigging. */
+/**
+ * The eight steps, in the club's own order (Garden, "How to rig (template)"),
+ * carrying this rig's numbers rather than describing rigging in the abstract.
+ * The rig is built first and the board last, which is why the UJ and the fin
+ * are two steps at the end rather than one line about the extension.
+ */
 export function riggingSteps(picks) {
   const { sail, board, mast, ext } = picks;
   const plan = rigPlan(sail, mast, ext);
@@ -456,19 +471,35 @@ export function riggingSteps(picks) {
   const boxText = board && board.box ? String(board.box).toLowerCase() : null;
 
   return [
-    { text: 'Lay the sail out downwind, mast sleeve facing up.' },
+    { text: 'Unroll the sail out downwind from you.' },
     { text: 'Slide the mast into the sleeve, base last, and push it right up to the head.' },
-    extText
-      ? { text: 'Bolt the extension on and set it to ', b: extText, tail: headText ? `, leaving ${headText} of mast out of the head.` : '.' }
-      : { text: 'Bolt the extension on and set it so the mast and extension total the luff.' },
+    extStep(plan, extText, headText),
     { text: 'Thread the downhaul and pull until the leech goes soft to the second batten.' },
     boomText
-      ? { text: 'Clamp the boom at shoulder height, set it to ', b: boomText, tail: ', then tension the outhaul.' }
-      : { text: 'Clamp the boom at shoulder height, set it to the sail\'s boom length, then tension the outhaul.' },
+      ? { text: 'Set the boom to ', b: boomText, tail: ', slide it onto the sail, then clamp it at shoulder height.' }
+      : { text: 'Set the boom to the sail\'s boom length, slide it onto the sail, then clamp it at shoulder height.' },
+    { text: 'At the other end of the boom, attach and tension the outhaul.' },
+    { text: 'Slot your UJ into the board, and twist to secure.' },
     boxText
-      ? { text: `Push the UJ into the extension, drop the fin into the ${boxText} and tighten the grub screw.` }
-      : { text: 'Push the UJ into the extension, drop the fin in and tighten the grub screw.' },
+      ? { text: `Place the fin into the ${boxText} on the underside of the board and bolt it in with a screwdriver.` }
+      : { text: 'Place the fin into the fin box on the underside of the board and bolt it in with a screwdriver.' },
   ];
+}
+
+/**
+ * Step three. A mast longer than the luff needs no extension at all, and
+ * "set it to +0cm" reads as an instruction to do nothing, so that rig is told
+ * as what it is: closed right down, with the head taking the difference.
+ */
+function extStep(plan, extText, headText) {
+  const head = headText ? `, leaving ${headText} of mast out of the top.` : '.';
+  if (!extText) {
+    return { text: 'Set the extension so the mast and extension total the luff, and slot it into the mast.' };
+  }
+  if (plan && plan.ext === 0) {
+    return { text: `Slot the extension into the mast, closed right down${head}` };
+  }
+  return { text: 'Set the extension to ', b: extText, tail: ` and slot it into the mast${head}` };
 }
 
 /**

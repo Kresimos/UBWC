@@ -717,7 +717,8 @@ function condTag(condition) {
 }
 
 function tagChip(tag) {
-  return html`<span class="tag ${tag.warn ? 'warn' : ''}">${tag.tick ? icon('tick') : ''}${tag.t}</span>`;
+  const tone = (tag.warn && 'warn') || (tag.ok && 'ok') || '';
+  return html`<span class="tag ${tone}">${tag.tick ? icon('tick') : ''}${tag.t}</span>`;
 }
 
 function shell() {

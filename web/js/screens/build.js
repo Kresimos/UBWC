@@ -264,7 +264,6 @@ export async function render(root, params) {
 
   on(root, 'touchmove', '.picker', (event) => {
     if (!drag) return;
-    event.preventDefault();
     const touch = event.touches[0];
     const down = touch.clientY - drag.y;
     const left = drag.x - touch.clientX;
@@ -274,7 +273,13 @@ export async function render(root, params) {
     // does not count twice.
     drag.acc += Math.abs(down) >= Math.abs(left) ? down : left;
     const steps = Math.trunc(drag.acc / DRAG_PER_STEP);
+    // Only a move that actually turns into a step is cancelled, and cancelling
+    // is what tells the browser this touch was a drag rather than a tap. Doing
+    // it on every move, including the pixel of wobble in an ordinary press,
+    // swallowed the click, which is why + and − did nothing on a phone. The
+    // row cannot scroll the page either way: `.picker` is `touch-action: none`.
     if (!steps) return;
+    event.preventDefault();
     drag.acc -= steps * DRAG_PER_STEP;
     nudge(steps, { settle: false });
   }, { passive: false });
@@ -330,7 +335,10 @@ export async function render(root, params) {
    * place in the list.
    */
   onClick(root, 'data-fault', (value, _node, event) => {
-    event.stopPropagation();
+    // Both handlers are delegated from the same root, so stopPropagation is not
+    // enough: it stops the event climbing, not the next listener on this node.
+    // Without this, reading a fault also picked the piece it is a fault on.
+    event.stopImmediatePropagation();
     const piece = kit.find((item) => item.id === Number(value));
     const faults = (piece && piece.faults) || [];
     if (!faults.length) return;
@@ -362,9 +370,14 @@ export async function render(root, params) {
     }
   }
 
-  onClick(root, 'data-pick', (value) => choose(value));
+  // The fault chip lives inside the tile, so anything aimed at it is a question
+  // about the piece rather than a decision to take it.
+  const onFlag = (event) => Boolean(event.target.closest('[data-fault]'));
+
+  onClick(root, 'data-pick', (value, _node, event) => { if (!onFlag(event)) choose(value); });
   on(root, 'keydown', '[data-pick]', (event, node) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (onFlag(event)) return;
     event.preventDefault();
     choose(node.getAttribute('data-pick'));
   });

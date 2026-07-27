@@ -109,13 +109,19 @@ happen any more. If it does: pull down to refresh, and if the phone is running
 the installed home-screen app, close it from the app switcher rather than just
 backgrounding it.
 
-**Port 8000 is already in use.** An old server is still running:
+**Port 8000 is already in use.** An old server is still running, quite
+possibly one orphaned days ago that outlived the terminal it started in. Kill
+whatever holds the port:
 
 ```sh
-pkill -f server.py
+lsof -nP -iTCP:8000 -sTCP:LISTEN   # see what it is
+kill $(lsof -ti tcp:8000)          # stop it
 ```
 
-Or pick another port: `UBWC_PORT=8001 ./run.sh`.
+Go by the port rather than by name: a server started as
+`python -m uvicorn server:app` does not match `pkill -f server.py`.
+
+Or just pick another port: `UBWC_PORT=8001 ./run.sh`.
 
 **The `--share` link stopped working.** The tunnel dies with the command.
 Restart it; you get a new URL. If you want a link that stays alive without

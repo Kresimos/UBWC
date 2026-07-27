@@ -101,7 +101,7 @@ predictable bill, far less console.
 
 | Platform | Fits SQLite? | Cost | Effort | Notes |
 |---|---|---|---|---|
-| **Fly.io** | Yes, real volumes | ~£0-3/mo | Low. A Dockerfile, then `fly deploy` | Built for exactly this shape. London region. TLS automatic. Can scale to zero. Daily volume snapshots by default. |
+| **Fly.io** | Yes, real volumes | ~£2-4/mo (**no free tier for new accounts** since 2024) | Low. A Dockerfile, then `fly deploy` | Built for exactly this shape. London region. TLS automatic. Can scale to zero. See [fly.md](fly.md) for what it actually involves. |
 | **Railway** | Yes, volumes | $5/mo minimum | Lowest of anything here | Connect GitHub, it deploys. Almost nothing to understand, which is a real handover advantage. |
 | **Render** | Only on paid | Free tier unusable; $7/mo + disk to be real | Low | The free tier sleeps after 15 minutes (30-50 s cold start) **and has no persistent disk**, so `kit.db` resets. Fine for a demo, not for club data. |
 | **Hetzner** (or any VPS) | Yes | ~€4/mo flat | High, same as EC2 | If the goal is learning to run a server, this teaches identical lessons at a third of AWS's price with a bill that cannot surprise you. No AWS on the CV. |
@@ -118,8 +118,11 @@ Reasons, in the order they matter:
 - It is the only platform in this list *designed* for a small always-on process
   with a persistent volume, which is precisely what this app is. Nothing has to
   be worked around.
-- The cost lands somewhere between nothing and a few pounds a month, on a bill
-  that cannot spiral.
+- Around £2-4/mo, on a bill that cannot spiral. Note this is **not** the
+  "basically free" option it was before 2024: Fly withdrew its free allowance
+  for new accounts, so the cost gap to Lightsail and Railway is now small
+  enough that it should not be the deciding factor. Pick on fit and handover,
+  not on price.
 - Deployment is `fly deploy` from a clean repo. The next committee can be
   taught it in one sitting, which is the thing that actually determines whether
   this app is still running in three years.

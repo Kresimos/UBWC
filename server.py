@@ -42,6 +42,21 @@ COOKIE = "ubwc"
 
 app = FastAPI(title="UBWC Kit", docs_url=None, redoc_url=None)
 
+# run.sh sets UBWC_DEV. Mobile Safari caches ES modules and stylesheets hard
+# enough that a phone will happily show yesterday's build after an edit, which
+# reads as "the change didn't work" rather than "the file is stale". While
+# testing, tell it to keep nothing; in production the ?v= query strings on the
+# stylesheets do the versioning instead.
+DEV = bool(os.environ.get("UBWC_DEV"))
+
+
+@app.middleware("http")
+async def _no_cache_in_dev(request: Request, call_next):
+    response = await call_next(request)
+    if DEV:
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
 
 @app.on_event("startup")
 def _startup() -> None:

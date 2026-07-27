@@ -7,13 +7,22 @@ database, with a dependency-free static front end.
 ## Run it
 
 ```sh
-pip install -r requirements.txt
-python server.py            # http://127.0.0.1:8000
+./run.sh            # same wifi: prints a URL and a QR code for your phone
+./run.sh --share    # public HTTPS link, works anywhere (needs cloudflared)
+./run.sh --local    # loopback only, http://127.0.0.1:8000
 ```
+
+The script builds `.venv`, installs the dependencies on first run, and starts
+the server. This is a handset UI, so test it on a phone: see
+[TESTING.md](TESTING.md), including how to test with someone remote and how to
+demo it at the lake with no internet.
 
 `kit.db` builds itself on first run (from the example seed if present, or from
 `data/Kit Inventory.xlsx` via `migrate.py`). The committee PIN defaults to
 `1878`; override with the `UBWC_COMMITTEE_PIN` environment variable.
+
+Nothing is hosted yet. The options, including AWS, are compared in
+[misc/hosting.md](misc/hosting.md).
 
 ## Layout
 

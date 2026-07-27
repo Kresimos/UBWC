@@ -7,6 +7,8 @@
  * behaviours that can disagree.
  */
 
+import { openListenerScope } from './dom.js';
+
 const routes = [];
 let current = null;
 let root = null;
@@ -64,6 +66,9 @@ function resolve() {
 
 async function render(entry, params, target) {
   if (current && current.teardown) current.teardown();
+  // Delegated handlers bind to the screen root, which every screen shares, so
+  // the outgoing screen's are dropped before the incoming one binds its own.
+  openListenerScope();
   root.setAttribute('data-screen', entry.screen);
   root.innerHTML = '<div class="body"><div class="spinner"></div></div>';
   current = { entry, params };

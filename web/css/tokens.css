@@ -38,6 +38,12 @@
 
 * { box-sizing: border-box; }
 
+/* "manipulation" keeps panning and scrolling but drops double-tap-to-zoom,
+   which is the gesture that actually bites: a member scanning a grid of kit
+   taps twice in the same place all the time. Pinch is refused in js/main.js,
+   and the picker opts out of panning entirely so it can read a drag. */
+* { touch-action: manipulation; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -344,10 +350,13 @@ a { color: inherit; text-decoration: none; }
 }
 .viewtoggle svg { width: 16px; height: 16px; }
 
-/* The fault flag over a product shot, wherever that shot is drawn. */
+/* The fault flag over a product shot, wherever that shot is drawn. In the
+   Catalogue it labels the tile; in Build it is a button that says what is
+   actually wrong, so the reset covers both. */
 .flagchip {
   position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center;
-  gap: 3px; padding: 4px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700;
+  gap: 3px; padding: 4px 7px; border-radius: 4px; font: inherit; font-size: 10.5px;
+  font-weight: 700; border: 0; cursor: pointer;
   background: var(--warn-tint); color: var(--warn-ink);
   box-shadow: 0 2px 6px rgba(10, 40, 45, .12);
 }
@@ -477,7 +486,13 @@ a { color: inherit; text-decoration: none; }
 .lbphoto img { width: 100%; height: 100%; object-fit: cover; }
 .lbcap { padding: 13px 15px 4px; display: flex; flex-direction: column; gap: 3px; }
 .lbcap b { font-size: 14.5px; font-weight: 780; }
-.lbcap span { font-size: 12.5px; color: var(--app-muted); line-height: 1.45; }
+/* pre-line so several faults can be listed one under another */
+.lbcap span { font-size: 12.5px; color: var(--app-muted); line-height: 1.45; white-space: pre-line; }
+/* A fault has no photo coming, so its band hugs the glyph rather than holding
+   open a 4:3 space for a picture that will never arrive. */
+.lbphoto.warning {
+  background: var(--warn-tint); color: var(--warn); aspect-ratio: auto; padding: 20px 0;
+}
 .lbclose {
   display: block; width: calc(100% - 30px); margin: 12px 15px 15px; padding: 11px;
   border-radius: 11px; border: 0; background: var(--app-bg2); font-size: 13.5px;

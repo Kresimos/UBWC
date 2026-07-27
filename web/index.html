@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- The app is a handset UI at a fixed column width, so zoom only ever leaves a
+     member scrolled into a corner of a layout that was already the right size.
+     user-scalable/maximum-scale cover Android; iOS Safari has ignored both
+     since iOS 10, so js/main.js refuses the pinch gesture directly and
+     touch-action in tokens.css kills the double-tap. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- White, so the status-bar area is white in Safari and in the Android
      installed app; iOS ignores this in standalone and is handled by CSS. -->
 <meta name="theme-color" content="#ffffff">
@@ -25,8 +30,8 @@
 <link rel="manifest" href="/assets/manifest.json">
 <!-- ?v is bumped whenever the CSS changes, so Safari refetches it instead of
      serving a stale cached copy. -->
-<link rel="stylesheet" href="/css/tokens.css?v=3">
-<link rel="stylesheet" href="/css/screens.css?v=3">
+<link rel="stylesheet" href="/css/tokens.css?v=4">
+<link rel="stylesheet" href="/css/screens.css?v=4">
 </head>
 <body>
 <!--

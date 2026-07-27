@@ -24,6 +24,7 @@ import { store, setSetup } from '../store.js';
 import { starRow } from '../ui/bits.js';
 import { needUser, refreshSetup } from '../ui/chrome.js';
 import { lightbox, confirmSheet, toast } from '../ui/overlay.js';
+import { haptic, CONFIRM } from '../ui/haptics.js';
 import { go } from '../router.js';
 import { building } from '../rig/session.js';
 import {
@@ -206,9 +207,9 @@ export async function render(root) {
           </span>
           <span class="votes">
             <button class="vote ${rating.mine === 1 ? 'picked' : ''}" data-vote="1"
-                    data-item="${item.id}" aria-label="Rate good">${icon('thumbUp')}<span>${rating.up}</span></button>
+                    data-voteitem="${item.id}" aria-label="Rate good">${icon('thumbUp')}<span>${rating.up}</span></button>
             <button class="vote ${rating.mine === -1 ? 'picked' : ''}" data-vote="-1"
-                    data-item="${item.id}" aria-label="Rate bad">${icon('thumbDown')}<span>${rating.down}</span></button>
+                    data-voteitem="${item.id}" aria-label="Rate bad">${icon('thumbDown')}<span>${rating.down}</span></button>
           </span>
         </div>
         <dl class="kspecs">
@@ -568,6 +569,7 @@ export async function render(root) {
     const row = rows.find((r) => r.slot.k === key);
     if (!row || !row.current) return;
     building.confirm(key, row.current.id);
+    haptic(CONFIRM);
     delete ui.openRec[key];
     delete ui.altOpen[key];
     delete ui.chosen[key];
@@ -602,7 +604,7 @@ export async function render(root) {
 
   onClick(root, 'data-vote', async (value, node) => {
     if (!(await needUser('Rating kit is one standing vote per member.'))) return;
-    const itemId = Number(node.getAttribute('data-item'));
+    const itemId = Number(node.getAttribute('data-voteitem'));
     const detail = ui.detail[itemId];
     if (!detail) return;
     // Pressing the thumb you already gave withdraws it; the other replaces it.

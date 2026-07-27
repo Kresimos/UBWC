@@ -12,14 +12,22 @@
  * picking a sail marks the sail step skipped rather than picked, so it reads as
  * still open; tapping a resolved step goes back to change it without losing the
  * other one. That is why there is no Next button: picking is the only forward.
+ *
+ * The size target is meant to be found by feel, on a beach, in gloves, so it
+ * takes three kinds of input for the same thing: the whole left half of the row
+ * is "smaller" and the whole right half is "bigger", a drag or a scroll over it
+ * runs through the sizes, and each step ticks. Because a gesture must not have
+ * the element it started on pulled out from under it, the picker is drawn once
+ * and updated in place — only the results below it are re-rendered.
  */
-import { html, mount, onClick } from '../dom.js';
+import { html, mount, on, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe } from '../store.js';
 import { conditionClass, worstFault } from '../ui/bits.js';
 import { pickSite } from '../ui/chrome.js';
-import { toast } from '../ui/overlay.js';
+import { lightbox, toast } from '../ui/overlay.js';
+import { haptic, TICK, PICK } from '../ui/haptics.js';
 import { go, back } from '../router.js';
 import { building } from '../rig/session.js';
 import {
@@ -28,6 +36,10 @@ import {
 } from '../rig/engine.js';
 
 const VIEW_KEY = 'ubwc.buildview';
+
+/** How far a drag or a scroll travels per size step, in pixels. */
+const DRAG_PER_STEP = 22;
+const WHEEL_PER_STEP = 40;
 
 export async function render(root, params) {
   // Coming back to the Rig tab part-way through means "show me my rig", not
@@ -62,9 +74,7 @@ export async function render(root, params) {
   });
 
   // Arriving from a catalogue item: that piece is simply already picked, and
-  // the flow opens on whichever step it belongs to. Kit the two steps do not
-  // ask for (a mast, a boom) is a recommendation, not a choice, so it is not
-  // something this screen can honour.
+  // the flow opens on whichever step it belongs to.
   if (params.pin) {
     const pinned = kit.find((piece) => piece.id === Number(params.pin));
     const key = pinned && TARGET_KEYS.find((k) => TARGETS[k].kind === pinned.kind);
@@ -90,8 +100,14 @@ export async function render(root, params) {
 
   mount(root, shell());
   const stepsNode = root.querySelector('[data-steps]');
-  const bodyNode = root.querySelector('[data-body]');
+  const valueNode = root.querySelector('[data-value]');
+  const unitNode = root.querySelector('[data-unit]');
+  const tagsNode = root.querySelector('[data-tags]');
+  const countNode = root.querySelector('[data-count]');
+  const resultsNode = root.querySelector('[data-results]');
+  const helperNode = root.querySelector('[data-helper]');
 
+  // ---------------------------------------------------------------- painting
   function paint() {
     const key = state.step;
     const config = TARGETS[key];
@@ -99,46 +115,40 @@ export async function render(root, params) {
     const found = matches(kit, key, state.target[key], active);
 
     mount(stepsNode, TARGET_KEYS.map(stepTab));
-    mount(bodyNode, html`
-      <div class="picker">
-        <button data-nudge="-1" aria-label="Smaller">−</button>
-        <div class="val" aria-live="polite">
-          <b>${state.target[key].toFixed(config.dp)}</b><i>${config.unit}</i>
+    valueNode.textContent = state.target[key].toFixed(config.dp);
+    unitNode.textContent = config.unit;
+
+    mount(tagsNode, state.chips[key].length ? html`
+      <div class="tagrow">
+        ${active.length
+          ? html`<button class="clearall" data-clear-tags aria-label="Clear all filters">${icon('close')}</button>`
+          : ''}
+        <div class="tagscroll">
+          ${state.chips[key].map((tag) => html`
+            <button class="tag ${active.includes(tag) ? 'on' : ''}" data-tag="${tag}">
+              ${active.includes(tag) ? html`<span class="x">×</span>` : ''}${tag}
+            </button>`)}
         </div>
-        <button data-nudge="1" aria-label="Bigger">+</button>
-      </div>
+      </div>` : '');
 
-      ${state.chips[key].length ? html`
-        <div class="tagrow">
-          ${active.length
-            ? html`<button class="clearall" data-clear-tags aria-label="Clear all filters">${icon('close')}</button>`
-            : ''}
-          <div class="tagscroll">
-            ${state.chips[key].map((tag) => html`
-              <button class="tag ${active.includes(tag) ? 'on' : ''}" data-tag="${tag}">
-                ${active.includes(tag) ? html`<span class="x">×</span>` : ''}${tag}
-              </button>`)}
-          </div>
-        </div>` : ''}
+    mount(countNode, countLabel(found.length, key, active));
+    root.querySelectorAll('[data-view]').forEach((button) => {
+      button.classList.toggle('on', button.getAttribute('data-view') === state.view);
+    });
 
-      <div class="subbar">
-        <span class="count">${countLabel(found.length, key, active)}</span>
-        <div class="viewtoggle">
-          <button data-view="grid" class="${state.view === 'grid' ? 'on' : ''}"
-                  aria-label="Grid view">${icon('gridIcon')}</button>
-          <button data-view="list" class="${state.view === 'list' ? 'on' : ''}"
-                  aria-label="List view">${icon('listIcon')}</button>
-        </div>
-      </div>
+    mount(resultsNode, found.length
+      ? html`<div class="${state.view === 'grid' ? 'grid' : 'list'}">
+          ${found.map((piece) => tile(key, piece))}</div>`
+      : emptyState(key, active));
 
-      ${found.length
-        ? html`<div class="${state.view === 'grid' ? 'grid' : 'list'}">
-            ${found.map((piece) => tile(key, piece))}</div>`
-        : emptyState(key, active)}
+    mount(helperNode, active.length
+      ? html`<p class="helper">Cleared a chip by mistake? Tap the × on it, or the circle to reset the lot.</p>`
+      : '');
+  }
 
-      ${active.length ? html`
-        <p class="helper">Cleared a chip by mistake? Tap the × on it, or the circle to reset the lot.</p>`
-        : ''}`);
+  /** The number alone, for the frames of a drag between full repaints. */
+  function paintValue() {
+    valueNode.textContent = state.target[state.step].toFixed(TARGETS[state.step].dp);
   }
 
   function stepTab(key) {
@@ -168,10 +178,15 @@ export async function render(root, params) {
     // Catalogue's rating chip does; laid flat there is no shot to sit on, so it
     // joins the line of facts instead.
     const chip = html`<span class="matchchip">${matchChip(key, piece, state.target[key])}</span>`;
-    const flag = fault ? html`<span class="flagchip">${icon('warning')}Fault</span>` : '';
+    const flag = fault
+      ? html`<button class="flagchip" data-fault="${piece.id}"
+              aria-label="What is wrong with this ${config.noun}">${icon('warning')}Fault</button>`
+      : '';
     const grid = state.view === 'grid';
+    // A div rather than a button: the fault chip inside it is itself a button,
+    // and a button inside a button is not a thing a browser will honour.
     return html`
-      <button class="card" data-pick="${piece.id}">
+      <div class="card" role="button" tabindex="0" data-pick="${piece.id}">
         <span class="shot">${artFor(config.kind)}${grid ? html`${chip}${flag}` : ''}</span>
         <span class="meta">
           <span class="size">${size ? size.v : '—'}${size ? html`<small>${size.u}</small>` : ''}</span>
@@ -179,7 +194,7 @@ export async function render(root, params) {
           <span class="cond ${conditionClass(piece.cond)}">${piece.cond || 'Condition unknown'}</span>
           ${grid ? '' : html`${chip}${flag}`}
         </span>
-      </button>`;
+      </div>`;
   }
 
   function countLabel(count, key, active) {
@@ -201,6 +216,77 @@ export async function render(root, params) {
       </div>`;
   }
 
+  // ------------------------------------------------------------ the target
+  /**
+   * Move the size by `steps` detents. During a drag only the number is
+   * redrawn, because rebuilding the grid on every frame would both stutter and
+   * pull the element the gesture started on out of the document.
+   */
+  function nudge(steps, { settle = true } = {}) {
+    if (!steps) return;
+    const key = state.step;
+    const next = clampTarget(key, state.target[key] + steps * TARGETS[key].step);
+    if (next === state.target[key]) return; // already at the end of the range
+    state.target[key] = next;
+    building.setTarget(key, next);
+    haptic(TICK);
+    if (settle) paint();
+    else paintValue();
+  }
+
+  let settleTimer = null;
+  function settleSoon() {
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(paint, 160);
+  }
+
+  onClick(root, 'data-nudge', (value) => nudge(Number(value)));
+
+  // Scrolling up, or right, counts up.
+  const wheel = { acc: 0 };
+  on(root, 'wheel', '.picker', (event) => {
+    event.preventDefault();
+    wheel.acc += (-event.deltaY + event.deltaX);
+    const steps = Math.trunc(wheel.acc / WHEEL_PER_STEP);
+    if (!steps) return;
+    wheel.acc -= steps * WHEEL_PER_STEP;
+    nudge(steps, { settle: false });
+    settleSoon();
+  }, { passive: false });
+
+  // Swiping down, or left, counts up — the content moves the other way, which
+  // is the same direction of travel as the scroll above.
+  let drag = null;
+  on(root, 'touchstart', '.picker', (event) => {
+    const touch = event.touches[0];
+    drag = { x: touch.clientX, y: touch.clientY, acc: 0 };
+  }, { passive: true });
+
+  on(root, 'touchmove', '.picker', (event) => {
+    if (!drag) return;
+    event.preventDefault();
+    const touch = event.touches[0];
+    const down = touch.clientY - drag.y;
+    const left = drag.x - touch.clientX;
+    drag.x = touch.clientX;
+    drag.y = touch.clientY;
+    // Whichever axis the finger is actually travelling on, so a diagonal drag
+    // does not count twice.
+    drag.acc += Math.abs(down) >= Math.abs(left) ? down : left;
+    const steps = Math.trunc(drag.acc / DRAG_PER_STEP);
+    if (!steps) return;
+    drag.acc -= steps * DRAG_PER_STEP;
+    nudge(steps, { settle: false });
+  }, { passive: false });
+
+  const endDrag = () => {
+    if (!drag) return;
+    drag = null;
+    paint();
+  };
+  on(root, 'touchend', '.picker', endDrag, { passive: true });
+  on(root, 'touchcancel', '.picker', endDrag, { passive: true });
+
   // ---------------------------------------------------------------- events
   root.querySelector('[data-back]').addEventListener('click', () => back('/catalogue'));
   root.querySelector('[data-pick-site]').addEventListener('click', async () => {
@@ -215,14 +301,6 @@ export async function render(root, params) {
     const to = TARGET_KEYS.indexOf(key);
     if (to > from && !resolved(state.step)) building.skip(state.step);
     state.step = key;
-    paint();
-  });
-
-  onClick(root, 'data-nudge', (value) => {
-    const key = state.step;
-    const next = clampTarget(key, state.target[key] + Number(value) * TARGETS[key].step);
-    state.target[key] = next;
-    building.setTarget(key, next);
     paint();
   });
 
@@ -245,20 +323,50 @@ export async function render(root, params) {
     paint();
   });
 
-  onClick(root, 'data-pick', (value) => {
+  /**
+   * The fault flag is readable where it is flagged. A member choosing between
+   * two sails needs to know whether "Fault" means a scuffed batten or a torn
+   * panel, and sending them to the item page to find out costs them their
+   * place in the list.
+   */
+  onClick(root, 'data-fault', (value, _node, event) => {
+    event.stopPropagation();
+    const piece = kit.find((item) => item.id === Number(value));
+    const faults = (piece && piece.faults) || [];
+    if (!faults.length) return;
+    lightbox({
+      glyph: 'warning',
+      title: faults.length === 1 ? faults[0].t : `${faults.length} reported faults`,
+      sub: faults.map((fault) => {
+        const body = fault.d || 'No description was recorded with this one.';
+        const label = faults.length > 1 ? `${fault.t} — ` : '';
+        return `${label}${body}${fault.s === 'out_of_action' ? ' (out of action)' : ''}`;
+      }).join('\n\n'),
+    });
+  });
+
+  function choose(value) {
     const key = state.step;
     building.pick(key, Number(value));
     building.setTarget(key, state.target[key]);
+    haptic(PICK);
     // Picking is the only way forward: on to the step still open, or out to the
     // rig once both are answered.
     const next = TARGET_KEYS.find((k) => !resolved(k));
     if (next) {
       state.step = next;
       paint();
-      bodyNode.scrollTop = 0;
+      root.querySelector('[data-body]').scrollTop = 0;
     } else {
       go('/setup');
     }
+  }
+
+  onClick(root, 'data-pick', (value) => choose(value));
+  on(root, 'keydown', '[data-pick]', (event, node) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    choose(node.getAttribute('data-pick'));
   });
 
   const unsubscribe = subscribe(() => {
@@ -267,10 +375,16 @@ export async function render(root, params) {
   });
 
   paint();
-  return unsubscribe;
+  return () => { unsubscribe(); clearTimeout(settleTimer); };
 }
 
 // ------------------------------------------------------------------ markup
+/**
+ * The picker lives in the shell rather than in the repaint, so a drag keeps
+ * the element it started on. Each arrow fills its whole half of the row, with
+ * the glyph sitting where the sketch put it — the target is the half, not the
+ * glyph.
+ */
 function shell() {
   return html`
     <div class="appbar">
@@ -281,7 +395,24 @@ function shell() {
       </div>
       <div class="steps" data-steps></div>
     </div>
-    <div class="body" data-body></div>`;
+
+    <div class="body" data-body>
+      <div class="picker">
+        <button data-nudge="-1" aria-label="Smaller"><span>−</span></button>
+        <div class="val" aria-live="polite"><b data-value></b><i data-unit></i></div>
+        <button data-nudge="1" aria-label="Bigger"><span>+</span></button>
+      </div>
+      <div data-tags></div>
+      <div class="subbar">
+        <span class="count" data-count></span>
+        <div class="viewtoggle">
+          <button data-view="grid" aria-label="Grid view">${icon('gridIcon')}</button>
+          <button data-view="list" aria-label="List view">${icon('listIcon')}</button>
+        </div>
+      </div>
+      <div data-results></div>
+      <div data-helper></div>
+    </div>`;
 }
 
 const firstWord = (text) => String(text || '').trim().split(/\s+/)[0] || '';

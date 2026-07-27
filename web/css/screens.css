@@ -160,6 +160,9 @@
 [data-screen="item"] .spotcam svg { width: 14px; height: 14px; }
 
 [data-screen="item"] .cta { display: flex; gap: 10px; }
+/* A mast has neither button: no "Rig this kit" (Build only takes sails and
+   boards) and no committee actions unless the PIN is unlocked. */
+[data-screen="item"] .cta:empty { display: none; }
 [data-screen="item"] .btn {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
   font-size: 15px; font-weight: 700; padding: 14px; border-radius: 14px; border: 0;
@@ -358,19 +361,31 @@
 
 /* The size target: a number and two flat buttons on a hairline. No card around
    it — it is the question, not a control panel. */
+/* Each arrow owns its whole half of the row, so anywhere left of the number is
+   "smaller" and anywhere right of it is "bigger" — the glyph only marks where
+   the target is, it is not the target. touch-action: none because a drag
+   across this row changes the size rather than scrolling the page. */
 [data-screen="build"] .picker {
-  display: flex; align-items: center; justify-content: center; gap: 20px;
-  padding: 8px 0; border-bottom: 1px solid var(--app-line);
+  display: flex; align-items: center; justify-content: center;
+  padding: 2px 0; border-bottom: 1px solid var(--app-line);
+  touch-action: none; -webkit-user-select: none; user-select: none;
 }
 [data-screen="build"] .picker button {
-  width: 32px; height: 32px; border: 0; background: transparent; color: var(--app-muted);
-  font-size: 21px; font-weight: 600; border-radius: 8px; line-height: 1; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
+  flex: 1; min-width: 0; height: 60px; border: 0; background: transparent;
+  color: var(--app-muted); cursor: pointer; padding: 0;
+  display: flex; align-items: center;
 }
-[data-screen="build"] .picker button:active { background: var(--app-bg2); color: var(--app-ink); }
+[data-screen="build"] .picker button[data-nudge="-1"] { justify-content: flex-end; padding-right: 18px; }
+[data-screen="build"] .picker button[data-nudge="1"] { justify-content: flex-start; padding-left: 18px; }
+[data-screen="build"] .picker button span {
+  width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center;
+  justify-content: center; font-size: 21px; font-weight: 600; line-height: 1;
+  transition: background .12s ease, color .12s ease;
+}
+[data-screen="build"] .picker button:active span { background: var(--app-bg2); color: var(--app-ink); }
 [data-screen="build"] .picker .val {
-  display: flex; align-items: flex-end; gap: 5px; min-width: 88px; justify-content: center;
-  transform: translateY(-2px);
+  flex: none; display: flex; align-items: flex-end; gap: 5px; min-width: 88px;
+  justify-content: center; transform: translateY(-2px);
 }
 [data-screen="build"] .picker .val b {
   font-size: 38px; font-weight: 800; letter-spacing: -.03em;

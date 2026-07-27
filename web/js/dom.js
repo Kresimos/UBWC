@@ -60,23 +60,38 @@ export function el(markup) {
  * Delegated event handling, matched by a data attribute or a selector. The
  * handler gets (value, element, event) for clicks, (event, element) otherwise.
  *
- * Registering the same key twice on the same element replaces the first
- * handler rather than adding a second. That matters because these are bound to
- * the screen root, which the router reuses for every screen: without it, going
- * to a screen twice would leave the first visit's handler live, and a single
- * click would run both — once with the state it has now, and once with the
- * state it had last time.
+ * These bind to the *screen root*, which the router reuses for every screen, so
+ * a handler outlives the markup it was written for unless something takes it
+ * away. Two things do:
+ *
+ *  - the router opens a scope per render and aborts the previous one, so
+ *    leaving a screen unbinds it. Without that, the Catalogue's `data-item`
+ *    handler stayed live underneath Your rig, and because a vote button also
+ *    carries the item's id, pressing a thumb navigated to the item page;
+ *  - registering the same key twice inside one scope replaces the first, so a
+ *    screen that re-wires on every repaint does not stack handlers.
  */
+let scope = null;
 const bound = new WeakMap();
 
-function delegate(root, type, key, listener) {
-  let onRoot = bound.get(root);
-  if (!onRoot) bound.set(root, (onRoot = new Map()));
-  const id = `${type}:${key}`;
-  const previous = onRoot.get(id);
-  if (previous) root.removeEventListener(type, previous);
-  onRoot.set(id, listener);
-  root.addEventListener(type, listener);
+/** Called by the router: everything bound after this belongs to this screen. */
+export function openListenerScope() {
+  if (scope) scope.abort();
+  scope = new AbortController();
+  bound.set(scope, new Map());
+  return scope;
+}
+
+function delegate(root, type, key, listener, extra) {
+  const options = { ...extra, ...(scope ? { signal: scope.signal } : {}) };
+  const seen = scope && bound.get(scope);
+  if (seen) {
+    const id = `${type}:${key}`;
+    const previous = seen.get(id);
+    if (previous) root.removeEventListener(type, previous);
+    seen.set(id, listener);
+  }
+  root.addEventListener(type, listener, options);
 }
 
 export function onClick(root, attribute, handler) {
@@ -88,11 +103,11 @@ export function onClick(root, attribute, handler) {
   });
 }
 
-export function on(root, type, selector, handler) {
+export function on(root, type, selector, handler, options) {
   delegate(root, type, selector, (event) => {
     const target = event.target.closest(selector);
     if (target && root.contains(target)) handler(event, target);
-  });
+  }, options);
 }
 
 /**

@@ -37,7 +37,28 @@ const ROUTES = [
   { path: '/new/:type', screen: 'form', tab: 'add', render: form.render },
 ];
 
+/**
+ * Refuse pinch-zoom.
+ *
+ * `user-scalable=no` in the viewport tag handles Android. iOS Safari has
+ * ignored it since iOS 10 and instead fires its own non-standard `gesture*`
+ * events for a pinch, so those are cancelled here, along with any touchmove
+ * carrying a second finger. Double-tap zoom is not handled here — it is
+ * `touch-action: manipulation` in tokens.css, because doing it in JS means
+ * swallowing a second quick tap, and the size stepper is meant to be tapped
+ * quickly.
+ */
+function refusePinch() {
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((type) => {
+    document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+  });
+  document.addEventListener('touchmove', (event) => {
+    if (event.touches.length > 1) event.preventDefault();
+  }, { passive: false });
+}
+
 async function boot() {
+  refusePinch();
   const appRoot = document.getElementById('app');
   try {
     applyBootstrap(await api.bootstrap());

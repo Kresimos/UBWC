@@ -96,7 +96,8 @@ export async function render(root, params) {
       paint();
     });
 
-    root.querySelector('[data-rig]').addEventListener('click', () => go(`/rig?pin=${id}`));
+    const rigBtn = root.querySelector('[data-rig]');
+    if (rigBtn) rigBtn.addEventListener('click', () => go(`/rig?pin=${id}`));
 
     onClick(root, 'data-note', async () => {
       if (!(await needUser('Notes are signed with your name.'))) return;
@@ -226,6 +227,15 @@ export async function render(root, params) {
 }
 
 // ------------------------------------------------------------------ markup
+
+/**
+ * Build only asks two questions, a sail and a board, and works the rest out
+ * from them. So "Rig this kit" is only offered on the two things it can
+ * actually honour — on a mast or a boom it would promise a screen that has
+ * nowhere to put the piece.
+ */
+const buildable = (item) => item.rig_kind === 'sail' || item.rig_kind === 'board';
+
 function screen(item, historyOpen) {
   const open = item.fault_history.filter((f) => f.status === 'open');
   const rating = item.rating;
@@ -268,7 +278,9 @@ function screen(item, historyOpen) {
         </div>
 
         <div class="cta">
-          <button class="btn primary" data-rig>Rig this kit${icon('arrowRight')}</button>
+          ${buildable(item)
+            ? html`<button class="btn primary" data-rig>Rig this kit${icon('arrowRight')}</button>`
+            : ''}
           ${isCommittee()
             ? html`<button class="btn ghost" data-admin aria-label="Committee actions">${icon('move')}</button>`
             : ''}

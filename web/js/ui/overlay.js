@@ -162,11 +162,11 @@ export function confirmSheet({ title, sub, confirmLabel = 'Confirm', cancelLabel
  * photo — both are diagnosis aids, so they get the same frame and a caption
  * that explains what is being shown.
  */
-export function lightbox({ title, sub, image }) {
+export function lightbox({ title, sub, image, glyph = 'camera' }) {
   present(html`
     <div class="lbcard" role="dialog" aria-label="${title}">
-      <div class="lbphoto">
-        ${image ? html`<img src="${image}" alt="">` : icon('camera')}
+      <div class="lbphoto ${glyph === 'camera' ? '' : glyph}">
+        ${image ? html`<img src="${image}" alt="">` : icon(glyph)}
       </div>
       <div class="lbcap"><b>${title}</b>${sub ? html`<span>${sub}</span>` : ''}</div>
       <button class="lbclose">Close</button>

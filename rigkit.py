@@ -38,8 +38,16 @@ def rig_kind(item: dict) -> str:
 
 
 def _fault_flags(faults: list) -> list:
+    """Title, severity and the diagnosis.
+
+    The description travels with the flag because the Build picker lets a
+    member tap the fault chip on a tile and read what is actually wrong before
+    they choose the piece — asking them to open the item page to find out would
+    mean leaving the picker and losing their place.
+    """
     return [{"t": f.get("title") or (f.get("description") or "").split(".")[0],
-             "s": f.get("severity", "usable")} for f in faults]
+             "s": f.get("severity", "usable"),
+             "d": f.get("description") or ""} for f in faults]
 
 
 def to_piece(item: dict, faults: list, rating: dict) -> dict:

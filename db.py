@@ -11,6 +11,7 @@ live in validation.py; the normalisation the rig wizard needs is in rigkit.py.
 import json
 import re
 import sqlite3
+from contextlib import contextmanager
 from typing import Iterable, Optional, Union
 
 import migrate  # for DB_PATH and rebuild()
@@ -150,11 +151,24 @@ MISC_RIG_TYPES = {"Extension": "ext", "Universal joint": "uj"}
 # --------------------------------------------------------------------------- #
 # Connection / lifecycle
 # --------------------------------------------------------------------------- #
-def connect() -> sqlite3.Connection:
+@contextmanager
+def connect():
+    """Yield a connection and close it on exit.
+
+    sqlite3.Connection's own `with` support only commits/rolls back a
+    transaction, it never closes the connection, so every `with connect()
+    as conn:` call site was leaking a file descriptor. Writers already call
+    conn.commit() explicitly, so closing here (instead of relying on the
+    driver's implicit commit-on-exit) changes nothing about transaction
+    behaviour.
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def ensure_db() -> None:

@@ -77,8 +77,14 @@ async function render(entry, params, target) {
     const teardown = await entry.render(root, params);
     if (current && current.entry === entry) current.teardown = teardown;
   } catch (error) {
-    root.innerHTML = '';
-    root.append(errorScreen(error));
+    // A stale, still-in-flight render from a screen the user has already
+    // navigated away from can reject after a newer screen is showing. Only
+    // paint the error over root if this render is still the active one, or
+    // it stomps a perfectly good screen with "That did not load".
+    if (current && current.entry === entry) {
+      root.innerHTML = '';
+      root.append(errorScreen(error));
+    }
   }
 }
 

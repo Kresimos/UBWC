@@ -882,53 +882,100 @@
   font-weight: 700; padding: 11px 14px; border-radius: 11px; border: 0; cursor: pointer;
 }
 
-[data-screen="log"] .feedhead { display: flex; align-items: center; gap: 8px; padding: 0 3px; margin-top: 2px; }
-[data-screen="log"] .feedhead h3 {
-  margin: 0; font-size: 12px; letter-spacing: .09em; text-transform: uppercase;
-  color: var(--app-faint); font-weight: 700;
+/* The feed is days, not one undivided stack: a heading per calendar day, cards
+   close together inside a day and a clear break between days. Without the gaps
+   the cards' own 1px borders touch and read as a single ruled slab. */
+[data-screen="log"] [data-feed] { display: flex; flex-direction: column; gap: 20px; }
+[data-screen="log"] .day { display: flex; flex-direction: column; gap: 9px; }
+[data-screen="log"] .dayhead { display: flex; align-items: center; gap: 9px; padding: 0 3px; }
+[data-screen="log"] .dayhead h3 {
+  margin: 0; font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--app-muted); font-weight: 750; white-space: nowrap;
 }
-[data-screen="log"] .feedhead .ln { flex: 1; height: 1px; background: var(--app-line); }
+[data-screen="log"] .dayhead .ln { flex: 1; height: 1px; background: var(--app-line); }
+[data-screen="log"] .dayhead .n { font-size: 11.5px; font-weight: 700; color: var(--app-faint); }
 
 [data-screen="log"] .sess {
-  background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 16px;
-  padding: 13px; display: flex; flex-direction: column; gap: 11px;
+  background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 18px;
+  padding: 13px 14px 11px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 1px 2px rgba(20, 33, 31, .04);
 }
-[data-screen="log"] .sess .who { display: flex; align-items: center; gap: 9px; }
+[data-screen="log"] .sess .who { display: flex; align-items: center; gap: 10px; }
 [data-screen="log"] .sess .av {
-  flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--teal-tint);
-  color: var(--teal-ink); font-size: 13px; font-weight: 750; display: flex;
-  align-items: center; justify-content: center;
+  flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--teal-tint);
+  color: var(--teal-ink); font-size: 14px; font-weight: 750; display: flex;
+  align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(16, 120, 138, .13);
 }
-[data-screen="log"] .sess .wn { display: flex; flex-direction: column; }
-[data-screen="log"] .sess .wn .nm { font-size: 14px; font-weight: 750; }
-[data-screen="log"] .sess .wn .meta { font-size: 11.5px; color: var(--app-faint); }
-[data-screen="log"] .sess .stars { margin-left: auto; display: inline-flex; gap: 1.5px; }
-[data-screen="log"] .sess .stars svg { width: 15px; height: 15px; color: var(--star); }
-[data-screen="log"] .sess .stars svg.off { color: #DCE1E1; }
-[data-screen="log"] .sess .kit { display: flex; gap: 8px; flex-wrap: wrap; }
-[data-screen="log"] .kchip {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650;
-  padding: 6px 10px; border-radius: 9px; background: var(--app-bg2); border: 0; cursor: pointer;
+[data-screen="log"] .sess .wn { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+[data-screen="log"] .sess .wn .nm { font-size: 14.5px; font-weight: 750; letter-spacing: -.01em; }
+[data-screen="log"] .sess .wn .meta {
+  font-size: 11.5px; color: var(--app-faint); font-weight: 600; font-variant-numeric: tabular-nums;
 }
-[data-screen="log"] .kchip svg { width: 15px; height: 15px; color: var(--teal); flex: none; }
-[data-screen="log"] .kchip b { font-weight: 750; }
-[data-screen="log"] .sess .wind {
+[data-screen="log"] .sess .stars { margin-left: auto; display: inline-flex; gap: 1.5px; flex: none; }
+[data-screen="log"] .sess .stars svg { width: 14px; height: 14px; color: var(--star); }
+[data-screen="log"] .sess .stars svg.off { color: #E6EBEB; }
+
+/* The sail and the board as aligned rows inside one panel rather than floating
+   chips: the size sits in its own right-aligned column so 5.5 and 120 line up,
+   which is what makes the pair read as a spec instead of a pile of tags. One
+   panel, not one per row, so the kit is a single object on the card. */
+/* The rows carry the horizontal padding, not the panel, so a pressed row can
+   tint edge to edge inside it. */
+[data-screen="log"] .sess .rig {
+  display: flex; flex-direction: column; background: var(--app-bg2); border-radius: 12px;
+  padding: 2px 0; overflow: hidden;
+}
+[data-screen="log"] .krow {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 11px; background: transparent; border: 0; cursor: pointer;
+}
+[data-screen="log"] .krow + .krow { box-shadow: inset 0 1px 0 rgba(20, 33, 31, .07); }
+/* Divider-glued row: tint, not shrink, for the same reason the catalogue's
+   list rows opt out. A row that scales away from the divider it shares with
+   the row below reads as the panel coming apart. */
+[data-screen="log"] .krow:active { background: #E6ECEC; opacity: 1; transform: none; }
+[data-screen="log"] .krow svg { width: 17px; height: 17px; color: var(--teal); flex: none; }
+[data-screen="log"] .krow .sz {
+  flex: none; min-width: 30px; text-align: right; font-size: 13.5px; font-weight: 750;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+[data-screen="log"] .krow .knm {
+  font-size: 13.5px; font-weight: 600; color: var(--app-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-screen="log"] .sess .also {
+  padding: 7px 11px 8px; font-size: 11.5px; font-weight: 600; color: var(--app-faint);
+  box-shadow: inset 0 1px 0 rgba(20, 33, 31, .07);
+}
+
+[data-screen="log"] .sess .cond { display: flex; flex-wrap: wrap; gap: 7px 16px; }
+[data-screen="log"] .sess .cond .c {
   display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
   color: var(--app-muted); font-weight: 600;
 }
-[data-screen="log"] .sess .wind svg { width: 16px; height: 16px; color: var(--teal); }
-[data-screen="log"] .sess .wind b { color: var(--app-ink); font-weight: 750; font-variant-numeric: tabular-nums; }
-[data-screen="log"] .sess p.cmt { margin: 0; font-size: 13.5px; line-height: 1.5; }
-[data-screen="log"] .sess .foot {
-  display: flex; align-items: center; border-top: 1px solid var(--app-line);
-  padding-top: 10px; margin-top: 1px;
-}
+[data-screen="log"] .sess .cond svg { width: 15px; height: 15px; color: var(--teal); flex: none; }
+[data-screen="log"] .sess .cond b { color: var(--app-ink); font-weight: 750; font-variant-numeric: tabular-nums; }
+[data-screen="log"] .sess p.cmt { margin: 0; font-size: 13.5px; line-height: 1.55; }
+[data-screen="log"] .sess .foot { display: flex; align-items: center; gap: 10px; }
+/* Every card carries this, so it is an outline rather than a filled pill: five
+   solid teal buttons down the feed would out-shout the sessions themselves. */
 [data-screen="log"] .sess .repeat {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700;
-  color: var(--teal); border: 0; background: transparent; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700;
+  color: var(--app-muted); background: transparent; border: 1px solid var(--app-line);
+  cursor: pointer; padding: 7px 12px; border-radius: 999px;
 }
-[data-screen="log"] .sess .repeat svg { width: 15px; height: 15px; }
-[data-screen="log"] .sess .peritem { margin-left: auto; font-size: 11.5px; color: var(--app-faint); font-weight: 600; }
+[data-screen="log"] .sess .repeat svg { width: 14px; height: 14px; color: var(--teal); }
+/* The thumbs the member left on the kit, as a tally rather than a sentence:
+   green and amber are already the app's "fine" and "watch it", so the shape of
+   a session's feedback reads at a glance without being read. */
+[data-screen="log"] .sess .votes { margin-left: auto; display: inline-flex; gap: 9px; }
+[data-screen="log"] .sess .votes .v {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px;
+  font-weight: 700; font-variant-numeric: tabular-nums;
+}
+[data-screen="log"] .sess .votes svg { width: 14px; height: 14px; }
+[data-screen="log"] .sess .votes .up { color: var(--ok); }
+[data-screen="log"] .sess .votes .down { color: var(--warn); }
 
 /* ======================================================= LOG: the composer */
 [data-screen="compose"] .field { display: flex; flex-direction: column; gap: 8px; }

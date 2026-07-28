@@ -134,11 +134,23 @@ export function initial(name) {
   return (String(name || '?').trim()[0] || '?').toUpperCase();
 }
 
+/**
+ * The server hands back SQLite's "YYYY-MM-DD HH:MM:SS", which is UTC but says
+ * so nowhere. Left alone, `new Date` reads it as local time and every stamp
+ * drifts by the offset. Every reader below goes through here so they agree.
+ */
+export function stampDate(stamp) {
+  if (!stamp) return null;
+  const text = String(stamp);
+  const parsed = new Date(text.replace(' ', 'T') + (text.includes('Z') ? '' : 'Z'));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /** "3 days ago" for anything recent, a plain date once that stops being useful. */
 export function ago(stamp) {
   if (!stamp) return '';
-  const then = new Date(String(stamp).replace(' ', 'T') + (String(stamp).includes('Z') ? '' : 'Z'));
-  if (Number.isNaN(then.getTime())) return String(stamp);
+  const then = stampDate(stamp);
+  if (!then) return String(stamp);
   const days = Math.floor((Date.now() - then.getTime()) / 86400000);
   if (days <= 0) {
     const hours = Math.floor((Date.now() - then.getTime()) / 3600000);
@@ -151,17 +163,26 @@ export function ago(stamp) {
 }
 
 export function clockTime(stamp) {
-  if (!stamp) return '';
-  const when = new Date(String(stamp).replace(' ', 'T') + (String(stamp).includes('Z') ? '' : 'Z'));
-  if (Number.isNaN(when.getTime())) return '';
-  return when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const when = stampDate(stamp);
+  return when ? when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
 }
 
 /** How long a member has been out on a setup, for the setup screen's clock. */
 export function since(stamp) {
-  if (!stamp) return '';
-  const from = new Date(String(stamp).replace(' ', 'T') + (String(stamp).includes('Z') ? '' : 'Z'));
-  const minutes = Math.max(0, Math.round((Date.now() - from.getTime()) / 60000));
+  const from = stampDate(stamp);
+  if (!from) return '';
+  return spanOf(Math.max(0, Math.round((Date.now() - from.getTime()) / 60000)));
+}
+
+/** The same clock as `since`, over a pair of stamps rather than up to now. */
+export function spanned(from, to) {
+  const start = stampDate(from);
+  const end = stampDate(to);
+  if (!start || !end) return '';
+  return spanOf(Math.round((end.getTime() - start.getTime()) / 60000));
+}
+
+function spanOf(minutes) {
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }

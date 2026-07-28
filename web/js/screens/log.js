@@ -6,7 +6,7 @@
  * up. It persists until logged (there is no dismiss), because a save is always
  * a deliberate act and the nudge is what turns a finished sail into one.
  */
-import { html, mount, num, ago, onClick, initial } from '../dom.js';
+import { html, mount, num, ago, clockTime, spanned, stampDate, onClick, initial } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
@@ -34,9 +34,11 @@ export async function render(root) {
       if (!data.sessions.length) {
         mount(feedNode, emptyFeed());
       } else {
-        mount(feedNode, html`
-          <div class="feedhead"><h3>${state.scope === 'mine' ? 'Your sessions' : 'Recent sessions'}</h3><span class="ln"></span></div>
-          ${data.sessions.map(sessionCard)}`);
+        mount(feedNode, byDay(data.sessions).map(([label, group]) => html`
+          <section class="day">
+            <div class="dayhead"><h3>${label}</h3><span class="ln"></span><span class="n">${group.length}</span></div>
+            ${group.map(sessionCard)}
+          </section>`));
       }
     } catch (error) {
       toast(error.message, true);
@@ -130,36 +132,102 @@ function emptyFeed() {
     </div>`;
 }
 
+/**
+ * Sessions arrive newest-first, so grouping is one pass: start a new day every
+ * time the calendar date changes. The day heading carries the date, which frees
+ * each card's own line to say the time it happened rather than repeating
+ * "2 hours ago" down the whole feed.
+ */
+function byDay(sessions) {
+  const groups = [];
+  let key = null;
+  for (const session of sessions) {
+    const when = stampDate(session.ended_at || session.created_at);
+    const at = when ? when.toDateString() : '';
+    if (at !== key || !groups.length) {
+      groups.push([dayLabel(when, session), []]);
+      key = at;
+    }
+    groups[groups.length - 1][1].push(session);
+  }
+  return groups;
+}
+
+function dayLabel(when, session) {
+  if (!when) return ago(session.created_at) || 'Earlier';
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(when).setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  const shape = days < 7 ? { weekday: 'long' } : { weekday: 'short', day: 'numeric', month: 'short' };
+  return when.toLocaleDateString('en-GB', shape);
+}
+
 function sessionCard(session) {
-  const rated = session.pieces.filter((p) => p.vote === 1 || p.vote === -1).length;
+  const up = session.pieces.filter((p) => p.vote === 1).length;
+  const down = session.pieces.filter((p) => p.vote === -1).length;
+  const heads = session.pieces.filter(headliner);
+  const rest = session.pieces.filter((piece) => !headliner(piece));
+  const stamp = session.ended_at || session.created_at;
   return html`
-    <div class="sess">
+    <article class="sess">
       <div class="who">
         <span class="av">${initial(session.user_name)}</span>
         <span class="wn">
           <span class="nm">${session.user_name}</span>
-          <span class="meta">${[ago(session.ended_at || session.created_at), session.site].filter(Boolean).join(' · ')}</span>
+          <span class="meta">${[clockTime(stamp) || ago(stamp), session.site].filter(Boolean).join(' · ')}</span>
         </span>
         ${session.stars ? html`<span class="stars">${starIcons(session.stars)}</span>` : ''}
       </div>
-      ${session.pieces.length ? html`<div class="kit">${session.pieces.filter(headliner).map(kitChip)}</div>` : ''}
-      ${session.wind_kn != null ? html`
-        <span class="wind">${icon('wind')}<b>${num(session.wind_kn, 0)} kn</b>${
-          [session.wind_dir, session.wind_gust_kn != null ? `gusts ${num(session.wind_gust_kn, 0)}` : null]
-            .filter(Boolean).join(' · ')}</span>` : ''}
+      ${heads.length || rest.length ? html`
+        <div class="rig">
+          ${heads.map(kitRow)}
+          ${rest.length ? html`<span class="also">plus ${rest.map(restLabel).join(' · ')}</span>` : ''}
+        </div>` : ''}
+      ${conditions(session)}
       ${session.note ? html`<p class="cmt">${session.note}</p>` : ''}
       <div class="foot">
         <button class="repeat" data-repeat="${session.id}">${icon('refresh')}Repeat this kit</button>
-        ${rated ? html`<span class="peritem">rated ${rated} ${rated === 1 ? 'piece' : 'pieces'}</span>` : ''}
+        ${up || down ? html`
+          <span class="votes" title="How the kit rated on this session">
+            ${up ? html`<span class="v up">${icon('thumbUp')}${up}</span>` : ''}
+            ${down ? html`<span class="v down">${icon('thumbDown')}${down}</span>` : ''}
+          </span>` : ''}
       </div>
-    </div>`;
+    </article>`;
 }
 
-// The feed shows the two pieces that name a session: the sail (or wing) and the
-// board. The rest of the rig is on the session, just not in the headline.
+/**
+ * Wind and time on the water share one quiet line. Both are optional and often
+ * absent, so the line disappears rather than leaving a gap behind. A duration
+ * is only worth printing once it is long enough to have been a sail rather
+ * than a mis-tap, hence the ten-minute floor.
+ */
+const SHORTEST_SAIL_MS = 10 * 60 * 1000;
+
+function conditions(session) {
+  const bits = [];
+  if (session.wind_kn != null) {
+    const extra = [session.wind_dir, session.wind_gust_kn != null ? `gusts ${num(session.wind_gust_kn, 0)}` : null]
+      .filter(Boolean).join(' · ');
+    bits.push(html`<span class="c">${icon('wind')}<b>${num(session.wind_kn, 0)} kn</b>${extra ? ` ${extra}` : ''}</span>`);
+  }
+  const started = stampDate(session.started_at);
+  const ended = stampDate(session.ended_at);
+  if (started && ended && ended - started >= SHORTEST_SAIL_MS) {
+    bits.push(html`<span class="c">${icon('clock')}<b>${spanned(session.started_at, session.ended_at)}</b> on the water</span>`);
+  }
+  return bits.length ? html`<div class="cond">${bits}</div>` : '';
+}
+
+// The feed leads on the two pieces that name a session: the sail (or wing) and
+// the board. The rest of the rig is still on the session, named on one quiet
+// line under them rather than given a row of its own.
 const headliner = (piece) => piece.role === 'sail' || piece.role === 'board' || !piece.role;
 
-function kitChip(piece) {
+const restLabel = (piece) =>
+  (store.roleLabels[piece.role] || piece.role || 'kit').toLowerCase();
+
+function kitRow(piece) {
   const kind = piece.component_type || piece.role;
   const size = piece.size_m2 ?? piece.size_l ?? null;
   // Drop a trailing number from the model when it is just the size again, so a
@@ -169,7 +237,9 @@ function kitChip(piece) {
   if (tail && size != null && Math.abs(Number(size) - Number(tail[2])) < 0.51) model = tail[1];
   const name = model ? `${piece.manufacturer || ''} ${model}`.trim() : (piece.label || 'Kit');
   return html`
-    <button class="kchip" data-kititem="${piece.item_id || ''}">
-      ${artFor(kind)}${size != null ? html`<b>${num(size)}</b> ` : ''}${name}
+    <button class="krow" data-kititem="${piece.item_id || ''}">
+      ${artFor(kind)}
+      <b class="sz">${size != null ? num(size) : ''}</b>
+      <span class="knm">${name}</span>
     </button>`;
 }

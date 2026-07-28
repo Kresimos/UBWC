@@ -29,7 +29,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "kit.db"
+DB_PATH = Path.home() / "Library" / "Application Support" / "UBWC" / "kit.db"
 SCHEMA_PATH = ROOT / "schema.sql"
 
 TODAY = date(2026, 7, 15)

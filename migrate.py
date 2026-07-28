@@ -10,7 +10,7 @@ from pathlib import Path
 import openpyxl
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "kit.db"
+DB_PATH = Path.home() / "Library" / "Application Support" / "UBWC" / "kit.db"
 SCHEMA_PATH = ROOT / "schema.sql"
 XLSX_PATH = ROOT / "data" / "Kit Inventory.xlsx"
 

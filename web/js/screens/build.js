@@ -259,7 +259,12 @@ export async function render(root, params) {
   let drag = null;
   on(root, 'touchstart', '.picker', (event) => {
     const touch = event.touches[0];
-    drag = { x: touch.clientX, y: touch.clientY, acc: 0 };
+    const button = event.target.closest('[data-nudge]');
+    // Remembered so a tap that never turns into a drag can still be honoured
+    // on touchend, rather than left to a synthesised click that a phone's own
+    // tap-vs-scroll threshold (typically well under our own step size) may
+    // have already decided not to send.
+    drag = { x: touch.clientX, y: touch.clientY, acc: 0, moved: false, nudge: button && button.getAttribute('data-nudge') };
   }, { passive: true });
 
   on(root, 'touchmove', '.picker', (event) => {
@@ -280,17 +285,28 @@ export async function render(root, params) {
     // row cannot scroll the page either way: `.picker` is `touch-action: none`.
     if (!steps) return;
     event.preventDefault();
+    drag.moved = true;
     drag.acc -= steps * DRAG_PER_STEP;
     nudge(steps, { settle: false });
   }, { passive: false });
 
-  const endDrag = () => {
+  const endDrag = (event) => {
     if (!drag) return;
+    const { moved, nudge: pressed } = drag;
     drag = null;
+    // A tap that stayed under the step threshold still moved the finger more
+    // than a phone's own (smaller) tolerance for calling it a tap, so the
+    // click this touch would have synthesised cannot be relied on — the app
+    // takes the press itself rather than a gesture the browser may or may not
+    // forward.
+    if (!moved && pressed) {
+      event.preventDefault();
+      nudge(Number(pressed));
+    }
     paint();
   };
-  on(root, 'touchend', '.picker', endDrag, { passive: true });
-  on(root, 'touchcancel', '.picker', endDrag, { passive: true });
+  on(root, 'touchend', '.picker', endDrag, { passive: false });
+  on(root, 'touchcancel', '.picker', () => { drag = null; paint(); }, { passive: true });
 
   // ---------------------------------------------------------------- events
   root.querySelector('[data-back]').addEventListener('click', () => back('/catalogue'));

@@ -385,7 +385,7 @@ function screen(item, historyOpen) {
 
 function faultBox(fault) {
   return html`
-    <div class="faultitem ${fault.severity === 'out_of_action' ? 'oos' : 'usable'}" data-fault-toggle>
+    <div class="faultitem ${fault.severity === 'out_of_action' ? 'oos' : 'usable'}" data-fault-toggle role="button">
       <div class="fhead">
         <span class="sev"></span>
         <span class="fttl">${fault.title}</span>

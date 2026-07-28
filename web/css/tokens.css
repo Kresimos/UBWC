@@ -44,6 +44,11 @@
    and the picker opts out of panning entirely so it can read a drag. */
 * { touch-action: manipulation; }
 
+/* The OS's own tap feedback next: a flat grey rectangle over the whole hit
+   box, the same shape and shade no matter what was tapped. Off everywhere,
+   and replaced by the deliberate, shape-aware feedback below. */
+* { -webkit-tap-highlight-color: transparent; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -61,6 +66,25 @@ html, body {
 button { font: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 :focus-visible { outline: 2px solid var(--teal, #10788A); outline-offset: 2px; border-radius: 8px; }
+
+/* Every button — and the handful of div/span elements marked role="button"
+   for the same reason build.js's card gives for itself: a button inside a
+   button is not a thing a browser will honour — shares one press language:
+   a quick dip in opacity with a hair of scale, so a tap reads as the surface
+   giving a little rather than a flash landing on top of it. Nothing here
+   touches background or border, so a control that wants its own feel (the
+   picker's arrows, a vote thumb, a card) only has to add its own :active
+   rule on top of this, never fight it. */
+button, [role="button"] {
+  transition: opacity .12s ease, transform .12s ease;
+}
+button:active, [role="button"]:active {
+  opacity: .6;
+  transform: scale(.97);
+}
+@media (prefers-reduced-motion: reduce) {
+  button:active, [role="button"]:active { transform: none; }
+}
 
 /* -------------------------------------------------------------- the device */
 .phone {
@@ -445,6 +469,7 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer; color: inherit;
 }
 .sheetrow:hover { background: var(--app-bg2); }
+.sheetrow:active { background: var(--app-bg2); }
 .sheetrow.on { background: var(--teal-tint); }
 .sheetrow .rn { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .sheetrow .rn b { font-size: 14.5px; font-weight: 700; }

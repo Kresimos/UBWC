@@ -55,6 +55,11 @@ function refusePinch() {
   document.addEventListener('touchmove', (event) => {
     if (event.touches.length > 1) event.preventDefault();
   }, { passive: false });
+  // iOS Safari only bothers computing :active at all, anywhere on the page,
+  // once something has a touchstart listener — otherwise every button's press
+  // feedback in tokens.css silently never shows on an iPhone. The listener
+  // itself does nothing; its only job is to exist.
+  document.body.addEventListener('touchstart', () => {}, { passive: true });
 }
 
 async function boot() {

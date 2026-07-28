@@ -93,6 +93,10 @@
 [data-screen="catalogue"] .lrow .lr .sz u { font-size: 10.5px; font-weight: 600; color: var(--app-faint); text-decoration: none; margin-left: 2px; }
 [data-screen="catalogue"] .lrow .lr .rt { font-size: 11px; color: var(--app-faint); display: inline-flex; align-items: center; gap: 3px; }
 [data-screen="catalogue"] .lrow .lr .rt svg { width: 10px; height: 10px; color: var(--star); }
+/* Divider-glued row: tint, not shrink — same reasoning as Your rig's row
+   headers, so a member scanning the list view doesn't see it break rank
+   with its neighbours. */
+[data-screen="catalogue"] .lrow:active { background: var(--app-bg2); transform: none; }
 [data-screen="catalogue"] .lrow.picked { background: var(--teal-tint); }
 [data-screen="catalogue"] .lrow .selbox {
   flex: none; width: 22px; height: 22px; border-radius: 7px; border: 1.8px solid #C7D2D2;
@@ -573,6 +577,12 @@
 }
 [data-screen="yourrig"] .khead.static { cursor: default; }
 [data-screen="yourrig"] .kitem.big .khead { padding: 14px; align-items: flex-start; }
+/* A row glued to its neighbours by a shared divider reads better as a tint
+   than a shrink — scaling it would look like it is pulling away from the
+   rows above and below. Scoped to the two attributes that actually toggle,
+   so the static "nothing here fits" row never looks pressable. */
+[data-screen="yourrig"] .khead[data-selhead]:active,
+[data-screen="yourrig"] .khead[data-rechead]:active { background: var(--app-bg2); }
 
 [data-screen="yourrig"] .kthumb {
   position: relative; flex: none; width: 46px; height: 46px; border-radius: 10px;
@@ -616,6 +626,9 @@
   cursor: pointer; color: inherit;
 }
 [data-screen="yourrig"] .needrow:first-child { border-top: 0; }
+/* Same reasoning as the derig checklist: a divider-glued row tints, it does
+   not shrink. */
+[data-screen="yourrig"] .needrow:active { transform: none; }
 [data-screen="yourrig"] .needrow .nm { color: var(--teal-ink); }
 
 /* The body of a row grows out of it rather than appearing under it, so the
@@ -765,6 +778,7 @@
   border-top: 1px solid #BEE0E4;
 }
 [data-screen="yourrig"] .altrow:first-child { border-top: 0; }
+[data-screen="yourrig"] .altrow:active { transform: none; }
 [data-screen="yourrig"] .altrow .kthumb { width: 34px; height: 34px; border-radius: 8px; background: rgba(255, 255, 255, .55); }
 [data-screen="yourrig"] .altmid { flex: 1; min-width: 0; }
 [data-screen="yourrig"] .altrow .an { display: block; font-size: 12.5px; font-weight: 750; color: var(--app-ink); }
@@ -795,6 +809,10 @@
   background: var(--app-bg); text-align: left; transition: background .15s ease;
 }
 [data-screen="derig"] .crow:first-child { border-top: 0; }
+/* No shrink on press: this row is glued to its neighbours by a shared
+   divider, and scaling it would look like it is pulling away from them. The
+   dim from tokens.css's default button feedback still applies. */
+[data-screen="derig"] .crow:active { transform: none; }
 [data-screen="derig"] .crow .box {
   flex: none; width: 24px; height: 24px; border-radius: 8px; border: 1.8px solid #C7D2D2;
   background: var(--app-bg); display: flex; align-items: center; justify-content: center;
@@ -812,6 +830,13 @@
   color: var(--app-muted); margin-top: 1px;
 }
 [data-screen="derig"] .crow .cm .to svg { width: 12px; height: 12px; color: var(--teal); flex: none; }
+/* A tap target within a tap target (the spot opens a note, the row toggles
+   the checkbox) can't share the button/role="button" treatment above without
+   nesting an interactive role inside a real button, so it gets its own,
+   smaller version: a dim, no shrink. */
+[data-screen="derig"] .crow .cm .to[data-spot]:active {
+  opacity: .6; transition: opacity .12s ease;
+}
 [data-screen="derig"] .crow.on { background: var(--ok-tint); }
 [data-screen="derig"] .crow.on .box { background: var(--ok); border-color: var(--ok); color: #fff; }
 [data-screen="derig"] .crow.on .cm .nm {
@@ -982,6 +1007,9 @@
   display: flex; align-items: center; gap: 11px; padding: 11px 13px;
   border-top: 1px solid var(--app-line); cursor: pointer;
 }
+/* A tint rather than a shrink, same reasoning as Your rig's row headers: this
+   row is glued to the ones above and below by a shared divider. */
+[data-screen="compose"] .prow:active { background: var(--app-bg2); }
 [data-screen="compose"] .prow .pn { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 [data-screen="compose"] .prow .pn .k {
   font-size: 10px; letter-spacing: .07em; text-transform: uppercase;

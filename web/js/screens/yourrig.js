@@ -449,7 +449,7 @@ export async function render(root) {
     const steps = riggingSteps(picks);
     return html`
       <div class="howto">
-        <div class="hhead" data-howtotoggle>
+        <div class="hhead" data-howtotoggle role="button">
           <span class="hplay">${icon('play')}</span>
           <span class="hm">
             <span class="ht">How to rig</span>

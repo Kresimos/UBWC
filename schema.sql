@@ -20,12 +20,14 @@ DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS setup_items;
 DROP TABLE IF EXISTS comments;
 DROP TABLE IF EXISTS ratings;
+DROP TABLE IF EXISTS favourites;
 DROP TABLE IF EXISTS setups;
 DROP TABLE IF EXISTS fault_events;
 DROP TABLE IF EXISTS faults;
 DROP TABLE IF EXISTS spots;
 DROP TABLE IF EXISTS sites;
 DROP TABLE IF EXISTS items;
+DROP TABLE IF EXISTS auth_sessions;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE items (
@@ -196,9 +198,19 @@ CREATE TABLE comments (
 CREATE INDEX idx_comments_item ON comments(item_id, created_at);
 
 -- ---------------------------------------------------------------------------
--- users: the club roster. Login is a name-pick, no password — the pick is for
--- attribution, and the shared committee PIN is the real gate on committee-only
--- actions (misc/spec.md "Access and roles"). `is_admin` marks committee members.
+-- users: club accounts. A member signs up with a username and a password, and
+-- signing in is proving that password — the account is the identity, so what
+-- somebody rated, rigged and logged is genuinely theirs (misc/spec.md "Access
+-- and roles"). `is_admin` alone gates the committee actions; there is no shared
+-- PIN. Admins are made by other admins, or from the machine running the server
+-- with manage.py, which is the only bootstrap.
+--
+-- `username` is stored lowercase and is what is typed at sign-in; `display_name`
+-- is what the app shows. `password_hash` is PBKDF2-HMAC-SHA256, written by
+-- db.hash_password as `pbkdf2_sha256$rounds$salt$hash`. NULL means an account
+-- nobody can sign in to yet — the seeded roster rows are like this until an
+-- admin sets a password for them, which keeps their existing ratings and
+-- sessions attached rather than orphaned.
 -- ---------------------------------------------------------------------------
 CREATE TABLE users (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -206,8 +218,27 @@ CREATE TABLE users (
     display_name   TEXT,
     is_admin       INTEGER NOT NULL DEFAULT 0,
     password_hash  TEXT,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at   TEXT
 );
+
+-- ---------------------------------------------------------------------------
+-- auth_sessions: one row per signed-in device, so a sign-in can be revoked.
+-- The cookie carries a random token; only its SHA-256 is stored, so the table
+-- is not a set of usable keys if the database is ever read. Sessions are long
+-- (a term, not a day) because this is a phone at a lake, and are renewed on use.
+-- ---------------------------------------------------------------------------
+CREATE TABLE auth_sessions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash    TEXT UNIQUE NOT NULL,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_agent    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at    TEXT NOT NULL
+);
+
+CREATE INDEX idx_auth_sessions_user ON auth_sessions(user_id);
 
 -- ---------------------------------------------------------------------------
 -- setups: what a member built in the rig wizard and is currently out on.
@@ -288,21 +319,29 @@ CREATE TABLE session_items (
 CREATE INDEX idx_session_items_session ON session_items(session_id);
 
 -- ---------------------------------------------------------------------------
--- ratings: one 👍/👎 vote per member per item. Kit rating is deliberately
--- BINARY to keep it thoughtless; the catalogue/rig views turn the tally into a
--- 1-5 star display: star = 1 + 4 x fraction-👍 (all 👍 -> 5★, all 👎 -> 1★). The
--- floor is 1★, not 0★ — even disliked kit reads as one star, never a blank zero.
--- Guards against a binary-average being misleading in a small club:
---   * UNIQUE(user_id, item_id) -> one STANDING vote per member, updatable.
---     Re-voting after a later session replaces the old vote (update `vote` +
---     `updated_at`), so a heavy user of one board can't stack its score.
---   * Callers should ALWAYS show the vote COUNT alongside the stars — that is
---     the pinch of salt, so there is no minimum-vote threshold. An item with
---     zero votes is the only special case: show "Not yet rated".
--- `session_id` is provenance only: the log it came from, or NULL when rated
--- straight from the catalogue (a harness, wetsuit, base a session won't prompt).
+-- ratings: 👍/👎 on a piece of kit. Kit rating is deliberately BINARY to keep it
+-- thoughtless; the catalogue/rig views turn the tally into a 1-5 star display:
+-- star = 1 + 4 x fraction-👍 (all 👍 -> 5★, all 👎 -> 1★). The floor is 1★, not
+-- 0★ — even disliked kit reads as one star, never a blank zero.
+--
+-- This table is an APPEND-ONLY HISTORY, not one standing vote per member. A
+-- member sails the same board a dozen times and is asked after each session, so
+-- re-rating is normal and every rating is kept, with the session it came from.
+-- Two things follow from that:
+--   * The TALLY counts each member's LATEST live rating once (db._LIVE_VOTES),
+--     so a heavy user of one board still cannot stack its score. The rest of the
+--     rows are history, not votes.
+--   * Nothing is ever deleted, only voided: `voided_at` + `voided_by` +
+--     `void_reason` mark a rating withdrawn by its own author, or struck out by
+--     the committee when somebody spams ratings to skew the club's numbers.
+--     Voiding a member's ratings is therefore reversible and auditable.
+-- Callers should ALWAYS show the vote COUNT alongside the stars — that is the
+-- pinch of salt, so there is no minimum-vote threshold. An item nobody has
+-- rated is the only special case: show "Not yet rated".
+-- `session_id` is provenance: the log it came from, or NULL when rated straight
+-- from the catalogue (a harness, wetsuit, base a session won't prompt).
 -- Whole-SESSION 1-5 star ratings are NOT here — those are author-only, one per
--- session, and belong on the future logbook/session record.
+-- session, and live on `sessions.stars`.
 -- ---------------------------------------------------------------------------
 CREATE TABLE ratings (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -312,10 +351,29 @@ CREATE TABLE ratings (
     session_id  INTEGER,   -- the log it came from; NULL if rated from the catalogue
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    voided_at   TEXT,
+    voided_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    void_reason TEXT CHECK (void_reason IN ('withdrawn', 'moderated'))
+);
+
+CREATE INDEX idx_ratings_item ON ratings(item_id, voided_at);
+CREATE INDEX idx_ratings_user ON ratings(user_id, created_at);
+
+-- ---------------------------------------------------------------------------
+-- favourites: kit a member has bookmarked from the item page. Personal, not a
+-- club-wide flag and nothing to do with availability — it exists so the rig
+-- wizard can tag the pieces this member already knows they like with a
+-- bookmark glyph while they are choosing.
+-- ---------------------------------------------------------------------------
+CREATE TABLE favourites (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, item_id)
 );
 
-CREATE INDEX idx_ratings_item ON ratings(item_id);
+CREATE INDEX idx_favourites_item ON favourites(item_id);
 
 -- ---------------------------------------------------------------------------
 -- Per-type views: reproduce each sheet's exact column layout for display/export.

@@ -6,11 +6,9 @@ validation.py and rigkit.py) or any HTML (that lives in web/).
 
 Run it with:  python server.py        (or: uvicorn server:app --reload)
 """
-import hashlib
-import hmac
-import json
 import os
-import secrets
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -20,25 +18,23 @@ from fastapi.staticfiles import StaticFiles
 
 import db
 import rigkit
+import suggest
 import validation
 import wind
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 
-# The shared committee PIN gates the destructive/administrative actions. It is
-# deliberately shared rather than per-user: the name-pick is for attribution,
-# the PIN is the real gate (misc/spec.md "Access and roles").
-COMMITTEE_PIN = os.environ.get("UBWC_COMMITTEE_PIN", "1878")
+# The cookie carries a session token; the account behind it is looked up on
+# every request (db.session_user), so signing out here signs out for real and a
+# committee member is committee because their account says so — there is no
+# shared PIN and nothing about the member is carried in the cookie itself.
+COOKIE = "ubwc_session"
 
-# Signing key for the identity cookie. Generated once and kept beside the
-# database so a restart does not sign everyone out.
-_KEY_FILE = ROOT / ".session_key"
-if not _KEY_FILE.exists():
-    _KEY_FILE.write_text(secrets.token_hex(32))
-SECRET = _KEY_FILE.read_text().strip().encode()
-
-COOKIE = "ubwc"
+# Cookies are only marked Secure when the app is actually served over HTTPS.
+# run.sh serves plain HTTP on the club wifi, where a Secure cookie would simply
+# never come back and nobody could stay signed in.
+SECURE_COOKIES = bool(os.environ.get("UBWC_HTTPS"))
 
 app = FastAPI(title="UBWC Kit", docs_url=None, redoc_url=None)
 
@@ -64,66 +60,87 @@ def _startup() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Identity: a signed cookie holding the picked name and the committee flag
+# Identity: a session cookie, looked up against the accounts table
+#
+# One request costs one small indexed lookup, and in exchange a sign-in can be
+# ended from the server (a lost phone, a password change), which a self-contained
+# signed cookie can never be.
 # --------------------------------------------------------------------------- #
-def _sign(payload: str) -> str:
-    digest = hmac.new(SECRET, payload.encode(), hashlib.sha256).hexdigest()[:32]
-    return f"{payload}.{digest}"
-
-
-def _unsign(value: str) -> Optional[str]:
-    payload, _, digest = (value or "").rpartition(".")
-    if not payload or not hmac.compare_digest(
-        digest, hmac.new(SECRET, payload.encode(), hashlib.sha256).hexdigest()[:32]
-    ):
-        return None
-    return payload
-
-
 def identity(request: Request) -> dict:
     """{user, committee} for this request. Browsing needs neither."""
-    raw = _unsign(request.cookies.get(COOKIE, ""))
-    if not raw:
-        return {"user": None, "committee": False}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return {"user": None, "committee": False}
-    user = db.get_user(data["user_id"]) if data.get("user_id") else None
-    return {"user": user, "committee": bool(data.get("committee")) and user is not None}
+    user = db.session_user(request.cookies.get(COOKIE, ""))
+    return {"user": user, "committee": bool(user and user["is_admin"])}
 
 
-def _set_identity(response: Response, user_id: Optional[int], committee: bool) -> None:
-    if user_id is None:
-        response.delete_cookie(COOKIE)
-        return
-    payload = json.dumps({"user_id": user_id, "committee": committee})
-    response.set_cookie(COOKIE, _sign(payload), max_age=60 * 60 * 24 * 120,
-                        httponly=True, samesite="lax")
+def _sign_in(response: Response, user: dict, request: Request) -> dict:
+    token = db.start_session(user["id"], request.headers.get("user-agent", ""))
+    response.set_cookie(COOKIE, token, max_age=60 * 60 * 24 * db.SESSION_DAYS,
+                        httponly=True, samesite="lax", secure=SECURE_COOKIES,
+                        path="/")
+    return {"user": user, "committee": bool(user["is_admin"])}
+
+
+def _sign_out(response: Response, request: Request) -> dict:
+    db.end_session(request.cookies.get(COOKIE, ""))
+    response.delete_cookie(COOKIE, path="/")
+    return {"user": None, "committee": False}
 
 
 def require_user(request: Request) -> dict:
     who = identity(request)
     if not who["user"]:
-        raise HTTPException(401, "Pick your name first.")
+        raise HTTPException(401, "Sign in first.")
     return who["user"]
 
 
 def require_committee(request: Request) -> dict:
     who = identity(request)
     if not who["user"]:
-        raise HTTPException(401, "Pick your name first.")
+        raise HTTPException(401, "Sign in first.")
     if not who["committee"]:
-        raise HTTPException(403, "This one needs the committee PIN.")
+        raise HTTPException(403, "This one is committee only.")
     return who["user"]
+
+
+# --------------------------------------------------------------------------- #
+# Sign-in throttle
+#
+# A four-word password and an open sign-up page means somebody will eventually
+# point a script at /api/login. This is not a fortress: it is enough to make
+# guessing slower than giving up, held in memory because a club server that
+# restarts has bigger problems than a reset counter.
+# --------------------------------------------------------------------------- #
+_ATTEMPTS: dict = {}
+ATTEMPT_LIMIT = 8
+ATTEMPT_WINDOW_S = 15 * 60
+
+
+def _throttle(request: Request, username: str) -> None:
+    key = (request.client.host if request.client else "?", db.normalise_username(username))
+    now = time.time()
+    tries = [t for t in _ATTEMPTS.get(key, []) if now - t < ATTEMPT_WINDOW_S]
+    if len(tries) >= ATTEMPT_LIMIT:
+        wait = round((ATTEMPT_WINDOW_S - (now - tries[0])) / 60) or 1
+        _ATTEMPTS[key] = tries
+        raise HTTPException(429, f"Too many tries. Wait {wait} minutes, or ask "
+                                 "the committee to reset your password.")
+    tries.append(now)
+    _ATTEMPTS[key] = tries
+
+
+def _throttle_clear(request: Request, username: str) -> None:
+    _ATTEMPTS.pop((request.client.host if request.client else "?",
+                   db.normalise_username(username)), None)
 
 
 # --------------------------------------------------------------------------- #
 # Shaping: one place that decides what an item looks like as JSON
 # --------------------------------------------------------------------------- #
-def item_card(item: dict, rating: dict = None, faults: list = None) -> dict:
+def item_card(item: dict, rating: dict = None, faults: list = None,
+              favourite: bool = False) -> dict:
     """The shape the catalogue's grid and list rows are drawn from."""
     return {
+        "favourite": bool(favourite),
         "id": item["id"],
         "component_type": item["component_type"],
         "manufacturer": item.get("manufacturer"),
@@ -176,7 +193,6 @@ def bootstrap(request: Request):
     return {
         "user": who["user"],
         "committee": who["committee"],
-        "roster": db.get_users(),
         "sites": db.get_sites(),
         "spots": db.get_spots(),
         "types": [{"key": key, "label": db.COMPONENT_LABELS[key],
@@ -205,29 +221,138 @@ def _field_meta(field: str) -> dict:
     }
 
 
+@app.post("/api/signup")
+def signup(request: Request, response: Response, payload: dict = Body(...)):
+    """Join the club app. Open sign-up: anyone with the link can make an account.
+
+    A new account is never committee — that is handed out by an existing
+    committee member, or from the server with manage.py.
+    """
+    try:
+        user = db.create_user(payload.get("username") or "",
+                              payload.get("password") or "",
+                              payload.get("display_name") or "")
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+    return _sign_in(response, user, request)
+
+
 @app.post("/api/login")
-def login(response: Response, user_id: int = Body(..., embed=True)):
-    user = db.get_user(user_id)
+def login(request: Request, response: Response, payload: dict = Body(...)):
+    username = payload.get("username") or ""
+    _throttle(request, username)
+    user = db.authenticate(username, payload.get("password") or "")
     if not user:
-        raise HTTPException(404, "No such member on the roster.")
-    _set_identity(response, user_id, committee=False)
-    return {"user": user, "committee": False}
+        # Deliberately one message for both halves: telling somebody the
+        # username exists is telling them which one to keep guessing at.
+        raise HTTPException(401, "That username and password do not match.")
+    _throttle_clear(request, username)
+    return _sign_in(response, user, request)
 
 
 @app.post("/api/logout")
-def logout(response: Response):
-    _set_identity(response, None, False)
-    return {"user": None, "committee": False}
+def logout(request: Request, response: Response):
+    return _sign_out(response, request)
 
 
-@app.post("/api/committee")
-def committee(request: Request, response: Response, pin: str = Body(..., embed=True)):
-    """Unlock the committee actions for this member's session."""
+@app.get("/api/me")
+def me(request: Request):
+    """Who am I, and how much of my own data is here."""
+    who = identity(request)
+    if not who["user"]:
+        return {"user": None, "committee": False}
+    user = who["user"]
+    return {
+        "user": user,
+        "committee": who["committee"],
+        "stats": db.member_stats(user["id"]),
+        "devices": db.session_count(user["id"]),
+    }
+
+
+@app.post("/api/account/password")
+def change_password(request: Request, response: Response, payload: dict = Body(...)):
+    """Change my own password. Signs my other devices out, which is the point."""
     user = require_user(request)
-    if not hmac.compare_digest(pin.strip(), COMMITTEE_PIN):
-        raise HTTPException(403, "That PIN is not right.")
-    _set_identity(response, user["id"], committee=True)
-    return {"user": user, "committee": True}
+    if not db.check_current_password(user["id"], payload.get("current") or ""):
+        raise HTTPException(403, "That is not your current password.")
+    try:
+        db.set_password(user["id"], payload.get("password") or "")
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+    db.end_all_sessions(user["id"])
+    return _sign_in(response, user, request)
+
+
+@app.post("/api/account/name")
+def change_display_name(request: Request, payload: dict = Body(...)):
+    user = require_user(request)
+    try:
+        updated = db.set_display_name(user["id"], payload.get("display_name") or "")
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+    return {"user": updated, "committee": bool(updated["is_admin"])}
+
+
+# --------------------------------------------------------------------------- #
+# API: committee member admin
+#
+# Committee is an account flag now, so somebody has to be able to hand it out.
+# Only a committee member can, and the last one cannot stand themselves down
+# (db.set_admin) — otherwise the club locks itself out of its own kit list.
+# --------------------------------------------------------------------------- #
+@app.get("/api/members")
+def members(request: Request):
+    require_committee(request)
+    return {"members": db.member_admin_list()}
+
+
+@app.post("/api/members/{user_id}/admin")
+def set_member_admin(user_id: int, request: Request, payload: dict = Body(...)):
+    require_committee(request)
+    if not db.get_user(user_id):
+        raise HTTPException(404, "No such member.")
+    try:
+        return {"member": db.set_admin(user_id, bool(payload.get("is_admin")))}
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+
+
+@app.post("/api/members/{user_id}/password")
+def reset_member_password(user_id: int, request: Request, payload: dict = Body(...)):
+    """Committee sets a member's password: the answer to "I've forgotten mine",
+    and what claims a seeded roster account so its history stays attached."""
+    require_committee(request)
+    if not db.get_user(user_id):
+        raise HTTPException(404, "No such member.")
+    try:
+        db.set_password(user_id, payload.get("password") or "")
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+    db.end_all_sessions(user_id)
+    return {"ok": True}
+
+
+@app.get("/api/members/{user_id}/ratings")
+def member_ratings(user_id: int, request: Request):
+    """One member's rating history, which is what a spam claim is judged on."""
+    require_committee(request)
+    return {"member": db.get_user(user_id), "ratings": db.member_ratings(user_id)}
+
+
+@app.post("/api/members/{user_id}/ratings/void")
+def void_member_ratings(user_id: int, request: Request, payload: dict = Body({})):
+    """Strike out (or put back) every rating a member has given.
+
+    The undo for somebody spamming 👍/👎 to move the club's numbers. Nothing is
+    deleted, so a wrong call here is reversible.
+    """
+    admin = require_committee(request)
+    if not db.get_user(user_id):
+        raise HTTPException(404, "No such member.")
+    if (payload or {}).get("restore"):
+        return {"restored": db.restore_member_ratings(user_id)}
+    return {"voided": db.void_member_ratings(user_id, admin["id"])}
 
 
 # --------------------------------------------------------------------------- #
@@ -251,6 +376,7 @@ def list_items(request: Request,
         require_committee(request)
     ratings = db.ratings_by_item(user_id)
     faults = db.open_faults_by_item()
+    favourites = db.favourite_ids(user_id)
 
     needle = (q or "").strip().lower()
     rows = []
@@ -266,7 +392,8 @@ def list_items(request: Request,
                                  "spot", "notes", "size_generic")).lower()
             if needle not in haystack:
                 continue
-        rows.append(item_card(item, ratings.get(item["id"]), faults.get(item["id"])))
+        rows.append(item_card(item, ratings.get(item["id"]), faults.get(item["id"]),
+                              item["id"] in favourites))
 
     def sort_key(card):
         blocked = any(f["severity"] == "out_of_action" for f in card["faults"])
@@ -287,7 +414,8 @@ def read_item(item_id: int, request: Request):
 
     history = db.fault_history(item_id)
     card = item_card(item, db.rating_for(item_id, user_id),
-                     [f for f in history if f["status"] == "open"])
+                     [f for f in history if f["status"] == "open"],
+                     db.is_favourite(item_id, user_id))
     return {
         **card,
         "notes": item.get("notes"),
@@ -304,7 +432,7 @@ def read_item(item_id: int, request: Request):
 
 @app.post("/api/items")
 def create_item(request: Request, payload: dict = Body(...)):
-    """Add a piece of kit. Requires a name-pick; anyone on the roster can add."""
+    """Add a piece of kit. Requires an account; any signed-in member can add."""
     require_user(request)
     record = dict(payload.get("item") or {})
     ctype = record.get("component_type")
@@ -396,9 +524,23 @@ def move(request: Request, payload: dict = Body(...)):
 
 @app.post("/api/items/{item_id}/vote")
 def vote(item_id: int, request: Request, vote: Optional[int] = Body(None, embed=True)):
-    """One standing thumb per member per item; sending the same one again clears it."""
+    """Rate a piece of kit. Sending the same thumb again withdraws it.
+
+    Rating something a second time after another session on it is expected and
+    is kept as history; only the member's latest rating counts toward the stars
+    (db._LIVE_VOTES).
+    """
     user = require_user(request)
     return db.set_vote(item_id, user["id"], vote)
+
+
+@app.post("/api/items/{item_id}/favourite")
+def favourite(item_id: int, request: Request, on: bool = Body(True, embed=True)):
+    """Bookmark a piece of kit, so the rig wizard flags it while you choose."""
+    user = require_user(request)
+    if not db.get_item(item_id):
+        raise HTTPException(404, "No such item.")
+    return {"favourite": db.set_favourite(item_id, user["id"], on)}
 
 
 @app.post("/api/items/{item_id}/comments")
@@ -449,6 +591,20 @@ def rig_kit(request: Request, site: Optional[str] = Query(None)):
     who = identity(request)
     user_id = who["user"]["id"] if who["user"] else None
     return {"kit": rigkit.kit(site if site and site != "all" else None, user_id)}
+
+
+@app.get("/api/rig/suggest")
+def rig_suggest(request: Request, site: Optional[str] = Query(None)):
+    """The sizes to open Build on: this member's own, in today's wind.
+
+    A member with no logbook gets the club's usual sizes, which is where the
+    wizard started before it could learn anything. See suggest.py for the maths.
+    """
+    who = identity(request)
+    user_id = who["user"]["id"] if who["user"] else None
+    now = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    reading = wind.for_window(site, now) if site and site != "all" else None
+    return suggest.for_member(user_id, reading)
 
 
 @app.get("/api/setup")
@@ -533,6 +689,33 @@ def read_wind(site: str = Query(...), start: str = Query(...),
               end: Optional[str] = Query(None)):
     """Wind over the rig-to-de-rig window. Null when it cannot be fetched."""
     return {"wind": wind.for_window(site, start, end)}
+
+
+# --------------------------------------------------------------------------- #
+# API: the member's own record
+# --------------------------------------------------------------------------- #
+@app.get("/api/profile")
+def profile(request: Request, site: Optional[str] = Query(None)):
+    """Everything the app has learned about how this member sails.
+
+    Deliberately not a second copy of the logbook: the Log tab already shows a
+    member their sessions and rigs under "Mine". This is the shape of their
+    sailing — the sizes they rig against the wind they rig them in, which is
+    what the wizard's opening suggestion is drawn from, plus the kit they reach
+    for most and what they have bookmarked.
+    """
+    user = require_user(request)
+    now = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    reading = wind.for_window(site, now) if site and site != "all" else None
+    ratings = db.ratings_by_item(user["id"])
+    return {
+        "user": user,
+        "stats": db.member_stats(user["id"]),
+        "curve": suggest.curve(user["id"], reading),
+        "kit": db.kit_usage(user["id"]),
+        "favourites": [item_card(item, ratings.get(item["id"]), favourite=True)
+                       for item in db.favourite_items(user["id"])],
+    }
 
 
 # --------------------------------------------------------------------------- #

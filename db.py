@@ -8,8 +8,11 @@ Everything the app reads goes through here, so the HTTP layer (server.py) only
 shapes JSON and the browser never learns SQL. The windsurfing rules themselves
 live in validation.py; the normalisation the rig wizard needs is in rigkit.py.
 """
+import hashlib
+import hmac
 import json
 import re
+import secrets
 import sqlite3
 from contextlib import contextmanager
 from typing import Iterable, Optional, Union
@@ -287,7 +290,74 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_session_items_session "
                      "ON session_items(session_id)")
 
+    _migrate_accounts(conn, tables)
     _seed_locations(conn)
+
+
+def _migrate_accounts(conn: sqlite3.Connection, tables: set) -> None:
+    """Bring a name-pick database forward to real accounts.
+
+    Three changes, all of which have to keep the existing rows: sign-in
+    sessions gain a table, favourites gain a table, and `ratings` stops being
+    one standing vote per member and becomes the append-only history described
+    in schema.sql. The last one drops a UNIQUE constraint, which SQLite can
+    only do by rebuilding the table, so the rows are copied across — every
+    existing vote survives as that member's latest one.
+    """
+    if "last_seen_at" not in _columns(conn, "users"):
+        conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT")
+
+    if "auth_sessions" not in tables:
+        conn.execute("""
+            CREATE TABLE auth_sessions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_hash   TEXT UNIQUE NOT NULL,
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_agent   TEXT,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at   TEXT NOT NULL
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_user "
+                     "ON auth_sessions(user_id)")
+
+    if "favourites" not in tables:
+        conn.execute("""
+            CREATE TABLE favourites (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (user_id, item_id)
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_favourites_item "
+                     "ON favourites(item_id)")
+
+    if "voided_at" not in _columns(conn, "ratings"):
+        conn.execute("""
+            CREATE TABLE ratings_new (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                vote        INTEGER NOT NULL CHECK (vote IN (-1, 1)),
+                session_id  INTEGER,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                voided_at   TEXT,
+                voided_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                void_reason TEXT CHECK (void_reason IN ('withdrawn', 'moderated'))
+            )""")
+        conn.execute(
+            "INSERT INTO ratings_new (id, user_id, item_id, vote, session_id, "
+            "created_at, updated_at) "
+            "SELECT id, user_id, item_id, vote, session_id, created_at, updated_at "
+            "FROM ratings")
+        conn.execute("DROP TABLE ratings")
+        conn.execute("ALTER TABLE ratings_new RENAME TO ratings")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ratings_item "
+                     "ON ratings(item_id, voided_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ratings_user "
+                     "ON ratings(user_id, created_at)")
 
 
 def _seed_locations(conn: sqlite3.Connection) -> None:
@@ -614,13 +684,82 @@ def spot_description(site: Optional[str], spot: Optional[str]) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------- #
-# Users (the roster behind the name-pick login)
+# Users and accounts
+#
+# An account is username + password. The hash never leaves this module: every
+# function here returns the PUBLIC shape of a member (id, username,
+# display_name, is_admin), so no caller can leak a hash by forwarding a row.
 # --------------------------------------------------------------------------- #
+PUBLIC_USER = "id, username, display_name, is_admin"
+
+# PBKDF2-HMAC-SHA256 from the standard library. No argon2/bcrypt dependency for
+# a club app that has to install from a laptop by a lake; the round count is
+# what does the work, and is stored per-hash so it can be raised later without
+# invalidating anybody's password.
+PBKDF2_ROUNDS = 260_000
+
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,23}$")
+MIN_PASSWORD = 8
+
+# Sign-ins last a term. A member sets this up once at the start of the year and
+# is not asked again at the water's edge with cold hands.
+SESSION_DAYS = 120
+
+
+class AccountError(ValueError):
+    """A sign-up or password change the member has to fix. The message is shown
+    to them verbatim, so it is written as a sentence."""
+
+
+def normalise_username(username: str) -> str:
+    return (username or "").strip().lower()
+
+
+def check_username(username: str) -> str:
+    """Return the storable username, or raise AccountError saying what is wrong."""
+    name = normalise_username(username)
+    if not name:
+        raise AccountError("Pick a username.")
+    if not USERNAME_RE.match(name):
+        raise AccountError(
+            "A username is 3 to 24 characters: letters, numbers, dots, dashes "
+            "or underscores, starting with a letter or number."
+        )
+    return name
+
+
+def check_password(password: str) -> str:
+    if len(password or "") < MIN_PASSWORD:
+        raise AccountError(f"A password needs at least {MIN_PASSWORD} characters.")
+    return password
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(),
+                                 PBKDF2_ROUNDS).hex()
+    return f"pbkdf2_sha256${PBKDF2_ROUNDS}${salt}${digest}"
+
+
+def verify_password(stored: Optional[str], password: str) -> bool:
+    """Constant-time check of a password against a stored hash."""
+    if not stored or not password:
+        return False
+    try:
+        algorithm, rounds, salt, digest = stored.split("$")
+        if algorithm != "pbkdf2_sha256":
+            return False
+        got = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(),
+                                  int(rounds)).hex()
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(got, digest)
+
+
 def get_users() -> list:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, username, display_name, is_admin FROM users "
-            "ORDER BY display_name, username"
+            f"SELECT {PUBLIC_USER} FROM users ORDER BY display_name, username"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -628,10 +767,197 @@ def get_users() -> list:
 def get_user(user_id: int) -> Optional[dict]:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, username, display_name, is_admin FROM users WHERE id = ?",
-            (user_id,),
+            f"SELECT {PUBLIC_USER} FROM users WHERE id = ?", (user_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def get_user_by_username(username: str) -> Optional[dict]:
+    with connect() as conn:
+        row = conn.execute(
+            f"SELECT {PUBLIC_USER} FROM users WHERE username = ?",
+            (normalise_username(username),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def create_user(username: str, password: str, display_name: str = "",
+                is_admin: bool = False) -> dict:
+    """Sign somebody up. Raises AccountError for anything they can fix."""
+    name = check_username(username)
+    check_password(password)
+    display = (display_name or "").strip() or name
+    with connect() as conn:
+        taken = conn.execute("SELECT id FROM users WHERE username = ?", (name,)).fetchone()
+        if taken:
+            raise AccountError("That username is taken. Try another one.")
+        cur = conn.execute(
+            "INSERT INTO users (username, display_name, is_admin, password_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (name, display, 1 if is_admin else 0, hash_password(password)),
+        )
+        conn.commit()
+        return dict(conn.execute(
+            f"SELECT {PUBLIC_USER} FROM users WHERE id = ?", (cur.lastrowid,)
+        ).fetchone())
+
+
+def authenticate(username: str, password: str) -> Optional[dict]:
+    """The member behind these credentials, or None. Never says which half failed."""
+    with connect() as conn:
+        row = conn.execute(
+            f"SELECT {PUBLIC_USER}, password_hash FROM users WHERE username = ?",
+            (normalise_username(username),),
+        ).fetchone()
+    if not row or not verify_password(row["password_hash"], password):
+        return None
+    user = dict(row)
+    user.pop("password_hash", None)
+    return user
+
+
+def set_password(user_id: int, password: str) -> None:
+    check_password(password)
+    with connect() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                     (hash_password(password), user_id))
+        conn.commit()
+
+
+def check_current_password(user_id: int, password: str) -> bool:
+    """Does this member's own password match? Used to gate a password change."""
+    with connect() as conn:
+        row = conn.execute("SELECT password_hash FROM users WHERE id = ?",
+                           (user_id,)).fetchone()
+    return bool(row) and verify_password(row["password_hash"], password)
+
+
+def set_display_name(user_id: int, display_name: str) -> Optional[dict]:
+    name = (display_name or "").strip()
+    if not name:
+        raise AccountError("A display name cannot be blank.")
+    with connect() as conn:
+        conn.execute("UPDATE users SET display_name = ? WHERE id = ?", (name, user_id))
+        conn.commit()
+    return get_user(user_id)
+
+
+def set_admin(user_id: int, is_admin: bool) -> Optional[dict]:
+    """Make somebody committee, or stand them down.
+
+    Standing down the last admin would lock the club out of every committee
+    action with no way back except manage.py, so it is refused here.
+    """
+    with connect() as conn:
+        if not is_admin:
+            others = conn.execute(
+                "SELECT COUNT(*) AS n FROM users WHERE is_admin = 1 AND id != ?",
+                (user_id,)
+            ).fetchone()["n"]
+            if not others:
+                raise AccountError("That is the only committee account left. "
+                                   "Make somebody else committee first.")
+        conn.execute("UPDATE users SET is_admin = ? WHERE id = ?",
+                     (1 if is_admin else 0, user_id))
+        conn.commit()
+    return get_user(user_id)
+
+
+def member_admin_list() -> list:
+    """The roster as the committee's members screen shows it: who can sign in,
+    who is committee, and how much each account has actually done."""
+    with connect() as conn:
+        rows = conn.execute(f"""
+            SELECT {PUBLIC_USER},
+                   users.created_at,
+                   users.last_seen_at,
+                   users.password_hash IS NOT NULL AS has_password,
+                   (SELECT COUNT(*) FROM sessions s WHERE s.user_id = users.id)
+                       AS n_sessions,
+                   (SELECT COUNT(*) FROM ratings r
+                     WHERE r.user_id = users.id AND r.voided_at IS NULL)
+                       AS n_ratings
+            FROM users ORDER BY users.is_admin DESC, display_name, username
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# Sign-in sessions
+#
+# The cookie holds a random token; the table holds only its SHA-256, so a leaked
+# database is not a set of working sign-ins. Every request looks the token up,
+# which is what makes a sign-in revocable — the old signed cookie could not be.
+# --------------------------------------------------------------------------- #
+def _token_hash(token: str) -> str:
+    return hashlib.sha256((token or "").encode()).hexdigest()
+
+
+def start_session(user_id: int, user_agent: str = "") -> str:
+    """Sign this device in and return the token to put in the cookie."""
+    token = secrets.token_urlsafe(32)
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO auth_sessions (token_hash, user_id, user_agent, expires_at) "
+            "VALUES (?, ?, ?, datetime('now', ?))",
+            (_token_hash(token), user_id, (user_agent or "")[:200],
+             f"+{SESSION_DAYS} days"),
+        )
+        conn.execute("DELETE FROM auth_sessions WHERE expires_at < datetime('now')")
+        conn.commit()
+    return token
+
+
+def session_user(token: str) -> Optional[dict]:
+    """The member this token signs in, or None. Renews the session as it goes."""
+    if not token:
+        return None
+    digest = _token_hash(token)
+    with connect() as conn:
+        row = conn.execute(
+            f"SELECT u.id, u.username, u.display_name, u.is_admin, a.id AS session_id "
+            "FROM auth_sessions a JOIN users u ON u.id = a.user_id "
+            "WHERE a.token_hash = ? AND a.expires_at > datetime('now')",
+            (digest,),
+        ).fetchone()
+        if not row:
+            return None
+        # Sliding expiry: somebody who uses the app keeps their sign-in, and an
+        # account that goes quiet for a term is signed out on its own.
+        conn.execute(
+            "UPDATE auth_sessions SET last_seen_at = datetime('now'), "
+            "expires_at = datetime('now', ?) WHERE id = ?",
+            (f"+{SESSION_DAYS} days", row["session_id"]),
+        )
+        conn.execute("UPDATE users SET last_seen_at = datetime('now') WHERE id = ?",
+                     (row["id"],))
+        conn.commit()
+    user = dict(row)
+    user.pop("session_id", None)
+    return user
+
+
+def end_session(token: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE token_hash = ?",
+                     (_token_hash(token),))
+        conn.commit()
+
+
+def end_all_sessions(user_id: int) -> int:
+    """Sign a member out everywhere. Used after a password change."""
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cur.rowcount
+
+
+def session_count(user_id: int) -> int:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM auth_sessions "
+            "WHERE user_id = ? AND expires_at > datetime('now')", (user_id,)
+        ).fetchone()["n"]
 
 
 # --------------------------------------------------------------------------- #
@@ -763,21 +1089,48 @@ def _stars(up: int, down: int) -> Optional[float]:
     return round(1 + 4 * up / total, 1)
 
 
+# Each member's LATEST live rating, one row per member per item. Everything that
+# turns ratings into a score reads this rather than `ratings` itself.
+#
+# `ratings` keeps every rating a member ever gave a piece of kit, because they
+# are asked again after every session on it (schema.sql). Counting all of those
+# would let one enthusiast's twelve sails on the same board decide its score, so
+# the tally takes each member's most recent one and the rest stay as history —
+# the evidence the committee needs to strike out a spammer, and the record the
+# rig wizard learns a member's taste from.
+#
+# A rating with no member behind it (imported, or an account since deleted)
+# cannot be grouped by member, so each such row stands on its own.
+_LIVE_VOTES = """
+    SELECT item_id, user_id, vote, created_at FROM (
+        SELECT item_id, user_id, vote, created_at,
+               ROW_NUMBER() OVER (
+                   PARTITION BY item_id, COALESCE(user_id, -id)
+                   ORDER BY created_at DESC, id DESC) AS rn
+        FROM ratings WHERE voided_at IS NULL
+    ) WHERE rn = 1
+"""
+
+
+def _tally(up: int, down: int, mine=None) -> dict:
+    return {"up": up, "down": down, "n": up + down, "stars": _stars(up, down),
+            "mine": mine}
+
+
 def rating_for(item_id: int, user_id: Optional[int] = None) -> dict:
     with connect() as conn:
         row = conn.execute(
-            "SELECT SUM(vote = 1) AS up, SUM(vote = -1) AS down FROM ratings "
-            "WHERE item_id = ?", (item_id,)
+            f"SELECT SUM(vote = 1) AS up, SUM(vote = -1) AS down "
+            f"FROM ({_LIVE_VOTES}) WHERE item_id = ?", (item_id,)
         ).fetchone()
         mine = None
         if user_id:
             got = conn.execute(
-                "SELECT vote FROM ratings WHERE item_id = ? AND user_id = ?",
+                f"SELECT vote FROM ({_LIVE_VOTES}) WHERE item_id = ? AND user_id = ?",
                 (item_id, user_id),
             ).fetchone()
             mine = got["vote"] if got else None
-    up, down = (row["up"] or 0), (row["down"] or 0)
-    return {"up": up, "down": down, "n": up + down, "stars": _stars(up, down), "mine": mine}
+    return _tally(row["up"] or 0, row["down"] or 0, mine)
 
 
 def ratings_by_item(user_id: Optional[int] = None) -> dict:
@@ -785,15 +1138,14 @@ def ratings_by_item(user_id: Optional[int] = None) -> dict:
     out = {}
     with connect() as conn:
         for row in conn.execute(
-            "SELECT item_id, SUM(vote = 1) AS up, SUM(vote = -1) AS down "
-            "FROM ratings GROUP BY item_id"
+            f"SELECT item_id, SUM(vote = 1) AS up, SUM(vote = -1) AS down "
+            f"FROM ({_LIVE_VOTES}) GROUP BY item_id"
         ):
-            up, down = (row["up"] or 0), (row["down"] or 0)
-            out[row["item_id"]] = {"up": up, "down": down, "n": up + down,
-                                   "stars": _stars(up, down), "mine": None}
+            out[row["item_id"]] = _tally(row["up"] or 0, row["down"] or 0)
         if user_id:
             for row in conn.execute(
-                "SELECT item_id, vote FROM ratings WHERE user_id = ?", (user_id,)
+                f"SELECT item_id, vote FROM ({_LIVE_VOTES}) WHERE user_id = ?",
+                (user_id,)
             ):
                 if row["item_id"] in out:
                     out[row["item_id"]]["mine"] = row["vote"]
@@ -802,27 +1154,126 @@ def ratings_by_item(user_id: Optional[int] = None) -> dict:
 
 def set_vote(item_id: int, user_id: int, vote: Optional[int],
              session_id: Optional[int] = None) -> dict:
-    """Record (or clear) a member's standing vote on an item.
+    """Record a member's rating of an item, or withdraw it.
 
-    One vote per member per item, updatable — voting again replaces the old one
-    rather than stacking, so a heavy user of one board cannot inflate its score.
-    `vote` of None (or 0) withdraws the vote.
+    Rating the same piece again after another session is normal and does not
+    overwrite anything: the new rating is appended and becomes the one that
+    counts, while the old one stays as history. `vote` of None (or 0) withdraws
+    the member's rating — also kept, marked withdrawn rather than deleted.
     """
     with connect() as conn:
         if vote in (None, 0):
-            conn.execute("DELETE FROM ratings WHERE item_id = ? AND user_id = ?",
-                         (item_id, user_id))
+            conn.execute(
+                "UPDATE ratings SET voided_at = datetime('now'), voided_by = ?, "
+                "void_reason = 'withdrawn' "
+                "WHERE item_id = ? AND user_id = ? AND voided_at IS NULL",
+                (user_id, item_id, user_id),
+            )
         else:
             conn.execute(
                 "INSERT INTO ratings (user_id, item_id, vote, session_id) "
-                "VALUES (?, ?, ?, ?) "
-                "ON CONFLICT (user_id, item_id) DO UPDATE SET "
-                "vote = excluded.vote, session_id = excluded.session_id, "
-                "updated_at = datetime('now')",
+                "VALUES (?, ?, ?, ?)",
                 (user_id, item_id, 1 if vote > 0 else -1, session_id),
             )
         conn.commit()
     return rating_for(item_id, user_id)
+
+
+def rating_history(item_id: int, limit: int = 50) -> list:
+    """Every rating an item has had, newest first, with who and when."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT r.*, u.display_name AS user_name FROM ratings r "
+            "LEFT JOIN users u ON u.id = r.user_id "
+            "WHERE r.item_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT ?",
+            (item_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def member_ratings(user_id: int, limit: int = 200) -> list:
+    """One member's rating history, for their profile and for moderation."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT r.id, r.item_id, r.vote, r.created_at, r.voided_at, r.void_reason, "
+            "       i.manufacturer, i.model, i.component_type "
+            "FROM ratings r LEFT JOIN items i ON i.id = r.item_id "
+            "WHERE r.user_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def void_member_ratings(user_id: int, by_user_id: int) -> int:
+    """Strike out every live rating one member has given.
+
+    The committee's answer to somebody spamming 👍/👎 to move the club's numbers.
+    Nothing is deleted: the rows are marked, the tally stops counting them, and
+    restore_member_ratings puts them back if it was the wrong call.
+    """
+    with connect() as conn:
+        cur = conn.execute(
+            "UPDATE ratings SET voided_at = datetime('now'), voided_by = ?, "
+            "void_reason = 'moderated' WHERE user_id = ? AND voided_at IS NULL",
+            (by_user_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+def restore_member_ratings(user_id: int) -> int:
+    """Undo a moderation. A rating the member withdrew themselves stays withdrawn."""
+    with connect() as conn:
+        cur = conn.execute(
+            "UPDATE ratings SET voided_at = NULL, voided_by = NULL, void_reason = NULL "
+            "WHERE user_id = ? AND void_reason = 'moderated'",
+            (user_id,),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+# --------------------------------------------------------------------------- #
+# Favourites: kit a member has bookmarked
+# --------------------------------------------------------------------------- #
+def favourite_ids(user_id: Optional[int]) -> set:
+    if not user_id:
+        return set()
+    with connect() as conn:
+        return {r["item_id"] for r in conn.execute(
+            "SELECT item_id FROM favourites WHERE user_id = ?", (user_id,))}
+
+
+def is_favourite(item_id: int, user_id: Optional[int]) -> bool:
+    if not user_id:
+        return False
+    with connect() as conn:
+        return bool(conn.execute(
+            "SELECT 1 FROM favourites WHERE user_id = ? AND item_id = ?",
+            (user_id, item_id)).fetchone())
+
+
+def set_favourite(item_id: int, user_id: int, on: bool) -> bool:
+    with connect() as conn:
+        if on:
+            conn.execute(
+                "INSERT OR IGNORE INTO favourites (user_id, item_id) VALUES (?, ?)",
+                (user_id, item_id))
+        else:
+            conn.execute("DELETE FROM favourites WHERE user_id = ? AND item_id = ?",
+                         (user_id, item_id))
+        conn.commit()
+    return bool(on)
+
+
+def favourite_items(user_id: int) -> list:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT i.*, f.created_at AS favourited_at FROM favourites f "
+            "JOIN items i ON i.id = f.item_id WHERE f.user_id = ? "
+            "ORDER BY f.created_at DESC", (user_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # --------------------------------------------------------------------------- #
@@ -1064,3 +1515,84 @@ def get_session(session_id: int) -> Optional[dict]:
             "WHERE si.session_id = ?", (session_id,)
         )]
     return session
+
+
+# --------------------------------------------------------------------------- #
+# A member's own history
+#
+# What one member has actually sailed, in the shape the rig wizard's opening
+# suggestion and the profile screen both need: one row per logged session, with
+# the wind, the sail and board sizes used, and what they thought of them.
+# --------------------------------------------------------------------------- #
+def rider_history(user_id: int, limit: int = 200) -> list:
+    """One row per session: the conditions, the sizes used, and the verdicts.
+
+    `sail_vote`/`board_vote` are the 👍/👎 given in the log itself, so a session
+    carries its own verdict on the kit rather than the member's current standing
+    one — the point is what worked on the day, in that wind.
+    """
+    with connect() as conn:
+        rows = conn.execute("""
+            SELECT s.id, s.site, s.wind_kn, s.wind_gust_kn, s.wind_dir, s.stars,
+                   COALESCE(s.ended_at, s.created_at) AS at,
+                   MAX(CASE WHEN i.component_type = 'sail'  THEN i.size_m2 END) AS sail_m2,
+                   MAX(CASE WHEN i.component_type = 'board' THEN i.size_l  END) AS board_l,
+                   MAX(CASE WHEN i.component_type = 'sail'  THEN si.vote   END) AS sail_vote,
+                   MAX(CASE WHEN i.component_type = 'board' THEN si.vote   END) AS board_vote,
+                   MAX(CASE WHEN i.component_type = 'sail'  THEN i.id      END) AS sail_id,
+                   MAX(CASE WHEN i.component_type = 'board' THEN i.id      END) AS board_id
+            FROM sessions s
+            LEFT JOIN session_items si ON si.session_id = s.id
+            LEFT JOIN items i ON i.id = si.item_id
+            WHERE s.user_id = ?
+            GROUP BY s.id
+            ORDER BY at DESC, s.id DESC
+            LIMIT ?
+        """, (user_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def kit_usage(user_id: int, limit: int = 15) -> list:
+    """The kit this member reaches for most, with their latest rating of it."""
+    with connect() as conn:
+        rows = conn.execute(f"""
+            SELECT i.id, i.manufacturer, i.model, i.component_type, i.type,
+                   i.size_m2, i.size_l, i.length_cm, i.fin_length_cm,
+                   i.min_size_cm, i.max_size_cm, i.size_generic, i.condition,
+                   COUNT(*) AS times,
+                   MAX(COALESCE(s.ended_at, s.created_at)) AS last_used,
+                   (SELECT vote FROM ({_LIVE_VOTES}) v
+                     WHERE v.item_id = i.id AND v.user_id = ?) AS my_vote,
+                   EXISTS (SELECT 1 FROM favourites f
+                            WHERE f.item_id = i.id AND f.user_id = ?) AS favourite
+            FROM session_items si
+            JOIN sessions s ON s.id = si.session_id
+            JOIN items i ON i.id = si.item_id
+            WHERE s.user_id = ?
+            GROUP BY i.id
+            ORDER BY times DESC, last_used DESC
+            LIMIT ?
+        """, (user_id, user_id, user_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def member_stats(user_id: int) -> dict:
+    """The handful of numbers a profile leads with."""
+    with connect() as conn:
+        row = conn.execute("""
+            SELECT COUNT(*) AS n_sessions,
+                   COUNT(DISTINCT site) AS n_sites,
+                   MIN(COALESCE(ended_at, created_at)) AS first_at,
+                   MAX(COALESCE(ended_at, created_at)) AS last_at,
+                   AVG(stars) AS avg_stars,
+                   AVG(wind_kn) AS avg_wind
+            FROM sessions WHERE user_id = ?
+        """, (user_id,)).fetchone()
+        stats = dict(row)
+        stats["n_ratings"] = conn.execute(
+            "SELECT COUNT(*) AS n FROM ratings WHERE user_id = ? AND voided_at IS NULL",
+            (user_id,)).fetchone()["n"]
+        stats["n_favourites"] = conn.execute(
+            "SELECT COUNT(*) AS n FROM favourites WHERE user_id = ?",
+            (user_id,)).fetchone()["n"]
+    return stats

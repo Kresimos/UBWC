@@ -50,7 +50,7 @@ def _fault_flags(faults: list) -> list:
              "d": f.get("description") or ""} for f in faults]
 
 
-def to_piece(item: dict, faults: list, rating: dict) -> dict:
+def to_piece(item: dict, faults: list, rating: dict, favourite: bool = False) -> dict:
     """One inventory row as the wizard sees it. Absent numbers stay None so the
     rules can tell "does not fit" apart from "we do not know"."""
     kind = rig_kind(item)
@@ -66,6 +66,9 @@ def to_piece(item: dict, faults: list, rating: dict) -> dict:
         "faults": _fault_flags(faults),
         "rate": ({"avg": rating["stars"], "n": rating["n"]}
                  if rating and rating.get("n") else None),
+        # Bookmarked by the member looking at this list, so the wizard can tag
+        # the pieces they already know they like.
+        "fav": 1 if favourite else 0,
     }
 
     if kind == "sail":
@@ -103,6 +106,7 @@ def kit(site: str = None, user_id: int = None) -> list:
     """
     faults = db.open_faults_by_item()
     ratings = db.ratings_by_item(user_id)
+    favourites = db.favourite_ids(user_id)
     pieces = []
     for item in db.all_items():
         if not rig_kind(item):
@@ -112,5 +116,6 @@ def kit(site: str = None, user_id: int = None) -> list:
         item_faults = faults.get(item["id"], [])
         if any(f["severity"] == "out_of_action" for f in item_faults):
             continue
-        pieces.append(to_piece(item, item_faults, ratings.get(item["id"])))
+        pieces.append(to_piece(item, item_faults, ratings.get(item["id"]),
+                               item["id"] in favourites))
     return pieces

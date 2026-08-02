@@ -13,8 +13,8 @@ import { html, mount, num, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe, isCommittee } from '../store.js';
-import { conditionClass, worstFault, sitePill } from '../ui/bits.js';
-import { pickSite, needCommittee } from '../ui/chrome.js';
+import { conditionClass, worstFault, sitePill, wireWhoPill } from '../ui/bits.js';
+import { pickSite, needCommittee, openIdentity } from '../ui/chrome.js';
 import { chooser, formSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
 
@@ -207,9 +207,11 @@ export async function render(root) {
     const label = root.querySelector('[data-sitelabel]');
     if (label) label.textContent = siteLabel();
   });
+  // The app opens here, so this is where signing in has to be reachable.
+  const unwire = wireWhoPill(root, openIdentity, { compact: true });
 
   await load();
-  return () => { unsubscribe(); clearTimeout(typingTimer); };
+  return () => { unsubscribe(); unwire(); clearTimeout(typingTimer); };
 }
 
 // ------------------------------------------------------------------ markup
@@ -225,6 +227,7 @@ function shell() {
           ${icon('pin')}<span class="nm" data-sitelabel>${siteLabel()}</span>
           <span class="caret">${icon('chevronDown')}</span>
         </button>
+        <span data-who></span>
       </div>
       <label class="searchbar">
         ${icon('search')}

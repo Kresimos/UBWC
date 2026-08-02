@@ -304,6 +304,9 @@ button:active, [role="button"]:active {
   font-size: 10px; font-weight: 750; display: flex; align-items: center; justify-content: center;
 }
 .whobtn.out .av { background: var(--app-faint); }
+/* Avatar only, for a bar that has no room for a name. */
+.whobtn.dot { margin-left: 8px; padding: 4px; gap: 0; }
+.whobtn.dot .av { width: 24px; height: 24px; font-size: 11px; }
 .whobtn .key { width: 12px; height: 12px; color: var(--teal); }
 
 .searchbar {

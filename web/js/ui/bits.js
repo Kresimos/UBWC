@@ -77,13 +77,22 @@ export function sitePill(label) {
   return html`<button class="site" data-pick-site>${icon('pin')}${label}</button>`;
 }
 
-export function whoPill() {
+export function whoPill({ compact = false } = {}) {
+  const name = store.user && (store.user.display_name || store.user.username);
+  // The Catalogue's bar already carries the club mark and the site, so there it
+  // is the avatar alone. Everywhere else the pill says the name outright.
+  if (compact) {
+    return html`<button class="whobtn dot ${store.user ? '' : 'out'}" data-identity
+                        aria-label="${store.user ? `Signed in as ${name}` : 'Sign in'}">
+      <span class="av">${store.user ? avatar(name) : '?'}</span>
+    </button>`;
+  }
   if (!store.user) {
     return html`<button class="whobtn out" data-identity><span class="av">?</span>Sign in</button>`;
   }
   return html`<button class="whobtn" data-identity>
-    <span class="av">${avatar(store.user.display_name || store.user.username)}</span>
-    ${store.user.display_name || store.user.username}
+    <span class="av">${avatar(name)}</span>
+    ${name}
     ${store.committee ? html`<span class="key">${icon('key')}</span>` : ''}
   </button>`;
 }
@@ -94,11 +103,11 @@ export function whoPill() {
  * saying "Sign in" to somebody who just did. Returns the unsubscribe for the
  * screen to hand back to the router.
  */
-export function wireWhoPill(root, onOpen) {
+export function wireWhoPill(root, onOpen, options) {
   const slot = root.querySelector('[data-who]');
   if (!slot) return () => {};
   const paint = () => {
-    mount(slot, whoPill());
+    mount(slot, whoPill(options));
     slot.querySelector('[data-identity]').addEventListener('click', onOpen);
   };
   paint();

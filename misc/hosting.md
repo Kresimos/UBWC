@@ -63,7 +63,7 @@ the server. It is not overhead to optimise away; it is the thing that makes
 this a club app rather than a leaflet.
 
 The second reason is enforcement. Anything you want to be a **rule** has to run
-on a computer you control. If the committee PIN were checked in JavaScript on
+on a computer you control. If the committee flag were checked in JavaScript on
 the phone, any member could open the browser developer tools and walk straight
 past it. Code on the phone is a suggestion; code on the server is a rule. (The
 rig maths in `web/js/rig/engine.js` runs on the phone on purpose, because it is
@@ -239,6 +239,11 @@ Two things to do whichever way you go:
 - Domain name. `ubwc.co.uk` or similar is roughly £10/year, or the SU may let
   you have a subdomain. Not needed to launch, easy to add later. Every option
   above gives you a working HTTPS address on day one.
-- Whether members ever get accounts. Today identity is a name-pick plus a
-  shared committee PIN, which needs no email sending and no password storage.
-  Real accounts would add an email provider to this list.
+- Password resets by email. Members have real accounts as of 2 Aug 2026
+  (username and password, hashed with PBKDF2, sessions in the database), but a
+  forgotten password is reset by a committee member rather than by email, which
+  is why no email provider appears in this document. Adding self-service resets
+  is what would add one.
+- One consequence of accounts for hosting: set `UBWC_HTTPS=1` wherever the app
+  ends up, so the session cookie is marked Secure. Every option above terminates
+  HTTPS for you.

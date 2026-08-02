@@ -27,7 +27,7 @@ WEB = ROOT / "web"
 
 # The cookie carries a session token; the account behind it is looked up on
 # every request (db.session_user), so signing out here signs out for real and a
-# committee member is committee because their account says so — there is no
+# committee member is committee because their account says so; there is no
 # shared PIN and nothing about the member is carried in the cookie itself.
 COOKIE = "ubwc_session"
 
@@ -225,7 +225,7 @@ def _field_meta(field: str) -> dict:
 def signup(request: Request, response: Response, payload: dict = Body(...)):
     """Join the club app. Open sign-up: anyone with the link can make an account.
 
-    A new account is never committee — that is handed out by an existing
+    A new account is never committee: that is handed out by an existing
     committee member, or from the server with manage.py.
     """
     try:
@@ -299,7 +299,7 @@ def change_display_name(request: Request, payload: dict = Body(...)):
 #
 # Committee is an account flag now, so somebody has to be able to hand it out.
 # Only a committee member can, and the last one cannot stand themselves down
-# (db.set_admin) — otherwise the club locks itself out of its own kit list.
+# (db.set_admin), otherwise the club locks itself out of its own kit list.
 # --------------------------------------------------------------------------- #
 @app.get("/api/members")
 def members(request: Request):
@@ -602,9 +602,9 @@ def rig_suggest(request: Request, site: Optional[str] = Query(None)):
     """
     who = identity(request)
     user_id = who["user"]["id"] if who["user"] else None
+    here = site if site and site != "all" else None
     now = datetime.now(timezone.utc).isoformat(timespec="minutes")
-    reading = wind.for_window(site, now) if site and site != "all" else None
-    return suggest.for_member(user_id, reading)
+    return suggest.for_member(user_id, wind.for_window(here, now) if here else None, here)
 
 
 @app.get("/api/setup")
@@ -700,18 +700,19 @@ def profile(request: Request, site: Optional[str] = Query(None)):
 
     Deliberately not a second copy of the logbook: the Log tab already shows a
     member their sessions and rigs under "Mine". This is the shape of their
-    sailing — the sizes they rig against the wind they rig them in, which is
+    sailing: the sizes they rig against the wind they rig them in, which is
     what the wizard's opening suggestion is drawn from, plus the kit they reach
     for most and what they have bookmarked.
     """
     user = require_user(request)
+    here = site if site and site != "all" else None
     now = datetime.now(timezone.utc).isoformat(timespec="minutes")
-    reading = wind.for_window(site, now) if site and site != "all" else None
+    reading = wind.for_window(here, now) if here else None
     ratings = db.ratings_by_item(user["id"])
     return {
         "user": user,
         "stats": db.member_stats(user["id"]),
-        "curve": suggest.curve(user["id"], reading),
+        "curve": suggest.curve(user["id"], reading, here),
         "kit": db.kit_usage(user["id"]),
         "favourites": [item_card(item, ratings.get(item["id"]), favourite=True)
                        for item in db.favourite_items(user["id"])],

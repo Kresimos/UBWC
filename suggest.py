@@ -12,17 +12,17 @@ sail. So each session gives one number,
 
     K = sail area (m²) x wind (kn),
 
-which is that rider's own "power constant" — it folds their weight, board and
+which is that rider's own "power constant", since it folds their weight, board and
 ambition into a single figure, which is exactly the part a formula cannot know
 in advance. A club-average K of 100 is 5.5 m² at 18 kn, 7 m² at 14 kn, 4.5 m²
 at 22 kn: the sizes a Cheddar Wednesday actually rigs.
 
 The member's own K is a weighted mean of their sessions', weighted by:
 
-  - **verdict** — a session they gave the sail a 👍 is the strongest evidence of
+  - **verdict**: a session they gave the sail a 👍 is the strongest evidence of
     a right-sized rig, a 👎 the weakest, with the session's own star rating
     nudging it either way;
-  - **recency** — this year's sailing counts for more than last year's, with a
+  - **recency**: this year's sailing counts for more than last year's, with a
     half-life of about a season.
 
 That mean is then **shrunk toward the club average**, which is the honest way to
@@ -32,7 +32,7 @@ and a member with a season of logs is suggested their own number rather than
 the club's.
 
 **Board.** Volume is chosen from rider weight and skill, not from the wind
-(CLAUDE.md, "Board sizing"), so it is not fitted to a curve — it is the member's
+(CLAUDE.md, "Board sizing"), so it is not fitted to a curve; it is the member's
 own weighted median volume, nudged one step up in light wind and down in strong,
 and shrunk toward the club default the same way.
 
@@ -133,12 +133,41 @@ def _usable_wind(wind) -> float:
     return _clamp(speed, WIND_RANGE) if speed > 0 else None
 
 
-def for_member(user_id, wind=None) -> dict:
+def stock_range(component: str, column: str, site=None) -> tuple:
+    """The smallest and biggest of something the club actually owns.
+
+    The curve is only a curve: in a near calm it happily asks for 12 m², and in
+    a gale for 2, neither of which is in the container. A suggestion is only
+    useful if it is a size somebody can walk over and pick up, so both wheels
+    are held inside what is on the rack (at this site, if a site is chosen).
+    Returns (None, None) when there is nothing of that kind here.
+    """
+    sizes = [item[column] for item in db.all_items()
+             if item.get("component_type") == component
+             and item.get(column) is not None
+             and (not site or item.get("location") == site)]
+    if not sizes and site:
+        return stock_range(component, column)
+    return (min(sizes), max(sizes)) if sizes else (None, None)
+
+
+def _bounds(wheel: tuple, stock: tuple) -> tuple:
+    """The wheel's own limits, narrowed to what is in stock where we can."""
+    low, high = wheel
+    if stock[0] is not None:
+        low = max(low, min(stock[0], high))
+        high = min(high, max(stock[1], low))
+    return (low, high)
+
+
+def for_member(user_id, wind=None, site=None) -> dict:
     """The sail and board sizes to open Build on.
 
-    `wind` is a wind.for_window() reading (or None). Returns both suggestions
-    with the working shown, because the wizard says *why* it opened where it
-    did — a number a member cannot account for is one they will not trust.
+    `wind` is a wind.for_window() reading (or None) and `site` is where the
+    member says they are, which decides what kit the suggestion may point at.
+    Returns both suggestions with the working shown, because the wizard says
+    *why* it opened where it did, because a number a member cannot account for
+    is one they will not trust.
     """
     history = db.rider_history(user_id) if user_id else []
     speed = _usable_wind(wind)
@@ -154,25 +183,25 @@ def for_member(user_id, wind=None) -> dict:
                            weight * _verdict(row.get("board_vote"), row.get("stars"))))
 
     return {
-        "sail": _sail(sails, speed),
-        "board": _board(boards, speed),
+        "sail": _sail(sails, speed, _bounds(SAIL_RANGE, stock_range("sail", "size_m2", site))),
+        "board": _board(boards, speed, _bounds(BOARD_RANGE, stock_range("board", "size_l", site))),
         "wind": wind or None,
         "sessions": len(history),
     }
 
 
-def _sail(sails, speed) -> dict:
+def _sail(sails, speed, bounds=SAIL_RANGE) -> dict:
     """K, shrunk toward the club's, divided by the wind."""
     weight = sum(w for _, w in sails)
     k = (sum(k * w for k, w in sails) + CLUB_K * PRIOR_SESSIONS) / (weight + PRIOR_SESSIONS)
 
     if speed:
-        value = _clamp(k / speed, SAIL_RANGE)
+        value = _clamp(k / speed, bounds)
         basis = "yours" if sails else "club"
     else:
         # No wind to divide by: fall back on the size they actually rig most.
         median = _weighted_median([(k / CLUB_K * 5.5, w) for k, w in sails])
-        value = _clamp(median, SAIL_RANGE) if median else CLUB_K / 18.0
+        value = _clamp(median if median else CLUB_K / 18.0, bounds)
         basis = "yours-nowind" if median else "club-nowind"
 
     return {
@@ -184,7 +213,7 @@ def _sail(sails, speed) -> dict:
     }
 
 
-def _board(boards, speed) -> dict:
+def _board(boards, speed, bounds=BOARD_RANGE) -> dict:
     weight = sum(w for _, w in boards)
     median = _weighted_median(boards)
     if median is None:
@@ -202,7 +231,7 @@ def _board(boards, speed) -> dict:
     elif speed and speed > 25:
         value *= 0.95
 
-    value = _clamp(round(value / 5) * 5, BOARD_RANGE)   # the wheel steps in 5 L
+    value = _clamp(round(value / 5) * 5, bounds)   # the wheel steps in 5 L
     return {
         "value": round(value),
         "n": len(boards),
@@ -232,14 +261,14 @@ def _why_board(basis, n, speed) -> str:
     return f"From {sessions}."
 
 
-def curve(user_id, wind=None) -> dict:
+def curve(user_id, wind=None, site=None) -> dict:
     """The member's sessions and their fitted sail curve, for the profile chart.
 
     The same numbers the suggestion is made of, laid out so a chart can draw
     them: one point per session (wind against sail size), the curve K/wind
     through them, and where today sits on it.
     """
-    result = for_member(user_id, wind)
+    result = for_member(user_id, wind, site)
     points = []
     for row in db.rider_history(user_id) if user_id else []:
         if not row.get("sail_m2") or not row.get("wind_kn"):

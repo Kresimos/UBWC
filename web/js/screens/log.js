@@ -10,8 +10,8 @@ import { html, mount, num, ago, clockTime, spanned, stampDate, onClick, initial 
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
-import { starIcons } from '../ui/bits.js';
-import { refreshSetup, needUser } from '../ui/chrome.js';
+import { starIcons, wireWhoPill } from '../ui/bits.js';
+import { refreshSetup, needUser, openIdentity } from '../ui/chrome.js';
 import { confirmSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
 import { building } from '../rig/session.js';
@@ -45,8 +45,10 @@ export async function render(root) {
     }
   }
 
+  const unwire = wireWhoPill(root, openIdentity);
+
   onClick(root, 'data-scope', async (value) => {
-    if (value === 'mine' && !(await needUser('Your own sessions are tied to your name.'))) return;
+    if (value === 'mine' && !(await needUser('Your own sessions are tied to your account.'))) return;
     state.scope = value;
     root.querySelectorAll('[data-scope]').forEach((button) =>
       button.classList.toggle('on', button.getAttribute('data-scope') === value));
@@ -91,12 +93,16 @@ export async function render(root) {
   });
 
   await loadFeed();
+  return unwire;
 }
 
 function shell(unlogged) {
   return html`
     <div class="appbar">
-      <div class="row"><span class="ttl">Logbook</span></div>
+      <div class="row">
+        <span class="ttl">Logbook</span>
+        <span data-who></span>
+      </div>
       <div class="seg">
         <button class="on" data-scope="club">Club feed</button>
         <button data-scope="mine">Mine</button>

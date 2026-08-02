@@ -3,7 +3,7 @@
  *
  * Two things are genuinely app-wide and everything else is local to a screen:
  *
- *  - **who you are** (the name-pick, and whether the committee PIN is unlocked),
+ *  - **who you are** (the signed-in account, and whether it is a committee one),
  *    because it decides what every screen offers;
  *  - **which site you are at**, because it drives both the catalogue filter and
  *    what the rig assistant will suggest — it is the same question in two
@@ -20,7 +20,6 @@ const listeners = new Set();
 export const store = {
   user: null,
   committee: false,
-  roster: [],
   sites: [],
   spots: [],
   types: [],
@@ -47,7 +46,6 @@ export function emit() {
 export function applyBootstrap(data) {
   store.user = data.user;
   store.committee = data.committee;
-  store.roster = data.roster;
   store.sites = data.sites;
   store.spots = data.spots;
   store.types = data.types;

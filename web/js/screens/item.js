@@ -94,12 +94,24 @@ export async function render(root, params) {
     });
 
     onClick(root, 'data-vote', async (value) => {
-      if (!(await needUser('Rating kit is one standing vote per member.'))) return;
+      if (!(await needUser('Ratings are signed with your name.'))) return;
       // Pressing the thumb you already gave withdraws it; the other one
-      // replaces it. Either way there is only ever one vote from you.
+      // replaces it. Rating the same piece again after another sail is fine and
+      // expected: the club's stars count your latest word on it, not every one.
       const next = item.rating.mine === Number(value) ? 0 : Number(value);
       item.rating = await api.vote(id, next);
       paint();
+    });
+
+    onClick(root, 'data-fav', async () => {
+      if (!(await needUser('Saved kit is kept with your account.'))) return;
+      const next = !item.favourite;
+      const data = await api.favourite(id, next);
+      item.favourite = data.favourite;
+      paint();
+      toast(item.favourite
+        ? 'Saved. The rig assistant will flag it while you choose.'
+        : 'Removed from your kit.');
     });
 
     const rigBtn = root.querySelector('[data-rig]');
@@ -251,7 +263,14 @@ function screen(item, historyOpen) {
       <div class="hero">
         <div class="hero-nav">
           <button class="iconbtn" data-back aria-label="Back">${icon('back')}</button>
-          <button class="iconbtn" data-edit aria-label="Edit">${icon('edit')}</button>
+          <span class="hero-acts">
+            <button class="iconbtn ${item.favourite ? 'on' : ''}" data-fav
+                    aria-pressed="${item.favourite ? 'true' : 'false'}"
+                    aria-label="${item.favourite ? 'Remove from your kit' : 'Save to your kit'}">
+              ${icon(item.favourite ? 'bookmarkOn' : 'bookmark')}
+            </button>
+            <button class="iconbtn" data-edit aria-label="Edit">${icon('edit')}</button>
+          </span>
         </div>
         ${item.image_path
           ? html`<img src="${item.image_path}" alt="">`
@@ -357,8 +376,8 @@ function screen(item, historyOpen) {
             </div>
           </div>
           <span class="cntline">${rating.n
-            ? `${rating.n} ${rating.n === 1 ? 'vote' : 'votes'} · ${rating.up} up, ${rating.down} down`
-            : 'One thumb per member. Yours is the first.'}</span>
+            ? `${rating.n} ${rating.n === 1 ? 'member' : 'members'} · ${rating.up} up, ${rating.down} down`
+            : 'Nobody has rated this yet. Yours is the first.'}</span>
         </div>
 
         <div class="sect">

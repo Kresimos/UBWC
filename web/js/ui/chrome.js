@@ -92,104 +92,233 @@ export async function pickSite({ allowAll = true } = {}) {
 }
 
 /**
- * Signing in is picking your name — no password. The shared committee PIN is
- * offered separately, because that is the real gate.
+ * The account menu, or the sign-in sheet when there is nobody signed in.
+ *
+ * Committee is a property of the account now, not something unlocked on a
+ * device, so there is nothing here to lock or unlock: a committee member is
+ * committee wherever they sign in, and everybody else is not.
  */
 export async function openIdentity() {
-  if (!store.user) return pickName();
+  if (!store.user) return signIn();
 
   const rows = [
-    { value: 'switch', label: 'Switch member', sub: 'Pick a different name' },
-    store.committee
-      ? { value: 'lock', label: 'Lock committee actions', sub: 'Moving, deleting and clearing faults', on: true }
-      : { value: 'unlock', label: 'Unlock committee actions', sub: 'Needs the shared PIN' },
-    { value: 'out', label: 'Sign out', sub: 'Browsing carries on working' },
+    { value: 'profile', label: 'Your sailing', sub: 'The sizes you rig, and the kit you keep going back to' },
+    { value: 'name', label: 'Change display name', sub: store.user.display_name || store.user.username },
+    { value: 'password', label: 'Change password', sub: 'Signs your other devices out' },
   ];
+  if (store.committee) {
+    rows.push({ value: 'members', label: 'Members', sub: 'Who is committee, and rating clean-up' });
+  }
+  rows.push({ value: 'out', label: 'Sign out', sub: 'Browsing carries on working' });
 
   const choice = await chooser({
     title: store.user.display_name || store.user.username,
     sub: store.committee
-      ? 'Committee actions are unlocked on this device.'
-      : 'Signed in for attribution. Committee actions need the PIN.',
+      ? `Signed in as ${store.user.username}. Committee: you can move, delete and clear faults.`
+      : `Signed in as ${store.user.username}.`,
     rows,
   });
 
-  if (choice === 'switch') return pickName();
+  if (choice === 'profile') { go('/me'); return store.user; }
+  if (choice === 'name') return changeName();
+  if (choice === 'password') return changePassword();
+  if (choice === 'members') return manageMembers();
   if (choice === 'out') {
     const data = await api.logout();
     setIdentity(data.user, data.committee);
     toast('Signed out.');
     return null;
   }
-  if (choice === 'lock') {
-    // Re-picking the same name is what drops the committee flag.
-    const data = await api.login(store.user.id);
-    setIdentity(data.user, data.committee);
-    toast('Committee actions locked.');
-    return store.user;
-  }
-  if (choice === 'unlock') return unlockCommittee();
   return store.user;
 }
 
-export async function pickName() {
-  const chosen = await chooser({
-    title: 'Who are you?',
-    sub: 'Pick your name from the roster. No password — this is for attribution, so the club knows who added, rated or reported what.',
-    rows: store.roster.map((member) => ({
-      value: String(member.id),
-      label: member.display_name || member.username,
-      sub: member.is_admin ? 'Committee' : 'Member',
-      avatar: initial(member.display_name || member.username),
-      on: store.user && store.user.id === member.id,
-    })),
+/** Sign in, with a way across to signing up. */
+export async function signIn({ sub } = {}) {
+  const result = await formSheet({
+    title: 'Sign in',
+    sub: sub || 'Your account is what keeps your ratings, rigs and logbook yours.',
+    fields: [
+      { name: 'username', label: 'Username', required: true, autocomplete: 'username' },
+      { name: 'password', label: 'Password', type: 'password', required: true,
+        autocomplete: 'current-password' },
+    ],
+    submitLabel: 'Sign in',
+    alt: 'Create an account',
+    onSubmit: (values) => api.login(values.username, values.password),
   });
-  if (!chosen) return null;
-  const data = await api.login(Number(chosen));
-  setIdentity(data.user, data.committee);
-  toast(`Signed in as ${data.user.display_name}.`);
-  return data.user;
+  if (!result) return null;
+  if (result.alt) return signUp();
+  setIdentity(result.user, result.committee);
+  toast(`Signed in as ${result.user.display_name}.`);
+  return result.user;
 }
 
-export async function unlockCommittee() {
-  const values = await formSheet({
-    title: 'Committee PIN',
-    sub: 'Moving kit, deleting kit and clearing faults are committee actions.',
-    fields: [{ name: 'pin', label: 'Shared PIN', type: 'password', required: true, inputmode: 'numeric' }],
-    submitLabel: 'Unlock',
+export async function signUp() {
+  const result = await formSheet({
+    title: 'Create an account',
+    sub: 'Anyone in the club can. Your username is how you sign in; your display name is what the club sees.',
+    fields: [
+      { name: 'username', label: 'Username', required: true, autocomplete: 'username',
+        hint: 'Letters, numbers, dots or dashes.' },
+      { name: 'display_name', label: 'Display name', autocomplete: 'name',
+        hint: 'Optional. Defaults to your username.' },
+      { name: 'password', label: 'Password', type: 'password', required: true,
+        autocomplete: 'new-password', hint: 'At least 8 characters.' },
+    ],
+    submitLabel: 'Create account',
+    alt: 'I already have one',
+    onSubmit: (values) => api.signup(values.username, values.password, values.display_name),
   });
-  if (!values) return false;
-  try {
-    const data = await api.unlockCommittee(values.pin);
-    setIdentity(data.user, data.committee);
-    toast('Committee actions unlocked.');
-    return true;
-  } catch (error) {
-    toast(error.message, true);
-    return false;
-  }
+  if (!result) return null;
+  if (result.alt) return signIn();
+  setIdentity(result.user, result.committee);
+  toast(`Welcome, ${result.user.display_name}.`);
+  return result.user;
+}
+
+async function changeName() {
+  const result = await formSheet({
+    title: 'Change display name',
+    sub: 'What the club sees on your ratings, faults and logbook. Your username does not change.',
+    fields: [{ name: 'display_name', label: 'Display name', required: true,
+               value: store.user.display_name || '' }],
+    submitLabel: 'Save',
+    onSubmit: (values) => api.changeName(values.display_name),
+  });
+  if (!result) return store.user;
+  setIdentity(result.user, result.committee);
+  toast('Name changed.');
+  return result.user;
+}
+
+async function changePassword() {
+  const result = await formSheet({
+    title: 'Change password',
+    sub: 'Every other device signed in as you is signed out. This one stays.',
+    fields: [
+      { name: 'current', label: 'Current password', type: 'password', required: true,
+        autocomplete: 'current-password' },
+      { name: 'password', label: 'New password', type: 'password', required: true,
+        autocomplete: 'new-password', hint: 'At least 8 characters.' },
+    ],
+    submitLabel: 'Change it',
+    onSubmit: (values) => api.changePassword(values.current, values.password),
+  });
+  if (!result) return store.user;
+  setIdentity(result.user, result.committee);
+  toast('Password changed.');
+  return result.user;
 }
 
 /**
- * Guard for anything that needs a name. Returns the member, or null after
- * offering the name-pick — so a member never hits a dead "you must log in".
+ * The committee's member list: who can sign in, who is committee, and the one
+ * moderation tool the club needs: striking out somebody's ratings when they
+ * have been spammed to move the numbers. Nothing here deletes anything.
+ */
+async function manageMembers() {
+  let members;
+  try {
+    ({ members } = await api.members());
+  } catch (error) {
+    toast(error.message, true);
+    return store.user;
+  }
+
+  const chosen = await chooser({
+    title: 'Members',
+    sub: 'Committee can hand out committee, reset a password, and clean up ratings.',
+    rows: members.map((member) => ({
+      value: String(member.id),
+      label: member.display_name || member.username,
+      sub: [
+        member.is_admin ? 'Committee' : 'Member',
+        member.has_password ? null : 'no password set',
+        `${member.n_sessions} sessions`,
+        `${member.n_ratings} ratings`,
+      ].filter(Boolean).join(' · '),
+      avatar: initial(member.display_name || member.username),
+      on: member.is_admin,
+    })),
+  });
+  if (!chosen) return store.user;
+  return memberActions(members.find((m) => String(m.id) === chosen));
+}
+
+async function memberActions(member) {
+  const name = member.display_name || member.username;
+  const choice = await chooser({
+    title: name,
+    sub: `${member.username} · ${member.n_ratings} live ratings`,
+    rows: [
+      member.is_admin
+        ? { value: 'demote', label: 'Stand down from committee', sub: 'Back to an ordinary member' }
+        : { value: 'promote', label: 'Make committee', sub: 'Moving, deleting and clearing faults' },
+      { value: 'password', label: 'Set a password', sub: 'For a forgotten one, or to claim an old roster name' },
+      { value: 'void', label: 'Strike out their ratings', sub: 'Stops them counting. Reversible.' },
+      { value: 'restore', label: 'Put struck-out ratings back', sub: 'Undoes the above' },
+    ],
+  });
+
+  try {
+    if (choice === 'promote' || choice === 'demote') {
+      await api.setMemberAdmin(member.id, choice === 'promote');
+      toast(choice === 'promote' ? `${name} is committee.` : `${name} stood down.`);
+    } else if (choice === 'password') {
+      const done = await formSheet({
+        title: `Set a password for ${name}`,
+        sub: 'Tell them what it is, and to change it once they are in. Signs them out everywhere.',
+        fields: [{ name: 'password', label: 'New password', type: 'password', required: true,
+                   autocomplete: 'new-password', hint: 'At least 8 characters.' }],
+        submitLabel: 'Set it',
+        onSubmit: (values) => api.setMemberPassword(member.id, values.password),
+      });
+      if (done) toast(`Password set for ${name}.`);
+    } else if (choice === 'void') {
+      const sure = await confirmSheet({
+        title: `Strike out ${name}'s ratings?`,
+        sub: 'Their ratings stop counting toward every star in the app. Nothing is deleted and you can put them back.',
+        confirmLabel: 'Strike them out',
+      });
+      if (sure) {
+        const { voided } = await api.voidMemberRatings(member.id);
+        toast(`${voided} rating${voided === 1 ? '' : 's'} struck out.`);
+      }
+    } else if (choice === 'restore') {
+      const { restored } = await api.voidMemberRatings(member.id, true);
+      toast(`${restored} rating${restored === 1 ? '' : 's'} back in.`);
+    }
+  } catch (error) {
+    toast(error.message, true);
+  }
+  return store.user;
+}
+
+/**
+ * Guard for anything that needs an account. Returns the member, or null after
+ * offering the sign-in sheet, so a member never hits a dead "you must log in".
  */
 export async function needUser(reason) {
   if (store.user) return store.user;
   const proceed = await confirmSheet({
-    title: 'Pick your name first',
+    title: 'Sign in first',
     sub: reason,
-    confirmLabel: 'Pick my name',
+    confirmLabel: 'Sign in',
   });
   if (!proceed) return null;
-  return pickName();
+  return signIn({ sub: reason });
 }
 
+/**
+ * Committee is now who you are, not a PIN you type, so this can only report
+ * the answer: either the signed-in account is committee or the job needs
+ * somebody who is.
+ */
 export async function needCommittee(reason) {
   const user = await needUser(reason);
   if (!user) return false;
   if (store.committee) return true;
-  return unlockCommittee();
+  toast('That one is committee only. Ask a committee member.', true);
+  return false;
 }
 
 /** Load the member's live setup, so the Rig and Log tabs agree about it. */

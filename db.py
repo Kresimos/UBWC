@@ -301,7 +301,7 @@ def _migrate_accounts(conn: sqlite3.Connection, tables: set) -> None:
     sessions gain a table, favourites gain a table, and `ratings` stops being
     one standing vote per member and becomes the append-only history described
     in schema.sql. The last one drops a UNIQUE constraint, which SQLite can
-    only do by rebuilding the table, so the rows are copied across — every
+    only do by rebuilding the table, so the rows are copied across; every
     existing vote survives as that member's latest one.
     """
     if "last_seen_at" not in _columns(conn, "users"):
@@ -887,7 +887,7 @@ def member_admin_list() -> list:
 #
 # The cookie holds a random token; the table holds only its SHA-256, so a leaked
 # database is not a set of working sign-ins. Every request looks the token up,
-# which is what makes a sign-in revocable — the old signed cookie could not be.
+# which is what makes a sign-in revocable: the old signed cookie could not be.
 # --------------------------------------------------------------------------- #
 def _token_hash(token: str) -> str:
     return hashlib.sha256((token or "").encode()).hexdigest()
@@ -1095,7 +1095,7 @@ def _stars(up: int, down: int) -> Optional[float]:
 # `ratings` keeps every rating a member ever gave a piece of kit, because they
 # are asked again after every session on it (schema.sql). Counting all of those
 # would let one enthusiast's twelve sails on the same board decide its score, so
-# the tally takes each member's most recent one and the rest stay as history —
+# the tally takes each member's most recent one and the rest stay as history:
 # the evidence the committee needs to strike out a spammer, and the record the
 # rig wizard learns a member's taste from.
 #
@@ -1159,7 +1159,7 @@ def set_vote(item_id: int, user_id: int, vote: Optional[int],
     Rating the same piece again after another session is normal and does not
     overwrite anything: the new rating is appended and becomes the one that
     counts, while the old one stays as history. `vote` of None (or 0) withdraws
-    the member's rating — also kept, marked withdrawn rather than deleted.
+    the member's rating, which is also kept, marked withdrawn rather than deleted.
     """
     with connect() as conn:
         if vote in (None, 0):
@@ -1529,7 +1529,7 @@ def rider_history(user_id: int, limit: int = 200) -> list:
 
     `sail_vote`/`board_vote` are the 👍/👎 given in the log itself, so a session
     carries its own verdict on the kit rather than the member's current standing
-    one — the point is what worked on the day, in that wind.
+    one: the point is what worked on the day, in that wind.
     """
     with connect() as conn:
         rows = conn.execute("""

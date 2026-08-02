@@ -45,6 +45,11 @@ export const icons = {
   box: stroke('<rect x="4" y="2.5" width="16" height="19" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/>', 1.6),
   trash: stroke('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/>'),
   move: stroke('<path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4"/>', 1.8),
+  // Outline when it is somebody's to bookmark, filled once they have. The
+  // filled one is what tags a favourite piece in the rig picker.
+  bookmark: stroke('<path d="M6 3.5h12v17l-6-4.5-6 4.5Z"/>', 2),
+  bookmarkOn: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.5h12v17l-6-4.5-6 4.5Z"/></svg>',
+  chart: stroke('<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 4-6"/>', 2),
 };
 
 /**

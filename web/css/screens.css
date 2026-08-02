@@ -125,6 +125,9 @@
   box-shadow: 0 2px 8px rgba(10, 40, 45, .16); cursor: pointer;
 }
 [data-screen="item"] .iconbtn svg { width: 19px; height: 19px; }
+/* Saving a piece and editing it sit together, away from Back. */
+[data-screen="item"] .hero-acts { display: flex; gap: 8px; }
+[data-screen="item"] .iconbtn.on { color: var(--teal); }
 [data-screen="item"] .hero .rate {
   position: absolute; left: 12px; bottom: 12px; display: inline-flex; align-items: center;
   gap: 4px; background: #fff; color: var(--app-ink); font-size: 12.5px; font-weight: 700;
@@ -458,6 +461,14 @@
   color: var(--app-ink); background: #fff; padding: 3px 7px; border-radius: 4px;
   box-shadow: 0 2px 6px rgba(10, 40, 45, .14);
 }
+/* Kit the member has saved on its item page. Top right, opposite the size-match
+   chip, so it never covers the number they are choosing by. */
+[data-screen="build"] .savedmark {
+  position: absolute; top: 6px; right: 7px; color: var(--teal); line-height: 0;
+}
+[data-screen="build"] .savedmark svg { width: 15px; height: 15px; }
+[data-screen="build"] .list .savedmark { top: 2px; right: 2px; }
+[data-screen="build"] .list .savedmark svg { width: 12px; height: 12px; }
 [data-screen="build"] .meta { padding: 7px 1px 0; display: flex; flex-direction: column; gap: 2px; }
 [data-screen="build"] .size {
   font-size: 17px; font-weight: 750; letter-spacing: -.02em;
@@ -490,6 +501,14 @@
   color: var(--teal-ink); font-weight: 700; font-size: 11px;
 }
 [data-screen="build"] .list .flagchip { position: static; box-shadow: none; background: none; padding: 0; }
+
+/* Why the wheel opened where it did. Present only until the member moves it. */
+[data-screen="build"] .sizehint {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: -2px 0 2px; font-size: 11.5px; line-height: 1.4; color: var(--app-faint);
+  text-align: center;
+}
+[data-screen="build"] .sizehint svg { width: 13px; height: 13px; flex: none; color: var(--teal); }
 
 [data-screen="build"] .helper {
   font-size: 11px; color: var(--app-faint); text-align: center; line-height: 1.45;
@@ -600,6 +619,12 @@
 }
 [data-screen="yourrig"] .kitem.big .kmid .k { font-size: 10.5px; }
 [data-screen="yourrig"] .namerow { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 1px; }
+/* Saved kit, marked wherever the rig assistant names a piece. */
+[data-screen="yourrig"] .savedmark {
+  color: var(--teal); line-height: 0; display: inline-block; vertical-align: middle;
+  margin-left: 5px;
+}
+[data-screen="yourrig"] .savedmark svg { width: 12px; height: 12px; }
 [data-screen="yourrig"] .kmid .nm {
   font-size: 13.5px; font-weight: 750; letter-spacing: -.005em; color: var(--app-ink);
 }
@@ -1279,3 +1304,101 @@
 }
 [data-screen="form"] .warnrow svg { flex: none; width: 16px; height: 16px; color: var(--warn); margin-top: 1px; }
 [data-screen="form"] .warnrow p { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--warn-ink); }
+
+/* ============================================================== PROFILE */
+/* Your sailing: a card for who you are, four numbers, one chart, two lists.
+   It borrows the item page's section vocabulary rather than inventing a
+   second one, because it is the same kind of reading. */
+[data-screen="profile"] .body {
+  padding: 16px 20px 26px; display: flex; flex-direction: column; gap: 22px;
+  background: var(--app-bg);
+}
+[data-screen="profile"] .sect { display: flex; flex-direction: column; gap: 12px; }
+[data-screen="profile"] .sect > h3 {
+  margin: 0; font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--app-faint); font-weight: 700;
+}
+[data-screen="profile"] .calc { font-size: 11.5px; line-height: 1.5; color: var(--app-faint); }
+
+[data-screen="profile"] .whocard {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 13px 14px; border-radius: 14px; border: 1px solid var(--app-line);
+  background: var(--app-bg2); cursor: pointer;
+}
+[data-screen="profile"] .whocard .av {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--teal);
+  color: #fff; font-weight: 750; font-size: 16px; display: flex;
+  align-items: center; justify-content: center;
+}
+[data-screen="profile"] .whomid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+[data-screen="profile"] .whomid b { font-size: 15.5px; font-weight: 750; }
+[data-screen="profile"] .whomid span { font-size: 12px; color: var(--app-faint); }
+[data-screen="profile"] .whocard svg { width: 17px; height: 17px; color: var(--app-faint); flex: none; }
+
+[data-screen="profile"] .statgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+[data-screen="profile"] .statcell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 11px 4px; border-radius: 12px; background: var(--app-bg2);
+}
+[data-screen="profile"] .statcell b {
+  font-size: 19px; font-weight: 780; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+[data-screen="profile"] .statcell span {
+  font-size: 10.5px; color: var(--app-faint); font-weight: 600; text-align: center;
+}
+
+/* The chart. Recessive grid, one teal series, the fitted curve dashed so it
+   never reads as a measurement of its own. */
+[data-screen="profile"] .fitchart { width: 100%; height: auto; display: block; overflow: visible; }
+[data-screen="profile"] .fitchart .grid { stroke: var(--app-line); stroke-width: 1; }
+[data-screen="profile"] .fitchart .axis { stroke: var(--app-line); stroke-width: 1.5; }
+[data-screen="profile"] .fitchart .tick,
+[data-screen="profile"] .fitchart .axlabel {
+  fill: var(--app-faint); font-size: 9px; font-weight: 600; font-family: inherit;
+}
+[data-screen="profile"] .fitchart .fit {
+  fill: none; stroke: var(--teal); stroke-width: 2; stroke-dasharray: 5 4; stroke-linecap: round;
+}
+[data-screen="profile"] .fitchart .pt { fill: var(--teal); stroke: var(--app-bg); stroke-width: 2; cursor: pointer; }
+[data-screen="profile"] .fitchart .pt.down { fill: var(--app-bg); stroke: var(--teal); }
+[data-screen="profile"] .fitchart .pt.none { fill: var(--app-faint); stroke: var(--app-bg); }
+
+[data-screen="profile"] .fitkey {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--app-faint);
+}
+[data-screen="profile"] .fitkey span { display: inline-flex; align-items: center; gap: 5px; }
+[data-screen="profile"] .fitkey .dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--teal); border: 2px solid var(--teal);
+}
+[data-screen="profile"] .fitkey .dot.down { background: var(--app-bg); }
+[data-screen="profile"] .fitkey .dot.none {
+  width: 7px; height: 7px; background: var(--app-faint); border-color: var(--app-faint);
+}
+[data-screen="profile"] .fitkey .line {
+  width: 16px; height: 0; border-top: 2px dashed var(--teal);
+}
+
+[data-screen="profile"] .usetable { display: flex; flex-direction: column; }
+[data-screen="profile"] .userow {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 10px 0; border: 0; border-bottom: 1px solid var(--app-line);
+  background: transparent; cursor: pointer;
+}
+[data-screen="profile"] .userow:last-child { border-bottom: 0; }
+[data-screen="profile"] .uthumb {
+  flex: none; width: 40px; height: 40px; border-radius: 10px; background: var(--shot);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+[data-screen="profile"] .uthumb svg.art { width: 72%; height: 72%; }
+[data-screen="profile"] .umid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+[data-screen="profile"] .umid b {
+  font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-screen="profile"] .umid span { font-size: 11.5px; color: var(--app-faint); }
+[data-screen="profile"] .userow .savedmark { color: var(--teal); line-height: 0; }
+[data-screen="profile"] .userow .savedmark svg { width: 13px; height: 13px; }
+[data-screen="profile"] .uvote { flex: none; line-height: 0; }
+[data-screen="profile"] .uvote svg { width: 15px; height: 15px; }
+[data-screen="profile"] .uvote.up { color: var(--ok); }
+[data-screen="profile"] .uvote.down { color: var(--crit); }
+[data-screen="profile"] .urate { flex: none; }

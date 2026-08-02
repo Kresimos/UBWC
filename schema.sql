@@ -199,7 +199,7 @@ CREATE INDEX idx_comments_item ON comments(item_id, created_at);
 
 -- ---------------------------------------------------------------------------
 -- users: club accounts. A member signs up with a username and a password, and
--- signing in is proving that password — the account is the identity, so what
+-- signing in is proving that password. The account is the identity, so what
 -- somebody rated, rigged and logged is genuinely theirs (misc/spec.md "Access
 -- and roles"). `is_admin` alone gates the committee actions; there is no shared
 -- PIN. Admins are made by other admins, or from the machine running the server
@@ -208,7 +208,7 @@ CREATE INDEX idx_comments_item ON comments(item_id, created_at);
 -- `username` is stored lowercase and is what is typed at sign-in; `display_name`
 -- is what the app shows. `password_hash` is PBKDF2-HMAC-SHA256, written by
 -- db.hash_password as `pbkdf2_sha256$rounds$salt$hash`. NULL means an account
--- nobody can sign in to yet — the seeded roster rows are like this until an
+-- nobody can sign in to yet: the seeded roster rows are like this until an
 -- admin sets a password for them, which keeps their existing ratings and
 -- sessions attached rather than orphaned.
 -- ---------------------------------------------------------------------------
@@ -322,7 +322,7 @@ CREATE INDEX idx_session_items_session ON session_items(session_id);
 -- ratings: 👍/👎 on a piece of kit. Kit rating is deliberately BINARY to keep it
 -- thoughtless; the catalogue/rig views turn the tally into a 1-5 star display:
 -- star = 1 + 4 x fraction-👍 (all 👍 -> 5★, all 👎 -> 1★). The floor is 1★, not
--- 0★ — even disliked kit reads as one star, never a blank zero.
+-- 0★, because even disliked kit reads as one star, never a blank zero.
 --
 -- This table is an APPEND-ONLY HISTORY, not one standing vote per member. A
 -- member sails the same board a dozen times and is asked after each session, so
@@ -335,7 +335,7 @@ CREATE INDEX idx_session_items_session ON session_items(session_id);
 --     `void_reason` mark a rating withdrawn by its own author, or struck out by
 --     the committee when somebody spams ratings to skew the club's numbers.
 --     Voiding a member's ratings is therefore reversible and auditable.
--- Callers should ALWAYS show the vote COUNT alongside the stars — that is the
+-- Callers should ALWAYS show the vote COUNT alongside the stars, because that is the
 -- pinch of salt, so there is no minimum-vote threshold. An item nobody has
 -- rated is the only special case: show "Not yet rated".
 -- `session_id` is provenance: the log it came from, or NULL when rated straight
@@ -361,7 +361,7 @@ CREATE INDEX idx_ratings_user ON ratings(user_id, created_at);
 
 -- ---------------------------------------------------------------------------
 -- favourites: kit a member has bookmarked from the item page. Personal, not a
--- club-wide flag and nothing to do with availability — it exists so the rig
+-- club-wide flag and nothing to do with availability: it exists so the rig
 -- wizard can tag the pieces this member already knows they like with a
 -- bookmark glyph while they are choosing.
 -- ---------------------------------------------------------------------------

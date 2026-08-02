@@ -27,14 +27,22 @@ gets moved to (see Locations and trips).
 
 ## Access and roles
 
+*Revised 2 Aug 2026: the name-pick login and the shared committee PIN are gone,
+replaced by accounts. Everything below is what the app now does.*
+
 - **Browsing is open.** No login is needed to view the catalogue.
-- **Actions need login.** Login is lightweight: **pick your name from the club
-  roster**, no password.
+- **Actions need an account.** Sign-up is open (anyone with the link can create
+  one) and takes a **username and a password**. The account is the identity, so
+  what somebody rated, rigged and logged is genuinely theirs.
+- **A sign-in lasts a term** and can be ended from the server, which is what a
+  lost phone needs. Changing a password signs the other devices out.
 - **Two roles: member and committee.** Ordinary members can add kit, report
   faults, use the rigging assistant, and keep a logbook. **Committee-only
   actions** (delete kit, move kit / bulk-move, edit the roster and site list,
-  clear/close faults) are gated behind a **shared committee PIN**. The name-pick
-  is for attribution and convenience, the PIN is the real gate.
+  clear/close faults, strike out spammed ratings) are gated on the **account's
+  own committee flag**. Committee is handed out by an existing committee member,
+  or from the machine running the server with `manage.py`, which is also how the
+  first one is made and how a forgotten password is reset.
 
 ## Platform and global layout
 
@@ -73,12 +81,12 @@ Browse the kit like a windsurf shop.
   - **Top-right is an Edit button.** (A share button was mocked up here and
     **dropped** — no clear use for this app.) Edit opens the **same form as
     + Add**, prefilled with this item, so any spec can be changed. Same login
-    as Add; deleting stays a committee/PIN action.
+    as Add; deleting stays a committee action.
 - **Item images** are uploaded, one per item, in a clean "online shop panel"
   style (product shot on a soft grey background). Committee photographs the kit,
   runs the photos through an **external** AI tool to get that look, then
   uploads. No in-app image generation.
-- **Committee move tools** (behind the PIN):
+- **Committee move tools** (committee accounts only):
   - Per-item **change-location** button on the item view.
   - A **multi-select mode**: select many items, then **Move all** to a chosen
     location in one go. Returning a trip is just "select all items at
@@ -89,9 +97,25 @@ Browse the kit like a windsurf shop.
 Self-serve "what do I grab, and where do I put it back".
 
 - **Inputs**: approximate **sail size (m²)** and **board size (litres)**, both
-  fuzzy. Your **site** comes from the top site selector (shown as "at Cheddar —
+  fuzzy. Your **site** comes from the top site selector (shown as "at Cheddar,
   change?"), and suggestions are **filtered to kit at that site** so it never
   points you at kit that's on a trip elsewhere.
+- **The two wheels open on a size chosen for you** (added 2 Aug 2026). A member
+  who has logged sessions has already answered the question better than a fixed
+  default can, so the opening number is fitted from **their own logged sessions
+  and the wind at their site right now**: sail area times wind is roughly
+  constant for one rider, so each session gives one number, weighted by whether
+  they rated that rig up and how recently it was, and shrunk toward the club
+  average until they have enough sailing to speak for themselves. Board volume is
+  their own usual volume, nudged for the day. Both are held inside the sizes the
+  club actually owns, so a near calm suggests the biggest sail on the rack rather
+  than a size nobody has. A line under the wheel says where the number came from,
+  and it disappears the moment the member moves the wheel. No logbook, no wind, or
+  not signed in falls back to the club's usual sizes, which is where the wizard
+  started before it could learn anything.
+- **Saved kit is flagged** with a bookmark wherever the assistant names a piece,
+  so kit a member has already decided they like is recognisable in a list of
+  sizes that otherwise all look alike. It changes no ranking and filters nothing.
 - **Launched from the catalogue**: "Rig this kit" jumps here with that sail
   already selected, skipping straight to the parts step.
 - **Sail-first flow** (the two systems are independent, per CLAUDE.md):
@@ -164,9 +188,13 @@ because picking a number is more thought than the rating deserves. The app
 **stars = 1 + 4 × (fraction of 👍)** (all 👍 → 5★, all 👎 → **1★**). The floor is
 **1★, not 0★** — even disliked kit reads as one star, never a blank zero.
 
-- **One standing vote per member per item, updatable — no stacking.** Voting
-  again (e.g. after another session on the same board) **replaces** your previous
-  vote, so a heavy user of one piece can't inflate its score.
+- **Rate as often as you sail it, but one voice each.** A member is asked again
+  after every session on the same board, so every rating is **kept** (with the
+  session it came from) and the **latest one is the one that counts**. A heavy
+  user of one piece still cannot inflate its score, and the history behind the
+  number is what lets committee **strike out** somebody who spams ratings to skew
+  the club's numbers. Striking out hides the ratings from every tally and is
+  reversible; nothing is deleted.
 - **Always show the vote count** next to the stars, **everywhere stars appear**
   (cards included) — the count is the pinch of salt, so there is **no minimum-vote
   threshold**. The only special case is an item with **zero votes**: show
@@ -188,10 +216,30 @@ it's author-only, one per session, and decorative in the feed, not a per-item
 review that others rely on. Backed by the future logbook/session record, not the
 `ratings` table (which is per-item thumbs only).
 
+## Saved kit (favourites)
+
+- Any member can **bookmark a piece of kit from its item page**. It is personal,
+  has nothing to do with availability, and is not a club-wide flag.
+- Saved kit is **flagged in the rig assistant** (above) and listed on the
+  member's own profile.
+
+## Your sailing (the profile screen)
+
+Reached from the account menu, not from a fifth tab: the tab bar stays at four.
+It deliberately **does not repeat the logbook** (the Log tab already shows a
+member their own sessions and rigs under "Mine"). It shows the **shape** of their
+sailing, which nothing else can:
+
+- **sail size against wind**, one dot per logged session with the fitted curve
+  through them, so the size the Rig tab opens on is something a member can see
+  the reasoning for and watch move as they log more sailing;
+- the **kit they keep going back to**, with how they last rated it;
+- their **saved kit**.
+
 ## Tab: + Add
 
 - Add a new item of any component type; required fields per type (as
-  layout.txt). Requires login.
+  layout.txt). Requires an account.
 
 ## Availability and faults
 
@@ -246,4 +294,5 @@ review that others rely on. Backed by the future logbook/session record, not the
 - The existing `views/` scaffolding was built for the old terminal-first,
   desktop, no-roles layout.txt. Much of it will be reworked toward this
   mobile / tab-bar / roles direction.
-- Exact tab labels and the committee PIN storage/rotation are build details.
+- Exact tab labels are a build detail. (Committee PIN storage and rotation was
+  one of these; it is settled, there is no PIN.)

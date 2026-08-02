@@ -2,13 +2,13 @@
  * Add — pick what you are adding.
  *
  * One tap per component type, each opening the form tuned to that type. Adding
- * needs a name-pick (it writes to the club's ground truth), but the picker is
+ * needs an account (it writes to the club's ground truth), but the picker is
  * open so a member sees what is possible before being asked to sign in.
  */
 import { html, mount, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { store } from '../store.js';
-import { whoPill } from '../ui/bits.js';
+import { wireWhoPill } from '../ui/bits.js';
 import { needUser, openIdentity } from '../ui/chrome.js';
 import { go } from '../router.js';
 
@@ -26,12 +26,14 @@ const TYPES = [
 export async function render(root) {
   mount(root, screen());
 
-  root.querySelector('[data-identity]').addEventListener('click', openIdentity);
+  const unwire = wireWhoPill(root, openIdentity);
 
   onClick(root, 'data-type', async (value) => {
-    if (!(await needUser('Adding kit writes to the club inventory, so it is signed with your name.'))) return;
+    if (!(await needUser('Adding kit writes to the club inventory, so it is signed with your account.'))) return;
     go(`/new/${value}`);
   });
+
+  return unwire;
 }
 
 function screen() {
@@ -39,7 +41,7 @@ function screen() {
     <div class="appbar">
       <div class="row">
         <span class="ttl">Add kit</span>
-        ${whoPill()}
+        <span data-who></span>
       </div>
     </div>
     <div class="body pad">

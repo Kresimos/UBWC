@@ -8,9 +8,9 @@
  * is why there is no minimum-votes threshold — and zero votes says "Not yet
  * rated" rather than showing a blank nought.
  */
-import { html, raw, num, initial } from '../dom.js';
+import { html, mount, raw, num, initial } from '../dom.js';
 import { icons, icon } from '../icons.js';
-import { store } from '../store.js';
+import { store, subscribe } from '../store.js';
 
 export const STAR_FULL = '★★★★★';
 
@@ -86,4 +86,21 @@ export function whoPill() {
     ${store.user.display_name || store.user.username}
     ${store.committee ? html`<span class="key">${icon('key')}</span>` : ''}
   </button>`;
+}
+
+/**
+ * Keep a screen's identity pill honest. Signing in happens *inside* a screen
+ * that is already drawn, so the pill has to repaint on its own or it goes on
+ * saying "Sign in" to somebody who just did. Returns the unsubscribe for the
+ * screen to hand back to the router.
+ */
+export function wireWhoPill(root, onOpen) {
+  const slot = root.querySelector('[data-who]');
+  if (!slot) return () => {};
+  const paint = () => {
+    mount(slot, whoPill());
+    slot.querySelector('[data-identity]').addEventListener('click', onOpen);
+  };
+  paint();
+  return subscribe(paint);
 }

@@ -129,7 +129,7 @@ export async function render(root) {
           <span class="kthumb lg">${artFor(kind)}</span>
           <span class="kmid">
             <span class="k">${entry.label}</span>
-            <span class="brandmodel">${shortName(piece)}</span>
+            <span class="brandmodel">${shortName(piece)}${savedMark(piece)}</span>
             <span class="hero">${size ? numify(`${size.v} ${size.u}`) : shortName(piece)}</span>
             ${importantLines(entry, piece, picks)}
           </span>
@@ -284,7 +284,7 @@ export async function render(root) {
           <span class="kthumb">${artFor(slot.kind)}</span>
           <span class="kmid">
             <span class="k">${slot.label}</span>
-            <span class="namerow"><span class="nm">${numify(rowName(slot.kind, row.current))}</span></span>
+            <span class="namerow"><span class="nm">${numify(rowName(slot.kind, row.current))}</span>${savedMark(row.current)}</span>
             ${sub ? html`<span class="subline">${numify(sub)}</span>` : ''}
           </span>
           <span class="kchev">${icon('chevronDown')}</span>
@@ -382,7 +382,7 @@ export async function render(root) {
                   <button class="altrow" data-alt="${slot.k}:${piece.id}">
                     <span class="kthumb">${artFor(slot.kind)}</span>
                     <span class="altmid">
-                      <span class="an">${numify(rowName(slot.kind, piece))}</span>
+                      <span class="an">${numify(rowName(slot.kind, piece))}${savedMark(piece)}</span>
                       <span class="as">${numify(best && piece.id === best.id
                         ? 'the original recommendation'
                         : altSub(slot.k, piece, picks))}</span>
@@ -699,6 +699,16 @@ export async function render(root) {
 }
 
 /* ---------------------------------------------------------------- helpers */
+
+/**
+ * The bookmark on a piece this member saved from its item page. It says only
+ * "you have had this one before and kept it", and it changes no recommendation
+ * and no order, which is why it is a mark rather than a badge with words.
+ */
+function savedMark(piece) {
+  if (!piece || !piece.fav) return '';
+  return html`<span class="savedmark" aria-label="Saved to your kit">${icon('bookmarkOn')}</span>`;
+}
 
 function seedFrom(setup) {
   building.clear();

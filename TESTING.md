@@ -59,7 +59,10 @@ That is the whole setup. `kit.db` builds itself on first run from the example
 seed, so he gets his own throwaway inventory to poke at and cannot damage
 yours. He needs Python 3 (already on macOS) and, for `--share`, cloudflared.
 
-The committee PIN is `1878` unless `UBWC_COMMITTEE_PIN` is set.
+He signs up in the app itself: the Sign in pill in the Logbook header, then
+*Create an account*. To give that account the committee actions (moving,
+deleting, clearing faults), run `python manage.py promote <username>` against
+his own copy.
 
 ## Installing it to the home screen
 
@@ -87,7 +90,7 @@ wifi only, and a few networks block Bonjour, in which case fall back to the
 IP.
 
 Note that an installed iOS app keeps its own cookie store, so you will be
-asked to pick your name again the first time.
+asked to sign in again the first time.
 
 ## When it will not connect
 

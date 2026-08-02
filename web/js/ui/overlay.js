@@ -74,8 +74,17 @@ export function chooser({ title, sub, rows, footer }) {
 /**
  * A short form. `fields` are {name, label, type, value, placeholder, options,
  * required, rows}; resolves with the values, or null if cancelled.
+ *
+ * Pass `onSubmit` when something can refuse the answer: a password the server
+ * rejects, a username already taken. The sheet then stays open and shows the
+ * refusal against the form the member is still looking at, rather than closing
+ * and dropping a toast over a screen they have already moved on from, and
+ * resolves with whatever onSubmit returned. `alt` adds a second, quieter
+ * button under it (sign in ⇄ create an account), which resolves as
+ * {alt: true}.
  */
-export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = false }) {
+export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = false,
+                            onSubmit = null, alt = null, cancelLabel = 'Cancel' }) {
   return new Promise((resolve) => {
     const node = present(html`
       <div class="sheet" role="dialog" aria-label="${title}">
@@ -87,34 +96,80 @@ export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = f
             <div class="field">
               <label for="f-${field.name}">${field.label}</label>
               ${raw(control(field))}
+              ${field.hint ? html`<span class="hint">${field.hint}</span>` : ''}
             </div>`)}
         </div>
         <div class="err" hidden></div>
         <div class="foot">
           <button class="bigbtn ${danger ? 'danger' : ''}" data-submit>${submitLabel}</button>
-          <button class="bigbtn ghost" data-cancel>Cancel</button>
+          ${alt ? html`<button class="bigbtn ghost" data-alt>${alt}</button>` : ''}
+          <button class="bigbtn ghost" data-cancel>${cancelLabel}</button>
         </div>
       </div>`, { onDismiss: () => resolve(null) });
 
     const error = node.querySelector('.err');
+    const submit = node.querySelector('[data-submit]');
+
+    const show = (message) => {
+      error.textContent = message;
+      error.hidden = false;
+    };
+
     node.querySelector('[data-cancel]').addEventListener('click', () => {
       closeOverlay();
       resolve(null);
     });
-    node.querySelector('[data-submit]').addEventListener('click', () => {
+    if (alt) {
+      node.querySelector('[data-alt]').addEventListener('click', () => {
+        closeOverlay();
+        resolve({ alt: true });
+      });
+    }
+
+    const collect = () => {
       const values = {};
       for (const field of fields) {
         const input = node.querySelector(`#f-${CSS.escape(field.name)}`);
         values[field.name] = input ? input.value.trim() : '';
         if (field.required && !values[field.name]) {
-          error.textContent = `${field.label} is needed.`;
-          error.hidden = false;
+          show(`${field.label} is needed.`);
           input.focus();
-          return;
+          return null;
         }
       }
-      closeOverlay();
-      resolve(values);
+      return values;
+    };
+
+    const send = async () => {
+      const values = collect();
+      if (!values) return;
+      if (!onSubmit) {
+        closeOverlay();
+        resolve(values);
+        return;
+      }
+      submit.disabled = true;
+      error.hidden = true;
+      try {
+        const result = await onSubmit(values);
+        closeOverlay();
+        resolve(result === undefined ? values : result);
+      } catch (failure) {
+        show(failure.message);
+        submit.disabled = false;
+      }
+    };
+
+    submit.addEventListener('click', send);
+    // Enter anywhere in the form submits it, the way a browser's own form
+    // would. A phone keyboard's Go key is how most members will send this.
+    node.querySelectorAll('input').forEach((input) => {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          send();
+        }
+      });
     });
   });
 }
@@ -133,9 +188,15 @@ function control(field) {
     return `<textarea id="${id}" rows="${field.rows || 3}" placeholder="${
       esc(field.placeholder || '')}">${esc(field.value || '')}</textarea>`;
   }
+  // autocomplete/autocapitalize matter on the sign-in sheet: a phone that
+  // capitalises the first letter of a username, or a password manager that
+  // cannot see which field is which, both turn signing in into a fight.
   return `<input id="${id}" type="${esc(field.type || 'text')}" value="${
     esc(field.value ?? '')}" placeholder="${esc(field.placeholder || '')}"${
-    field.inputmode ? ` inputmode="${esc(field.inputmode)}"` : ''}>`;
+    field.inputmode ? ` inputmode="${esc(field.inputmode)}"` : ''}${
+    field.autocomplete ? ` autocomplete="${esc(field.autocomplete)}"` : ''}${
+    field.type === 'password' || field.autocomplete === 'username'
+      ? ' autocapitalize="off" autocorrect="off" spellcheck="false"' : ''}>`;
 }
 
 /** Yes/no, for anything that discards something a member made. */

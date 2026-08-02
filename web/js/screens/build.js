@@ -51,7 +51,13 @@ export async function render(root, params) {
   }
 
   const site = store.site === 'all' ? null : store.site;
-  const data = await api.rigKit(site);
+  // The suggestion is a nicety, not a dependency: if it cannot be worked out
+  // (offline, no coordinates for the site, nobody signed in) the wheels open
+  // where they always did.
+  const [data, hint] = await Promise.all([
+    api.rigKit(site),
+    api.rigSuggest(store.site).catch(() => null),
+  ]);
   const kit = data.kit;
 
   const state = {
@@ -60,6 +66,9 @@ export async function render(root, params) {
     tags: { sail: [], board: [] },
     target: {},
     chips: {},
+    // Which wheels are still sitting where the app opened them. Moving one
+    // retires its note: from then on the number is the member's own.
+    hinted: {},
   };
 
   const resolvedPiece = (key) => kit.find((piece) => piece.id === building.raw[key]) || null;
@@ -68,9 +77,18 @@ export async function render(root, params) {
   TARGET_KEYS.forEach((key) => {
     state.chips[key] = tagsFor(kit.filter((piece) => piece.kind === TARGETS[key].kind), key);
     const remembered = building.target(key);
-    state.target[key] = remembered != null
-      ? clampTarget(key, remembered)
-      : clampTarget(key, nearestStocked(kit, key, TARGETS[key].fallback));
+    // Three answers to "what size", in order of how much they know about this
+    // member: what they were last on in this build, what their own logbook says
+    // they rig in today's wind (suggest.py), and failing both the club default.
+    const suggested = hint && hint[key] ? hint[key].value : null;
+    if (remembered != null) {
+      state.target[key] = clampTarget(key, remembered);
+    } else if (suggested != null) {
+      state.target[key] = clampTarget(key, suggested);
+      state.hinted[key] = hint[key];
+    } else {
+      state.target[key] = clampTarget(key, nearestStocked(kit, key, TARGETS[key].fallback));
+    }
   });
 
   // Arriving from a catalogue item: that piece is simply already picked, and
@@ -102,6 +120,7 @@ export async function render(root, params) {
   const stepsNode = root.querySelector('[data-steps]');
   const valueNode = root.querySelector('[data-value]');
   const unitNode = root.querySelector('[data-unit]');
+  const hintNode = root.querySelector('[data-hint]');
   const tagsNode = root.querySelector('[data-tags]');
   const countNode = root.querySelector('[data-count]');
   const resultsNode = root.querySelector('[data-results]');
@@ -117,6 +136,12 @@ export async function render(root, params) {
     mount(stepsNode, TARGET_KEYS.map(stepTab));
     valueNode.textContent = state.target[key].toFixed(config.dp);
     unitNode.textContent = config.unit;
+
+    // Where this number came from, but only while it is still the app's number.
+    // The moment the member moves the wheel it is theirs and needs no caption.
+    mount(hintNode, state.hinted[key]
+      ? html`<p class="sizehint">${icon('chart')}${state.hinted[key].why}</p>`
+      : '');
 
     mount(tagsNode, state.chips[key].length ? html`
       <div class="tagrow">
@@ -182,12 +207,18 @@ export async function render(root, params) {
       ? html`<button class="flagchip" data-fault="${piece.id}"
               aria-label="What is wrong with this ${config.noun}">${icon('warning')}Fault</button>`
       : '';
+    // Kit this member bookmarked on its item page. No filter, no ordering: a
+    // mark on the tile, so a piece they already know they like is recognisable
+    // in a list of sizes that all look alike.
+    const saved = piece.fav
+      ? html`<span class="savedmark" aria-label="Saved to your kit">${icon('bookmarkOn')}</span>`
+      : '';
     const grid = state.view === 'grid';
     // A div rather than a button: the fault chip inside it is itself a button,
     // and a button inside a button is not a thing a browser will honour.
     return html`
       <div class="card" role="button" tabindex="0" data-pick="${piece.id}">
-        <span class="shot">${artFor(config.kind)}${grid ? html`${chip}${flag}` : ''}</span>
+        <span class="shot">${artFor(config.kind)}${saved}${grid ? html`${chip}${flag}` : ''}</span>
         <span class="meta">
           <span class="size">${size ? size.v : '—'}${size ? html`<small>${size.u}</small>` : ''}</span>
           <span class="nm">${piece.mfr} · ${modelShort(piece)}</span>
@@ -228,6 +259,7 @@ export async function render(root, params) {
     const next = clampTarget(key, state.target[key] + steps * TARGETS[key].step);
     if (next === state.target[key]) return; // already at the end of the range
     state.target[key] = next;
+    delete state.hinted[key];
     building.setTarget(key, next);
     haptic(TICK);
     if (settle) paint();
@@ -431,6 +463,7 @@ function shell() {
         <div class="val" aria-live="polite"><b data-value></b><i data-unit></i></div>
         <button data-nudge="1" aria-label="Bigger"><span>+</span></button>
       </div>
+      <div data-hint></div>
       <div data-tags></div>
       <div class="subbar">
         <span class="count" data-count></span>

@@ -20,6 +20,7 @@ import * as log from './screens/log.js';
 import * as compose from './screens/compose.js';
 import * as add from './screens/add.js';
 import * as form from './screens/form.js';
+import * as profile from './screens/profile.js';
 
 const ROUTES = [
   { path: '/catalogue', screen: 'catalogue', tab: 'catalogue', render: catalogue.render },
@@ -32,6 +33,10 @@ const ROUTES = [
 
   { path: '/log', screen: 'log', tab: 'log', render: log.render },
   { path: '/compose', screen: 'compose', tab: 'log', render: compose.render },
+  // Reached from the account menu rather than the tab bar, which the spec pins
+  // at four tabs. It sits under Log because a member's own sailing is what the
+  // Log tab's "Mine" is about.
+  { path: '/me', screen: 'profile', tab: 'log', render: profile.render },
 
   { path: '/add', screen: 'add', tab: 'add', render: add.render },
   { path: '/new/:type', screen: 'form', tab: 'add', render: form.render },

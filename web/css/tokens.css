@@ -496,6 +496,8 @@ button:active, [role="button"]:active {
 .sheet input:focus, .sheet textarea:focus, .sheet select:focus {
   outline: 2px solid var(--teal); outline-offset: 1px;
 }
+/* The rule under a field, so a sign-up says what it wants before it refuses. */
+.sheet .field .hint { font-size: 11.5px; line-height: 1.4; color: var(--app-faint); margin-top: -2px; }
 .sheet .err { padding: 0 20px 8px; font-size: 12px; font-weight: 650; color: var(--crit); }
 
 /* The photo popup behind a spot or a fault image. */

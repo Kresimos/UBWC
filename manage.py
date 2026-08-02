@@ -1,7 +1,7 @@
 """Account admin from the machine running the server.
 
 Committee is an account flag, not a shared PIN, so something has to be able to
-make the first committee account — and to rescue the club when the last one
+make the first committee account, and to rescue the club when the last one
 forgets their password. That is this, and it deliberately only works with a
 shell on the server, which is a fair thing to require of the one action that
 hands out control of the kit list.

@@ -18,10 +18,11 @@ The spreadsheet (and future DB) has one table per component type:
 | Sheet/Type | Key fields | Notes |
 |---|---|---|
 | Boards | `Size (L)` = volume in litres, `Type` (e.g. Freewave) | Board box for fin sold separately per model (not yet tracked as a column) |
-| Sails + Wings | `Size (m^2)`, `Luff`, `Adjustable Top`, `Boom`, `Cams` | `Type` is `Sail` or `Wing`; wings don't use Luff/Boom/Cams |
-| Masts | `Size` = length in cm | |
+| Sails + Wings | `Size (m^2)`, `Luff`, `Adjustable Top`, `Boom`, `Cams`, `Diameter` | `Type` is `Sail` or `Wing`; wings don't use Luff/Boom/Cams; `Diameter` only means anything on a cambered sail |
+| Masts | `Size` = length in cm, `Diameter` = RDM or SDM | |
+| Extensions | `Min size` / `Max size` = travel in cm, `Diameter` = RDM or SDM | `ext` component type in the DB (`ext_min_cm`, `ext_max_cm`); the sheet still files these under Misc with Type = "Extension", and the importer splits them out |
 | Booms | `Min size` / `Max size` = adjustable outhaul range in cm | |
-| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast base extensions, wetsuits, etc.) |
+| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, wetsuits, etc.) |
 
 All sheets share `Manufacturer`, `Model`, `Condition`, `Location`, `Faults` —
 this is the common "item" shape referenced in the Item/Faults pages in
@@ -84,20 +85,21 @@ stored as columns on `Sails + Wings`:
   member if new" flag in the UI, and it's *why* mast diameter/brand matching
   (below) matters more for cammed sails than for camless ones.
 
-Mast **diameter class** also matters even though it isn't a spreadsheet column
-yet: masts are either **SDM** (Standard Diameter Mast) or **RDM** (Reduced
-Diameter Mast, more common on modern freeride/freewave rigs up to ~7-8m²).
-Crucially, the diameter constraint is only hard for **cambered sails**: a
-cambered sail's cams are moulded to one diameter, so it needs a mast of that
-exact class (or the right cam spacers), whereas a **camless sail has a luff
-sleeve that fits either RDM or SDM** at the correct length. So diameter is a
-soft/ignorable factor for camless sails and a hard constraint for cammed ones.
-When it's added to the schema, validate it conditionally: enforce
-`sail.diameter_class == mast.diameter_class` **only when `cams` is true**; for
-camless sails accept either diameter (length/luff and boom are what must match).
-Note the **extension** must still match the mast's diameter (an RDM mast takes
-an RDM extension, an SDM mast an SDM one) regardless of the sail, since the
-extension bolts into the mast base.
+Mast **diameter class** matters too, and has its own column, `items.diameter`
+(`RDM` / `SDM` / NULL for unknown), on masts, extensions and sails: masts are
+either **SDM** (Standard Diameter Mast) or **RDM** (Reduced Diameter Mast, more
+common on modern freeride/freewave rigs up to ~7-8m²). Crucially, the diameter
+constraint is only hard for **cambered sails**: a cambered sail's cams are
+moulded to one diameter, so it needs a mast of that exact class (or the right
+cam spacers), whereas a **camless sail has a luff sleeve that fits either RDM or
+SDM** at the correct length. So diameter is a soft/ignorable factor for camless
+sails and a hard constraint for cammed ones. Validate it conditionally: enforce
+`sail.diameter == mast.diameter` **only when `cams` is true**; for camless sails
+accept either diameter (length/luff and boom are what must match). Note the
+**extension** must still match the mast's diameter (an RDM mast takes an RDM
+extension, an SDM mast an SDM one) regardless of the sail, since the extension
+bolts into the mast base. A NULL diameter means nobody has recorded it, and must
+never block a pick — the rules skip the check rather than guess.
 
 ## Board sizing: volume vs. sail size and rider
 

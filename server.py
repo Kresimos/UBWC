@@ -145,7 +145,10 @@ def item_card(item: dict, rating: dict = None, faults: list = None,
         "component_type": item["component_type"],
         "manufacturer": item.get("manufacturer"),
         "model": item.get("model"),
-        "type": item.get("type"),
+        # Types that carry no `type` cell of their own (an extension is just an
+        # extension) fall back to what the component type is called, so the
+        # catalogue row and the item page still say what the thing is.
+        "type": item.get("type") or db.COMPONENT_LABELS.get(item["component_type"]),
         "condition": item.get("condition"),
         "site": item.get("location"),
         "spot": item.get("spot"),
@@ -172,12 +175,16 @@ def _size_value(item: dict):
             return item.get(key[1])
     if ctype == "boom" and item.get("min_size_cm") is not None:
         return f"{item['min_size_cm']:g}-{item['max_size_cm']:g}"
+    if ctype == "ext":
+        lo, hi = db.extension_travel(item)
+        if hi is not None:
+            return f"{lo:g}-{hi:g}"
     return None
 
 
 def _size_unit(item: dict) -> str:
     return {"sail": "m²", "wing": "m²", "board": "L", "mast": "cm",
-            "fin": "cm", "boom": "cm"}.get(item["component_type"], "")
+            "fin": "cm", "boom": "cm", "ext": "cm"}.get(item["component_type"], "")
 
 
 # --------------------------------------------------------------------------- #
@@ -388,8 +395,8 @@ def list_items(request: Request,
             continue
         if needle:
             haystack = " ".join(str(item.get(f) or "") for f in
-                                ("manufacturer", "model", "type", "location",
-                                 "spot", "notes", "size_generic")).lower()
+                                ("manufacturer", "model", "type", "diameter",
+                                 "location", "spot", "notes", "size_generic")).lower()
             if needle not in haystack:
                 continue
         rows.append(item_card(item, ratings.get(item["id"]), faults.get(item["id"]),

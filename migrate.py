@@ -4,6 +4,7 @@ Idempotent: drops everything and rebuilds from schema.sql, then seeds the
 `items` table from each sheet and the `faults` table from the sheet's Faults
 column. Run directly (`python migrate.py`) or via db.rebuild_from_xlsx().
 """
+import re
 import sqlite3
 from pathlib import Path
 
@@ -67,8 +68,12 @@ SHEETS = {
             "Location": "location",
         },
     },
+    # The sheet has no Extensions tab: they are Misc rows whose Type cell reads
+    # "Extension". They are a component type of their own in the DB, so they are
+    # split out here and their written travel ("0-30cm") parsed into columns.
     "Misc": {
-        "component_type": "misc",
+        "component_type": lambda t: (
+            "ext" if str(t or "").strip().lower().startswith("extension") else "misc"),
         "header_map": {
             "Manufacturer": "manufacturer",
             "Model": "model",
@@ -79,6 +84,11 @@ SHEETS = {
         },
     },
 }
+
+# "0-30cm" in a Size cell, and the RDM/SDM the sheet writes into a Model or Type
+# cell. Both become columns on import (see db.py "Derived item facts").
+RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)")
+DIAMETER_RE = re.compile(r"\b(RDM|SDM)\b", re.IGNORECASE)
 
 
 def _clean(value):
@@ -141,6 +151,23 @@ def rebuild(db_path: Path = DB_PATH, xlsx_path: Path = XLSX_PATH) -> dict:
             # Resolve component_type (literal or based on the Type cell).
             ctype = cfg["component_type"]
             record["component_type"] = ctype(record.get("type")) if callable(ctype) else ctype
+
+            # Extensions: the written travel becomes a range, and the Type cell
+            # has said all it can once component_type is 'ext'.
+            if record["component_type"] == "ext":
+                match = RANGE_RE.search(str(record.pop("size_generic", "") or ""))
+                record["ext_min_cm"] = float(match.group(1)) if match else 0
+                record["ext_max_cm"] = float(match.group(2)) if match else None
+                record["type"] = None
+
+            # Diameter, wherever the sheet happens to state it. It is a column
+            # now, so it is read once here rather than by every caller.
+            if record["component_type"] in ("mast", "ext", "sail"):
+                haystack = " ".join(str(record.get(f) or "") for f in
+                                    ("model", "type", "notes"))
+                found = DIAMETER_RE.search(haystack)
+                if found:
+                    record["diameter"] = found.group(1).upper()
 
             fields = list(record.keys())
             placeholders = ", ".join("?" for _ in fields)

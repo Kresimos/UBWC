@@ -17,9 +17,9 @@ be rigged. A few pieces are deliberately un-riggable on site (a formula sail no
 mast on site can reach, a kids' rig below every boom's range) so the wizard's
 "never list what can't be finished" rule has something to exclude.
 
-Diameter class (RDM/SDM) is not a column yet — see CLAUDE.md — so, as before, it
-lives at the front of `notes` for masts, extensions and cambered sails, in a
-fixed "RDM." / "SDM." form that tooling can read.
+Diameter class (RDM/SDM) is a real column (`items.diameter`) on masts,
+extensions and cambered sails, and extensions are their own component type with
+their own travel columns — neither is a convention inside `notes` any more.
 
 Run directly:  python seed_example.py
 This DROPS and rebuilds kit.db from schema.sql; it does not touch the xlsx.
@@ -165,7 +165,8 @@ ITEMS = {
     "sail_techno78": ("sail", dict(manufacturer="Bic", model="Techno 7.8",
         type="Freeride", size_m2=7.8, condition="Good", location=CHEDDAR,
         luff_cm=490, req_boom_cm=223, cams=1,
-        notes="SDM. Cambered, so brief new members before lending; cams must "
+        diameter="SDM",
+        notes="Cambered, so brief new members before lending; cams must "
               "rotate past the boom head when rigging.")),
     "sail_ncx80": ("sail", dict(manufacturer="Severne", model="NCX 8.0",
         type="Freeride", size_m2=8.0, condition="Good", location=CHEDDAR,
@@ -174,16 +175,19 @@ ITEMS = {
     "sail_vapor86": ("sail", dict(manufacturer="Gaastra", model="Vapor 8.6",
         type="Slalom", size_m2=8.6, condition="Good", location=CHEDDAR,
         luff_cm=510, req_boom_cm=240, cams=1,
-        notes="SDM. Four cams, a proper job to rig — get a committee member to "
+        diameter="SDM",
+        notes="Four cams, a proper job to rig — get a committee member to "
               "walk you through it the first time.")),
     "sail_warp90": ("sail", dict(manufacturer="Duotone", model="Warp 9.0",
         type="Slalom", size_m2=9.0, condition="Fair", location=CHEDDAR,
         luff_cm=522, req_boom_cm=250, cams=1,
-        notes="SDM. Race sail, needs the 490 and most of an extension.")),
+        diameter="SDM",
+        notes="Race sail, needs the 490 and most of an extension.")),
     "sail_rsracing107": ("sail", dict(manufacturer="Neil Pryde", model="RS:Racing 10.7",
         type="Formula", size_m2=10.7, condition="Fair", location=CHEDDAR,
         luff_cm=560, req_boom_cm=270, cams=1,
-        notes="SDM. Formula sail needing a 520+ mast we do not own any more — in "
+        diameter="SDM",
+        notes="Formula sail needing a 520+ mast we do not own any more — in "
               "the catalogue, but nothing on site can rig it.")),
     "sail_kids25": ("sail", dict(manufacturer="Gun Sails", model="Rookie 2.5",
         type="Kids", size_m2=2.5, condition="Good", location=CHEDDAR,
@@ -201,7 +205,8 @@ ITEMS = {
     "sail_stype85": ("sail", dict(manufacturer="North Sails", model="S_Type 8.5",
         type="Slalom", size_m2=8.5, condition="Fair", location=STORE,
         luff_cm=516, req_boom_cm=236, cams=1,
-        notes="SDM. Three-cam slalom sail, powerful, only for confident planing "
+        diameter="SDM",
+        notes="Three-cam slalom sail, powerful, only for confident planing "
               "sailors. Needs the 490 SDM mast.")),
     "sail_retro65": ("sail", dict(manufacturer="Simmer", model="Style Retro 6.5",
         type="Freeride", size_m2=6.5, condition="Very Good", location=STORE,
@@ -221,54 +226,69 @@ ITEMS = {
         type="Wing", size_m2=4.6, condition="Fair", location=STORE)),
 
     # ---------------------------------------------------------------------- #
-    # Masts (length in cm). Diameter class leads `notes` until it's a column.
+    # Masts (length in cm, diameter class in its own column).
     # Cheddar deliberately holds both classes at most lengths.
     # ---------------------------------------------------------------------- #
     "mast_tush340": ("mast", dict(manufacturer="Tushingham", model="Alloy 340",
         type="Mast", length_cm=340, condition="Fair", location=CHEDDAR,
-        notes="RDM. Alloy kids/storm mast, heavy but bombproof.")),
+        diameter="RDM",
+        notes="Alloy kids/storm mast, heavy but bombproof.")),
     "mast_naish370": ("mast", dict(manufacturer="Naish", model="Carbon 370",
         type="Mast", length_cm=370, condition="Good", location=CHEDDAR,
-        notes="RDM. 60% carbon wave mast.")),
+        diameter="RDM",
+        notes="60% carbon wave mast.")),
     "mast_duo400": ("mast", dict(manufacturer="Duotone", model="Platinum 400",
         type="Mast", length_cm=400, condition="Very Good", location=CHEDDAR,
-        notes="RDM. 100% carbon, the nicest small mast we own.")),
+        diameter="RDM",
+        notes="100% carbon, the nicest small mast we own.")),
     "mast_gaastra400": ("mast", dict(manufacturer="Gaastra", model="Cross 400",
         type="Mast", length_cm=400, condition="Good", location=CHEDDAR,
-        notes="SDM. 45% carbon.")),
+        diameter="SDM",
+        notes="45% carbon.")),
     "mast_x6_430": ("mast", dict(manufacturer="Neil Pryde", model="X6 430",
         type="Mast", length_cm=430, condition="Very Good", location=CHEDDAR,
-        notes="RDM. 75% carbon.")),
+        diameter="RDM",
+        notes="75% carbon.")),
     "mast_sev430": ("mast", dict(manufacturer="Severne", model="Enigma 430",
         type="Mast", length_cm=430, condition="Good", location=CHEDDAR,
-        notes="RDM. The go-to mast for the 5.5 and 6.0 sails.")),
+        diameter="RDM",
+        notes="The go-to mast for the 5.5 and 6.0 sails.")),
     "mast_bic430": ("mast", dict(manufacturer="Bic", model="Techno 430",
         type="Mast", length_cm=430, condition="Fair", location=CHEDDAR,
-        notes="SDM. Alloy-tipped club mast, fine for the cammed 7.8 at a push.")),
+        diameter="SDM",
+        notes="Alloy-tipped club mast, fine for the cammed 7.8 at a push.")),
     "mast_x9_460": ("mast", dict(manufacturer="Neil Pryde", model="X9 460",
         type="Mast", length_cm=460, condition="Very Good", location=CHEDDAR,
-        notes="RDM. 100% carbon, light and stiff.")),
+        diameter="RDM",
+        notes="100% carbon, light and stiff.")),
     "mast_techno460": ("mast", dict(manufacturer="Bic", model="Techno 460",
         type="Mast", length_cm=460, condition="Good", location=CHEDDAR,
-        notes="SDM. Pairs with the Techno 7.8.")),
+        diameter="SDM",
+        notes="Pairs with the Techno 7.8.")),
     "mast_chinook460": ("mast", dict(manufacturer="Chinook", model="Slalom 460",
         type="Mast", length_cm=460, condition="Fair", location=CHEDDAR,
-        notes="SDM. Spare slalom mast, a bit soft now.")),
+        diameter="SDM",
+        notes="Spare slalom mast, a bit soft now.")),
     "mast_north490": ("mast", dict(manufacturer="North", model="Gold 490",
         type="Mast", length_cm=490, condition="Good", location=CHEDDAR,
-        notes="SDM. 100% carbon, the only mast that rigs the big cammed sails.")),
+        diameter="SDM",
+        notes="100% carbon, the only mast that rigs the big cammed sails.")),
     "mast_red400": ("mast", dict(manufacturer="Severne", model="Red 400",
         type="Mast", length_cm=400, condition="Good", location=RICHMOND,
-        notes="RDM. Wave mast.")),
+        diameter="RDM",
+        notes="Wave mast.")),
     "mast_ezzy400": ("mast", dict(manufacturer="Ezzy", model="Hookipa 400",
         type="Mast", length_cm=400, condition="Good", location=RICHMOND,
-        notes="RDM. Constant-curve wave mast.")),
+        diameter="RDM",
+        notes="Constant-curve wave mast.")),
     "mast_plat490": ("mast", dict(manufacturer="North", model="Platinum 490",
         type="Mast", length_cm=490, condition="Fair", location=STORE,
-        notes="SDM. 100% carbon, matches the S_Type 8.5 slalom sail.")),
+        diameter="SDM",
+        notes="100% carbon, matches the S_Type 8.5 slalom sail.")),
     "mast_fiber520": ("mast", dict(manufacturer="Fiberspar", model="Formula 520",
         type="Mast", length_cm=520, condition="Fair", location=STORE,
-        notes="SDM. Formula-length mast, on long-term loan out to a member.")),
+        diameter="SDM",
+        notes="Formula-length mast, on long-term loan out to a member.")),
 
     # ---------------------------------------------------------------------- #
     # Booms (adjustable outhaul range in cm). Overlapping ranges on purpose.
@@ -376,36 +396,45 @@ ITEMS = {
         location=RICHMOND)),
 
     # ---------------------------------------------------------------------- #
-    # Misc — extensions. Still misc rows (no `extension` component_type yet);
-    # size_generic holds the travel as "0-NNcm", notes lead with the diameter.
+    # Extensions (component type of their own). `ext_min_cm`/`ext_max_cm` are
+    # the travel, `diameter` the class the mast has to share.
     # ---------------------------------------------------------------------- #
-    "misc_ext_rdm22": ("misc", dict(manufacturer="Severne", model="RDM Extension",
-        type="Extension", size_generic="0-22cm", condition="Good", location=CHEDDAR,
-        notes="RDM. Short-travel extension, quickest to set for the wave sails.")),
-    "misc_ext_rdm30": ("misc", dict(manufacturer="Chinook", model="RDM Extension",
-        type="Extension", size_generic="0-30cm", condition="Good", location=CHEDDAR,
-        notes="RDM. Power-joint extension. Use with RDM masts only.")),
-    "misc_ext_rdm46": ("misc", dict(manufacturer="Neil Pryde", model="RDM Extension",
-        type="Extension", size_generic="0-46cm", condition="Very Good", location=CHEDDAR,
-        notes="RDM. Long travel, the one that makes the 430 reach a 476 luff.")),
-    "misc_ext_sdm30": ("misc", dict(manufacturer="Chinook", model="SDM Extension",
-        type="Extension", size_generic="0-30cm", condition="Good", location=CHEDDAR,
-        notes="SDM. Standard-diameter extension for the Techno rig.")),
-    "misc_ext_sdm46": ("misc", dict(manufacturer="Streamlined", model="SDM Extension",
-        type="Extension", size_generic="0-46cm", condition="Good", location=CHEDDAR,
-        notes="SDM. The extension for the 490 mast + slalom sails.")),
-    "misc_ext_sdm50": ("misc", dict(manufacturer="North", model="SDM Race Extension",
-        type="Extension", size_generic="0-50cm", condition="Fair", location=CHEDDAR,
-        notes="SDM. Race extension with a pulley base, longest travel we own.")),
-    "misc_ext_rdm26": ("misc", dict(manufacturer="Ezzy", model="RDM Extension",
-        type="Extension", size_generic="0-26cm", condition="Good", location=RICHMOND,
-        notes="RDM. Lives with the wave kit.")),
-    "misc_ext_sdm22": ("misc", dict(manufacturer="Bic", model="SDM Extension",
-        type="Extension", size_generic="0-22cm", condition="Fair", location=RICHMOND,
-        notes="SDM. Old Techno extension, the collar is worn.")),
-    "misc_ext_sdm38": ("misc", dict(manufacturer="Gaastra", model="SDM Extension",
-        type="Extension", size_generic="0-38cm", condition="Good", location=STORE,
-        notes="SDM. Spare, still boxed.")),
+    "ext_rdm22": ("ext", dict(manufacturer="Severne", model="RDM Extension",
+        ext_min_cm=0, ext_max_cm=22, condition="Good", location=CHEDDAR,
+        diameter="RDM",
+        notes="Short-travel extension, quickest to set for the wave sails.")),
+    "ext_rdm30": ("ext", dict(manufacturer="Chinook", model="RDM Extension",
+        ext_min_cm=0, ext_max_cm=30, condition="Good", location=CHEDDAR,
+        diameter="RDM",
+        notes="Power-joint extension. Use with RDM masts only.")),
+    "ext_rdm46": ("ext", dict(manufacturer="Neil Pryde", model="RDM Extension",
+        ext_min_cm=0, ext_max_cm=46, condition="Very Good", location=CHEDDAR,
+        diameter="RDM",
+        notes="Long travel, the one that makes the 430 reach a 476 luff.")),
+    "ext_sdm30": ("ext", dict(manufacturer="Chinook", model="SDM Extension",
+        ext_min_cm=0, ext_max_cm=30, condition="Good", location=CHEDDAR,
+        diameter="SDM",
+        notes="Standard-diameter extension for the Techno rig.")),
+    "ext_sdm46": ("ext", dict(manufacturer="Streamlined", model="SDM Extension",
+        ext_min_cm=0, ext_max_cm=46, condition="Good", location=CHEDDAR,
+        diameter="SDM",
+        notes="The extension for the 490 mast + slalom sails.")),
+    "ext_sdm50": ("ext", dict(manufacturer="North", model="SDM Race Extension",
+        ext_min_cm=0, ext_max_cm=50, condition="Fair", location=CHEDDAR,
+        diameter="SDM",
+        notes="Race extension with a pulley base, longest travel we own.")),
+    "ext_rdm26": ("ext", dict(manufacturer="Ezzy", model="RDM Extension",
+        ext_min_cm=0, ext_max_cm=26, condition="Good", location=RICHMOND,
+        diameter="RDM",
+        notes="Lives with the wave kit.")),
+    "ext_sdm22": ("ext", dict(manufacturer="Bic", model="SDM Extension",
+        ext_min_cm=0, ext_max_cm=22, condition="Fair", location=RICHMOND,
+        diameter="SDM",
+        notes="Old Techno extension, the collar is worn.")),
+    "ext_sdm38": ("ext", dict(manufacturer="Gaastra", model="SDM Extension",
+        ext_min_cm=0, ext_max_cm=38, condition="Good", location=STORE,
+        diameter="SDM",
+        notes="Spare, still boxed.")),
 
     # ---- Misc — bases / universal joints ----
     "misc_uj_chinook": ("misc", dict(manufacturer="Chinook", model="Power Joint",
@@ -668,11 +697,11 @@ COMMENTS = [
         "starting near the ferrule. Worth a proper look.", "Sam", 5, None, 6),
     ("mast_tush340", "note", "Alloy and heavy, but it is what the kids' rig and the 3.7 live on.",
         "Committee", 44, None, None),
-    ("misc_ext_rdm30", "usage", "Swapped this in for the 5.5 on the 430. Two-pin collar is easy "
+    ("ext_rdm30", "usage", "Swapped this in for the 5.5 on the 430. Two-pin collar is easy "
         "to set.", "Ella", 11, None, 11),
-    ("misc_ext_rdm46", "note", "This is the long one: it is what lets the 430 reach the 7.0's "
+    ("ext_rdm46", "note", "This is the long one: it is what lets the 430 reach the 7.0's "
         "luff. Do not lose it.", "Committee", 26, None, None),
-    ("misc_ext_sdm50", "damage", "Pulley base is stiff and the cleat slips under full downhaul. "
+    ("ext_sdm50", "damage", "Pulley base is stiff and the cleat slips under full downhaul. "
         "Usable if you tie it off.", "Dan", 18, None, 19),
     ("boom_techno", "damage", "Back-end clamp slips under load, tighten fully and check before "
         "handing out.", "Tom", 18, None, 19),
@@ -758,7 +787,7 @@ FAULTS = [
     ("boom_tush", "Front clamp creeps",
         "Perished gasket in the front clamp, so the boom creeps shorter under "
         "load. Tighten hard and re-check mid-session.", "usable", "Noor", 13),
-    ("misc_ext_sdm50", "Pulley cleat slips",
+    ("ext_sdm50", "Pulley cleat slips",
         "The cleat on the pulley base slips under full downhaul. Usable if you "
         "tie the tail off properly.", "usable", "Dan", 18),
     ("misc_uj_severne", "Worn mechanical pin",
@@ -864,12 +893,12 @@ VOTES = [
     ("boom_duo", 7, 0),
     ("boom_techno", 2, 2),
     ("boom_gaastra", 3, 1),
-    ("misc_ext_rdm22", 3, 0),
-    ("misc_ext_rdm30", 5, 0),
-    ("misc_ext_rdm46", 4, 0),
-    ("misc_ext_sdm30", 3, 1),
-    ("misc_ext_sdm46", 3, 0),
-    ("misc_ext_sdm50", 1, 2),
+    ("ext_rdm22", 3, 0),
+    ("ext_rdm30", 5, 0),
+    ("ext_rdm46", 4, 0),
+    ("ext_sdm30", 3, 1),
+    ("ext_sdm46", 3, 0),
+    ("ext_sdm50", 1, 2),
     ("misc_uj_chinook", 4, 0),
     ("misc_uj_streamlined", 5, 0),
     ("misc_uj_np", 3, 0),

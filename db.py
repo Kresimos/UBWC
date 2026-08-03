@@ -29,6 +29,7 @@ COMMANDS = {
     "wings": ["wing"],
     "booms": ["boom"],
     "masts": ["mast"],
+    "extensions": ["ext"],
     "fins": ["fin"],
     "foils": ["foil"],
     "misc": ["misc"],
@@ -48,6 +49,10 @@ FIELD_META = {
     "length_cm":          {"label": "Length (cm)", "kind": "number"},
     "min_size_cm":        {"label": "Min size (cm)", "kind": "number"},
     "max_size_cm":        {"label": "Max size (cm)", "kind": "number"},
+    "ext_min_cm":         {"label": "Shortest setting (cm)", "kind": "number"},
+    "ext_max_cm":         {"label": "Longest setting (cm)", "kind": "number"},
+    "diameter":           {"label": "Diameter", "kind": "select",
+                           "choices": ["RDM", "SDM"], "optional": True},
     "size_generic":       {"label": "Size", "kind": "text"},
     "box_type":           {"label": "Box type", "kind": "select",
                            "choices": ["US Box", "Powerbox", "Tuttle", "Deep Tuttle"]},
@@ -74,13 +79,15 @@ COMPONENT_FIELDS = {
     "board": ["manufacturer", "model", "type", "size_l", "box_type",
               "condition", "location", "spot", "notes"],
     "sail":  ["manufacturer", "model", "type", "size_m2", "luff_cm",
-              "top_extension_max_cm", "req_boom_cm", "cams",
+              "top_extension_max_cm", "req_boom_cm", "cams", "diameter",
               "condition", "location", "spot", "notes"],
     "wing":  ["manufacturer", "model", "type", "size_m2",
               "condition", "location", "spot", "notes"],
     "boom":  ["manufacturer", "model", "type", "min_size_cm", "max_size_cm",
               "condition", "location", "spot", "notes"],
-    "mast":  ["manufacturer", "model", "type", "length_cm",
+    "mast":  ["manufacturer", "model", "type", "length_cm", "diameter",
+              "condition", "location", "spot", "notes"],
+    "ext":   ["manufacturer", "model", "ext_min_cm", "ext_max_cm", "diameter",
               "condition", "location", "spot", "notes"],
     "fin":   ["manufacturer", "model", "type", "box_type", "fin_length_cm",
               "condition", "location", "spot", "notes"],
@@ -93,11 +100,13 @@ COMPONENT_FIELDS = {
 # Human labels for component types (for headings, add-item picker, etc.).
 COMPONENT_LABELS = {
     "board": "Board", "sail": "Sail", "wing": "Wing", "boom": "Boom",
-    "mast": "Mast", "fin": "Fin", "foil": "Foil", "misc": "Misc",
+    "mast": "Mast", "ext": "Extension", "fin": "Fin", "foil": "Foil",
+    "misc": "Misc",
 }
 
 # The order the catalogue's type chips appear in.
-CATALOGUE_TYPES = ["board", "sail", "mast", "boom", "fin", "foil", "wing", "misc"]
+CATALOGUE_TYPES = ["board", "sail", "mast", "ext", "boom", "fin", "foil",
+                   "wing", "misc"]
 
 # Sites the club uses. Committee maintains this list; new ones can be added
 # inline while moving kit, which is why it is a table rather than a constant.
@@ -146,9 +155,11 @@ DEFAULT_SPOTS = {
 }
 
 # Misc rows that behave as their own rig component. The spreadsheet has no
-# column for these yet, so the rig steps read them off the misc `type` — see
-# rigkit.py, which is the only place that mapping is applied.
-MISC_RIG_TYPES = {"Extension": "ext", "Universal joint": "uj"}
+# column for these, so the rig steps read them off the misc `type` — see
+# rigkit.py, which is the only place that mapping is applied. Extensions used to
+# be here too; they are a component type of their own now (`ext`), so only the
+# mast base is left.
+MISC_RIG_TYPES = {"Universal joint": "uj"}
 
 
 # --------------------------------------------------------------------------- #
@@ -291,7 +302,148 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                      "ON session_items(session_id)")
 
     _migrate_accounts(conn, tables)
+    _migrate_extensions(conn)
     _seed_locations(conn)
+
+
+# The `items` table as schema.sql defines it. Kept here because widening a CHECK
+# constraint (component_type gaining 'ext') is the one migration SQLite cannot
+# do with ALTER TABLE — the table has to be rebuilt from a fresh definition.
+_ITEMS_DDL = """
+    CREATE TABLE {name} (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        component_type  TEXT NOT NULL
+                        CHECK (component_type IN
+                            ('board','sail','wing','boom','mast','ext','fin','foil','misc')),
+        manufacturer    TEXT,
+        model           TEXT,
+        type            TEXT,
+        condition       TEXT,
+        location        TEXT,
+        spot            TEXT,
+        image_path      TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        size_l               REAL,
+        size_m2              REAL,
+        luff_cm              REAL,
+        top_extension_max_cm REAL DEFAULT 0,
+        req_boom_cm          REAL,
+        cams                 INTEGER,
+        length_cm            REAL,
+        min_size_cm          REAL,
+        max_size_cm          REAL,
+        ext_min_cm           REAL,
+        ext_max_cm           REAL,
+        diameter             TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM')),
+        size_generic         TEXT,
+        box_type             TEXT,
+        fin_length_cm        REAL,
+        notes                TEXT,
+        archived         INTEGER NOT NULL DEFAULT 0,
+        archived_at      TEXT,
+        archived_reason  TEXT
+    )
+"""
+
+# The "RDM." / "SDM." prefix the seed data and the old add-item form used to put
+# at the front of `notes`, back when diameter had no column. Moved into
+# `items.diameter` and removed from the note, so it is stated once.
+_DIAMETER_PREFIX_RE = re.compile(r"^\s*(RDM|SDM)\b[\s.,:;–-]*", re.IGNORECASE)
+
+
+def _migrate_extensions(conn: sqlite3.Connection) -> None:
+    """Give diameter its own column and extensions their own component type.
+
+    Both used to be conventions rather than data: an extension was a `misc` row
+    whose `type` cell read "Extension" and whose travel was text in
+    `size_generic` ("0-30cm"), and RDM/SDM was the first word of `notes`. This
+    reads both out of the free text once, writes them to real columns, and
+    leaves the notes carrying only what a person actually wrote.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+    ).fetchone()
+    if row and "'ext'" not in (row["sql"] or ""):
+        _rebuild_items(conn)
+    _rebuild_views(conn)
+
+    cols = _columns(conn, "items")
+    for name, decl in (("ext_min_cm", "REAL"), ("ext_max_cm", "REAL"),
+                       ("diameter", "TEXT")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {name} {decl}")
+
+    # Misc "Extension" rows become `ext` rows, their travel parsed out of the
+    # generic size. `type` goes: the component type says what it is now.
+    for item in conn.execute(
+        "SELECT id, size_generic FROM items "
+        "WHERE component_type = 'misc' AND lower(trim(type)) = 'extension'"
+    ).fetchall():
+        lo, hi = _parse_travel(item["size_generic"])
+        conn.execute(
+            "UPDATE items SET component_type = 'ext', type = NULL, "
+            "size_generic = NULL, ext_min_cm = ?, ext_max_cm = ? WHERE id = ?",
+            (lo if lo is not None else 0, hi, item["id"]),
+        )
+
+    # Diameter out of the front of the notes, for the three types it applies to.
+    for item in conn.execute(
+        "SELECT id, notes FROM items WHERE diameter IS NULL AND notes IS NOT NULL "
+        "AND component_type IN ('mast', 'ext', 'sail')"
+    ).fetchall():
+        match = _DIAMETER_PREFIX_RE.match(item["notes"])
+        if not match:
+            continue
+        conn.execute(
+            "UPDATE items SET diameter = ?, notes = ? WHERE id = ?",
+            (match.group(1).upper(), item["notes"][match.end():].strip() or None,
+             item["id"]),
+        )
+
+
+def _rebuild_items(conn: sqlite3.Connection) -> None:
+    """Recreate `items` with the current definition, keeping every row and id.
+
+    The standard SQLite table-rebuild dance: foreign keys off (the child tables
+    reference `items` by name, so they follow the rename), copy the columns the
+    two definitions share, swap the tables over. Ids are copied, so faults,
+    comments, ratings and setups all still point at the right piece of kit.
+    """
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        # The per-type views select FROM items, and SQLite refuses to rename a
+        # table out from under a view that names a table it cannot resolve.
+        # They are pure presentation, so they go and are rebuilt afterwards.
+        for view in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'view'"
+        ).fetchall():
+            conn.execute(f"DROP VIEW IF EXISTS {view['name']}")
+        conn.execute("DROP TABLE IF EXISTS items_new")
+        conn.execute(_ITEMS_DDL.format(name="items_new"))
+        shared = [c for c in _columns(conn, "items_new") if c in _columns(conn, "items")]
+        columns = ", ".join(shared)
+        conn.execute(f"INSERT INTO items_new ({columns}) SELECT {columns} FROM items")
+        conn.execute("DROP TABLE items")
+        conn.execute("ALTER TABLE items_new RENAME TO items")
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _rebuild_views(conn: sqlite3.Connection) -> None:
+    """Redefine the per-type views from schema.sql, which is their only source.
+
+    They are cheap to drop and recreate and carry no data, so an existing
+    database picks up a changed column list (masts gaining Diameter, extensions
+    gaining a view of their own) without being rebuilt from the sheet.
+    """
+    sql = migrate.SCHEMA_PATH.read_text(encoding="utf-8")
+    for statement in re.findall(r"CREATE VIEW\s+(\w+)\s+AS.*?;", sql, re.S):
+        conn.execute(f"DROP VIEW IF EXISTS {statement}")
+    for statement in re.findall(r"CREATE VIEW\s+\w+\s+AS.*?;", sql, re.S):
+        conn.execute(statement)
 
 
 def _migrate_accounts(conn: sqlite3.Connection, tables: set) -> None:
@@ -382,8 +534,8 @@ def _seed_locations(conn: sqlite3.Connection) -> None:
         "SELECT id, component_type, type, location FROM items "
         "WHERE spot IS NULL OR spot = ''"
     ).fetchall():
-        # An extension or a base is a misc row but lives with the small parts,
-        # not on the wetsuit shelf, so the default follows what it is used as.
+        # A mast base is a misc row but lives with the small parts, not on the
+        # wetsuit shelf, so the default follows what it is used as.
         key = row["component_type"]
         if key == "misc":
             key = MISC_RIG_TYPES.get((row["type"] or "").strip(), "misc")
@@ -402,36 +554,42 @@ def rebuild_from_xlsx() -> dict:
 # --------------------------------------------------------------------------- #
 # Derived item facts
 #
-# These read information that has no column of its own yet, so every caller
-# agrees on where it comes from rather than each re-parsing free text.
+# One place per fact, so every caller agrees on where it comes from. Diameter
+# and extension travel now have columns of their own; the free-text fallbacks
+# are only there for a row written before they did and never migrated.
 # --------------------------------------------------------------------------- #
 _DIAMETER_RE = re.compile(r"^\s*(RDM|SDM)\b", re.IGNORECASE)
 _RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)")
 
 
 def diameter_class(item: dict) -> Optional[str]:
-    """A mast's or extension's RDM/SDM class, read from the front of its notes.
+    """A mast's, extension's or cambered sail's RDM/SDM class.
 
-    Diameter is not a column yet (CLAUDE.md "Mast diameter class"), but it is a
-    hard rule for cambered sails and for matching an extension to its mast, so
-    the app has to know it. The seed data states it as the first word of the
-    notes; anything else reads as unknown, which the rules treat as "don't
-    block".
+    A hard rule twice over (CLAUDE.md "Mast diameter class"): an extension has
+    to match its mast, and a cambered sail's cams have to match both. None means
+    unknown, which the rules read as "don't block".
     """
+    stated = (item.get("diameter") or "").strip().upper()
+    if stated in ("RDM", "SDM"):
+        return stated
     match = _DIAMETER_RE.match(item.get("notes") or "")
     return match.group(1).upper() if match else None
 
 
-def extension_travel(item: dict) -> tuple:
-    """(min_cm, max_cm) an extension travels, read from its generic size ("0-30cm").
-
-    Extensions are misc rows, so their range is in `size_generic` rather than
-    the boom columns. Returns (None, None) when it cannot be read.
-    """
-    match = _RANGE_RE.search(item.get("size_generic") or "")
+def _parse_travel(text: Optional[str]) -> tuple:
+    """(min, max) out of a written range like "0-30cm". (None, None) if unreadable."""
+    match = _RANGE_RE.search(text or "")
     if not match:
         return (None, None)
     return (float(match.group(1)), float(match.group(2)))
+
+
+def extension_travel(item: dict) -> tuple:
+    """(min_cm, max_cm) an extension travels. (None, None) when it is not known."""
+    lo, hi = item.get("ext_min_cm"), item.get("ext_max_cm")
+    if hi is not None:
+        return (lo if lo is not None else 0.0, hi)
+    return _parse_travel(item.get("size_generic"))
 
 
 def item_title(item: dict) -> str:
@@ -450,6 +608,10 @@ def size_label(item: dict) -> str:
         return f"{item['length_cm']:g} cm"
     if ctype == "boom" and item.get("min_size_cm") is not None:
         return f"{item['min_size_cm']:g}-{item['max_size_cm']:g} cm"
+    if ctype == "ext":
+        lo, hi = extension_travel(item)
+        if hi is not None:
+            return f"{lo:g}-{hi:g} cm"
     if ctype == "fin" and item.get("fin_length_cm") is not None:
         return f"{item['fin_length_cm']:g} cm"
     return item.get("size_generic") or ""
@@ -527,16 +689,18 @@ def get_archived_items() -> list:
 def search_items(term: str, limit: int = 10) -> list:
     """Fuzzy-ish item lookup for the search bar.
 
-    Matches across manufacturer, model, type, location and the free-text notes
-    field so odd pieces are findable by whatever the user remembers about them.
+    Matches across manufacturer, model, type, diameter, location and the
+    free-text notes field so odd pieces are findable by whatever the user
+    remembers about them — "RDM" included, which is why diameter is searched
+    now that it is a column rather than a word inside the notes.
     """
     like = f"%{term.strip()}%"
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM items WHERE manufacturer LIKE ? OR model LIKE ? "
-            "OR type LIKE ? OR location LIKE ? OR spot LIKE ? OR notes LIKE ? "
-            "ORDER BY manufacturer, model LIMIT ?",
-            (like, like, like, like, like, like, limit),
+            "OR type LIKE ? OR diameter LIKE ? OR location LIKE ? OR spot LIKE ? "
+            "OR notes LIKE ? ORDER BY manufacturer, model LIMIT ?",
+            (like, like, like, like, like, like, like, limit),
         ).fetchall()
     return [dict(r) for r in rows]
 

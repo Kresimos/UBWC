@@ -16,6 +16,7 @@ const TYPES = [
   { key: 'sail', name: 'Sail', ex: 'm², luff, boom' },
   { key: 'board', name: 'Board', ex: 'volume, type, box' },
   { key: 'mast', name: 'Mast', ex: 'length, RDM / SDM' },
+  { key: 'ext', name: 'Extension', ex: 'travel, RDM / SDM' },
   { key: 'boom', name: 'Boom', ex: 'min / max range' },
   { key: 'fin', name: 'Fin', ex: 'box type, length' },
   { key: 'foil', name: 'Foil', ex: 'box, wing, mast' },
@@ -56,7 +57,7 @@ function screen() {
       </div>
       <div class="hintline">
         ${icon('info')}
-        <p>Misc is the catch-all: harnesses, UJs, extensions, wetsuits, roof straps, repair kits,
+        <p>Misc is the catch-all: harnesses, UJs, wetsuits, roof straps, repair kits,
           anything without its own type.</p>
       </div>
     </div>`;

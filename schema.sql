@@ -14,6 +14,7 @@ DROP VIEW IF EXISTS v_boards;
 DROP VIEW IF EXISTS v_sails_wings;
 DROP VIEW IF EXISTS v_booms;
 DROP VIEW IF EXISTS v_masts;
+DROP VIEW IF EXISTS v_extensions;
 DROP VIEW IF EXISTS v_misc;
 DROP TABLE IF EXISTS session_items;
 DROP TABLE IF EXISTS sessions;
@@ -34,7 +35,7 @@ CREATE TABLE items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     component_type  TEXT NOT NULL
                     CHECK (component_type IN
-                        ('board','sail','wing','boom','mast','fin','foil','misc')),
+                        ('board','sail','wing','boom','mast','ext','fin','foil','misc')),
     manufacturer    TEXT,
     model           TEXT,
     type            TEXT,        -- sheet "Type" (e.g. Freewave, Wave, Slalom)
@@ -65,6 +66,21 @@ CREATE TABLE items (
     -- booms (adjustable outhaul range)
     min_size_cm         REAL,
     max_size_cm         REAL,
+
+    -- extensions (their own component type: the piece between mast foot and
+    -- base that makes up the rest of a sail's luff). The travel is a range in
+    -- cm, kept separate from the boom's min/max so neither form borrows the
+    -- other's labels.
+    ext_min_cm          REAL,    -- shortest setting (usually 0)
+    ext_max_cm          REAL,    -- longest setting
+
+    -- masts and extensions: RDM (reduced) or SDM (standard) diameter, and the
+    -- diameter a cambered sail's cams are moulded to. Its own column rather
+    -- than a convention inside `notes`, because it is a HARD rule twice over
+    -- (CLAUDE.md "Mast diameter class"): an extension must match its mast, and
+    -- a cambered sail must match both. NULL = unknown/not applicable, which the
+    -- rules read as "don't block".
+    diameter            TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM')),
 
     -- misc catch-all
     size_generic        TEXT,
@@ -387,7 +403,7 @@ CREATE VIEW v_sails_wings AS
     SELECT id, manufacturer AS "Manufacturer", model AS "Model", type AS "Type",
            size_m2 AS "Size (m^2)", condition AS "Condition", location AS "Location",
            luff_cm AS "Luff", top_extension_max_cm AS "Adjustable Top",
-           req_boom_cm AS "Boom", cams AS "Cams"
+           req_boom_cm AS "Boom", cams AS "Cams", diameter AS "Diameter"
     FROM items WHERE component_type IN ('sail','wing');
 
 CREATE VIEW v_booms AS
@@ -398,8 +414,15 @@ CREATE VIEW v_booms AS
 
 CREATE VIEW v_masts AS
     SELECT id, manufacturer AS "Manufacturer", model AS "Model", type AS "Type",
-           length_cm AS "Size", condition AS "Condition", location AS "Location"
+           length_cm AS "Size", diameter AS "Diameter",
+           condition AS "Condition", location AS "Location"
     FROM items WHERE component_type = 'mast';
+
+CREATE VIEW v_extensions AS
+    SELECT id, manufacturer AS "Manufacturer", model AS "Model",
+           ext_min_cm AS "Min size", ext_max_cm AS "Max size",
+           diameter AS "Diameter", condition AS "Condition", location AS "Location"
+    FROM items WHERE component_type = 'ext';
 
 CREATE VIEW v_misc AS
     SELECT id, manufacturer AS "Manufacturer", model AS "Model", type AS "Type",

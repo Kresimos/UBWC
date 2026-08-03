@@ -316,7 +316,7 @@ function notesField(values) {
   return html`
     <div class="grp">
       <span class="lab">Notes <span class="opt">· optional</span></span>
-      <div class="inp"><textarea data-field="notes" placeholder="Rigging tips, sailing quirks, things to watch. Cambered sails: start with RDM or SDM.">${esc(values.notes ?? '')}</textarea></div>
+      <div class="inp"><textarea data-field="notes" placeholder="Rigging tips, sailing quirks, things to watch.">${esc(values.notes ?? '')}</textarea></div>
     </div>`;
 }
 

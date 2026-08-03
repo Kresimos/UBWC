@@ -53,8 +53,10 @@ def validate_rig(sail: dict,
       * sail.luff_cm <= mast.length_cm + extension_cm
         <= sail.luff_cm + sail.top_extension_max_cm   (±tolerance)
       * boom.min_size_cm <= sail.req_boom_cm <= boom.max_size_cm
-    Soft rules (warnings): implausible extension length; mast brand != sail
-    brand (flex/IMCS not guaranteed, matters most for cambered sails).
+      * sail.diameter == mast.diameter, but only for a cambered sail
+    Soft rules (warnings): implausible extension length; a diameter mismatch on
+    a camless sail; mast brand != sail brand (flex/IMCS not guaranteed, matters
+    most for cambered sails).
     """
     res = Result()
     req_luff = sail.get("luff_cm")
@@ -101,6 +103,21 @@ def validate_rig(sail: dict,
                 res.warnings.append(
                     f"An extension of {ext:g}cm is unusual (typical range 0–50cm) — "
                     f"double-check the mast choice."
+                )
+
+        # Diameter: only a hard rule for a cambered sail, whose cams are moulded
+        # to one class. A camless sail's luff sleeve takes either.
+        sail_diam, mast_diam = sail.get("diameter"), mast.get("diameter")
+        if sail_diam and mast_diam and sail_diam != mast_diam:
+            if sail.get("cams"):
+                res.errors.append(
+                    f"This sail's cams are moulded to {sail_diam}, so they will not "
+                    f"close around an {mast_diam} mast."
+                )
+            else:
+                res.warnings.append(
+                    f"Sail is specced {sail_diam}, mast is {mast_diam} — camless, so "
+                    f"the luff sleeve still fits, but rotation may be less clean."
                 )
 
         # Brand match (best practice, not a rule).
@@ -182,6 +199,7 @@ REQUIRED_FIELDS = {
     "boom":  ["manufacturer", "model", "min_size_cm", "max_size_cm",
               "condition", "location"],
     "mast":  ["manufacturer", "model", "length_cm", "condition", "location"],
+    "ext":   ["manufacturer", "model", "ext_max_cm", "condition", "location"],
     "fin":   ["manufacturer", "model", "box_type", "fin_length_cm",
               "condition", "location"],
     "foil":  ["manufacturer", "model", "box_type", "condition", "location"],
@@ -193,7 +211,9 @@ FIELD_NAMES = {
     "size_l": "volume in litres", "size_m2": "size in m²",
     "luff_cm": "luff length", "req_boom_cm": "boom length",
     "min_size_cm": "shortest boom length", "max_size_cm": "longest boom length",
-    "length_cm": "length", "fin_length_cm": "fin length", "box_type": "box type",
+    "ext_min_cm": "shortest setting", "ext_max_cm": "longest setting",
+    "diameter": "diameter", "length_cm": "length",
+    "fin_length_cm": "fin length", "box_type": "box type",
     "condition": "condition", "location": "site",
 }
 
@@ -208,6 +228,8 @@ PLAUSIBLE = {
     "length_cm": (300, 560, "cm"),
     "fin_length_cm": (8, 80, "cm"),
     "top_extension_max_cm": (0, 60, "cm"),
+    "ext_min_cm": (0, 40, "cm"),
+    "ext_max_cm": (10, 60, "cm"),
 }
 
 
@@ -245,23 +267,41 @@ def check_item(record: dict) -> Result:
                 f"outside the usual {low:g}-{high:g}{unit} — worth a double-check."
             )
 
-    # A boom that adjusts backwards would silently match nothing in the wizard.
-    lo, hi = record.get("min_size_cm"), record.get("max_size_cm")
-    if lo not in (None, "") and hi not in (None, ""):
+    # A boom or an extension that adjusts backwards would silently match nothing
+    # in the wizard.
+    for low_field, high_field, noun in (("min_size_cm", "max_size_cm", "boom length"),
+                                        ("ext_min_cm", "ext_max_cm", "setting")):
+        lo, hi = record.get(low_field), record.get(high_field)
+        if lo in (None, "") or hi in (None, ""):
+            continue
         try:
             if float(lo) > float(hi):
-                res.errors.append("The shortest boom length has to be under the longest.")
+                res.errors.append(f"The shortest {noun} has to be under the longest.")
         except (TypeError, ValueError):
-            res.errors.append("Boom lengths have to be numbers.")
+            res.errors.append(f"The {noun}s have to be numbers.")
 
-    # A cambered sail's cams are moulded to one diameter, and the app has no
-    # column for it yet, so say so rather than quietly offering every mast.
-    if ctype == "sail" and record.get("cams"):
-        notes = (record.get("notes") or "").strip().upper()
-        if not notes.startswith(("RDM", "SDM")):
+    # Diameter is a hard fit for an extension against its mast, and for a
+    # cambered sail's cams against both, so an unstated one costs the rig
+    # assistant a rule it would otherwise apply. It never blocks a save: a
+    # member who does not know the class should still record the piece.
+    diameter = (record.get("diameter") or "").strip().upper()
+    if diameter and diameter not in ("RDM", "SDM"):
+        res.errors.append("Diameter has to be RDM or SDM.")
+    elif not diameter:
+        if ctype == "ext":
             res.warnings.append(
-                "Cambered sail: start the notes with RDM or SDM so the rig "
-                "assistant only offers masts the cams actually fit."
+                "No diameter recorded: without RDM or SDM the rig assistant "
+                "cannot tell which masts this extension bolts into."
+            )
+        elif ctype == "mast":
+            res.warnings.append(
+                "No diameter recorded: without RDM or SDM this mast will not be "
+                "matched to extensions, or ruled out for cambered sails."
+            )
+        elif ctype == "sail" and record.get("cams"):
+            res.warnings.append(
+                "Cambered sail: record the diameter its cams are moulded to, so "
+                "the rig assistant only offers masts they actually fit."
             )
 
     return res

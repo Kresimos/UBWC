@@ -1,11 +1,10 @@
 """Normalise inventory rows into the shape the rig wizard reasons about.
 
-The wizard's seven steps are not the same list as the eight component types:
-an extension and a mast base are `misc` rows today (the sheet has no column for
-them), and a sail's diameter class lives at the front of its notes. Rather than
-teach the browser those quirks, the server hands it one flat list of pieces
-with the fields each rule needs, and the cascade in web/js/rig/engine.js works
-only in those terms.
+The wizard's seven steps are not the same list as the component types: a mast
+base is still a `misc` row (the sheet has no column for it), and a wing rigs but
+is never a rig sail. Rather than teach the browser those quirks, the server
+hands it one flat list of pieces with the fields each rule needs, and the
+cascade in web/js/rig/engine.js works only in those terms.
 
 Two things are decided here, both from misc/spec.md and CLAUDE.md:
 
@@ -21,6 +20,7 @@ import db
 _COMPONENT_KINDS = {
     "sail": "sail",
     "mast": "mast",
+    "ext": "ext",
     "boom": "boom",
     "board": "board",
     "fin": "fin",

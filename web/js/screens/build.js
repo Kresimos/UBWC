@@ -28,7 +28,7 @@ import { conditionClass, worstFault } from '../ui/bits.js';
 import { pickSite } from '../ui/chrome.js';
 import { lightbox, toast } from '../ui/overlay.js';
 import { haptic, TICK, PICK } from '../ui/haptics.js';
-import { go, back } from '../router.js';
+import { go } from '../router.js';
 import { building } from '../rig/session.js';
 import {
   TARGETS, TARGET_KEYS, SLOTS, matches, matchChip, tagsFor, nearestStocked, clampTarget,
@@ -341,7 +341,6 @@ export async function render(root, params) {
   on(root, 'touchcancel', '.picker', () => { drag = null; paint(); }, { passive: true });
 
   // ---------------------------------------------------------------- events
-  root.querySelector('[data-back]').addEventListener('click', () => back('/catalogue'));
   root.querySelector('[data-pick-site]').addEventListener('click', async () => {
     if (await pickSite({ allowAll: false })) go('/rig', { replace: true });
   });
@@ -450,7 +449,6 @@ function shell() {
   return html`
     <div class="appbar">
       <div class="row">
-        <button class="backbtn" data-back aria-label="Back">${icon('back')}</button>
         <span class="ttl">Build</span>
         <button class="site" data-pick-site>${icon('pin')}<span data-sitelabel>${siteLabel()}</span></button>
       </div>

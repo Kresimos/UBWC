@@ -32,6 +32,8 @@ const known = (value) => value !== null && value !== undefined;
 
 export const fmt = (value) => String(Math.round(value * 10) / 10);
 export const span = (low, high) => `${fmt(low)} to ${fmt(high)} cm`;
+// A sail's size stays meaningfully precise at a round number, so it never drops the .0 the way fmt() does.
+export const fmtSail = (value) => (Math.round(value * 10) / 10).toFixed(1);
 
 /* ------------------------------------------------------------------ Build */
 
@@ -315,7 +317,7 @@ export function shortName(piece) {
 
 /** The headline size a sailor picks this kind of kit by. */
 export function sizeBits(kind, piece) {
-  if (kind === 'sail') return known(piece.m2) ? { v: fmt(piece.m2), u: 'm²' } : null;
+  if (kind === 'sail') return known(piece.m2) ? { v: fmtSail(piece.m2), u: 'm²' } : null;
   if (kind === 'mast' || kind === 'fin') return known(piece.len) ? { v: fmt(piece.len), u: 'cm' } : null;
   if (kind === 'ext' || kind === 'boom') {
     return known(piece.max) ? { v: `${fmt(piece.min || 0)}-${fmt(piece.max)}`, u: 'cm' } : null;

@@ -11,7 +11,7 @@
  * vote on that piece, and a note becomes a comment on it, so both surface on
  * the item page rather than staying buried in the log.
  */
-import { html, mount, num, onClick, clockTime } from '../dom.js';
+import { html, mount, num, numFixed, onClick, clockTime } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
@@ -92,13 +92,12 @@ export async function render(root, _params, query) {
     paintWind();
   });
 
-  onClick(root, 'data-prow', (_value, node) => {
-    const comment = node.nextElementSibling;
-    if (comment && comment.classList.contains('pcomment')) comment.toggleAttribute('hidden');
-  });
-
+  // Registered before data-prow: both listeners sit on the same root, and a
+  // thumb button lives inside its row's data-prow element, so this has to run
+  // (and stop the event outright) before the row's own handler sees the click,
+  // or every vote also pops the row's note box open.
   onClick(root, 'data-thumb', (value, node, event) => {
-    event.stopPropagation();
+    event.stopImmediatePropagation();
     const [role, dir] = value.split(':');
     const piece = draft.pieces.find((p) => p.role === role);
     const vote = dir === 'up' ? 1 : -1;
@@ -108,6 +107,11 @@ export async function render(root, _params, query) {
       button.classList.toggle('sel', isThis && piece.vote === vote);
       if (!isThis) button.classList.remove('sel');
     });
+  });
+
+  onClick(root, 'data-prow', (_value, node) => {
+    const comment = node.nextElementSibling;
+    if (comment && comment.classList.contains('pcomment')) comment.toggleAttribute('hidden');
   });
 
   root.querySelectorAll('[data-comment]').forEach((input) => {
@@ -207,7 +211,7 @@ function screen(setup, draft) {
   const sail = setup.pieces.find((p) => p.role === 'sail');
   const board = setup.pieces.find((p) => p.role === 'board');
   const heading = [
-    sail && sail.item ? `${num(sail.item.size_value)} ${(sail.item.model || '').split(' ')[0]} rig` : null,
+    sail && sail.item ? `${numFixed(sail.item.size_value)} ${(sail.item.model || '').split(' ')[0]} rig` : null,
     board && board.item ? board.item.model : null,
   ].filter(Boolean).join(', ');
 

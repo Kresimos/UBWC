@@ -6,7 +6,7 @@
  * up. It persists until logged (there is no dismiss), because a save is always
  * a deliberate act and the nudge is what turns a finished sail into one.
  */
-import { html, mount, num, ago, clockTime, spanned, stampDate, onClick, initial } from '../dom.js';
+import { html, mount, num, numFixed, ago, clockTime, spanned, stampDate, onClick, initial } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
@@ -118,7 +118,7 @@ function nudge(setup) {
   const sail = setup.pieces.find((p) => p.role === 'sail');
   const board = setup.pieces.find((p) => p.role === 'board');
   const bits = [];
-  if (sail && sail.item) bits.push(`${num(sail.item.size_value)} ${(sail.item.model || '').split(' ')[0]} rig`);
+  if (sail && sail.item) bits.push(`${numFixed(sail.item.size_value)} ${(sail.item.model || '').split(' ')[0]} rig`);
   if (board && board.item) bits.push(board.item.model);
   return html`
     <div class="nudge">
@@ -245,7 +245,7 @@ function kitRow(piece) {
   return html`
     <button class="krow" data-kititem="${piece.item_id || ''}">
       ${artFor(kind)}
-      <b class="sz">${size != null ? num(size) : ''}</b>
+      <b class="sz">${size != null ? (kind === 'sail' ? numFixed(size) : num(size)) : ''}</b>
       <span class="knm">${name}</span>
     </button>`;
 }

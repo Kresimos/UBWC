@@ -130,6 +130,14 @@ export function num(value, decimals = 1) {
   return String(Math.round(parsed * 10 ** decimals) / 10 ** decimals);
 }
 
+/** A sail's size, which stays meaningfully precise at a round number: 5.0m², not 5m². */
+export function numFixed(value, decimals = 1) {
+  if (value == null || value === '') return '';
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return String(value);
+  return parsed.toFixed(decimals);
+}
+
 export function initial(name) {
   return (String(name || '?').trim()[0] || '?').toUpperCase();
 }

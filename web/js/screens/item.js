@@ -14,7 +14,7 @@
  *  - a **reported fix does not clear a fault**. Any member can report one;
  *    it then reads as awaiting committee sign-off until committee closes it.
  */
-import { html, mount, num, ago, onClick, initial } from '../dom.js';
+import { html, mount, num, numFixed, ago, onClick, initial } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, isCommittee } from '../store.js';
@@ -283,7 +283,9 @@ function screen(item, historyOpen) {
 
       <div class="inner">
         <div class="head">
-          <span class="size">${item.size_value != null ? num(item.size_value) : item.size_label || '—'}
+          <span class="size">${item.size_value != null
+            ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
+            : item.size_label || '—'}
             ${item.size_unit ? html`<small>${item.size_unit}</small>` : ''}</span>
           <span class="nm">${item.manufacturer} · ${item.model}</span>
           <div class="chips">

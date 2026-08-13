@@ -248,6 +248,20 @@ button:active, [role="button"]:active {
   z-index: 10;
 }
 .appbar .row { display: flex; align-items: center; gap: 12px; }
+/* The who-pill's own margin-left:auto only works when it is a direct flex
+   child of .row; mounted through its <span data-who> wrapper it isn't, so
+   the wrapper carries the auto margin instead, pushing it to the row's edge. */
+.appbar .row > [data-who] { margin-left: auto; }
+/* On the Catalogue bar the site pill sits right before the who pill and
+   pushes itself to the edge instead (see .appbar .row > .sitebtn below), so
+   the who pill's own auto margin has to stand down here — otherwise two
+   competing auto margins split the free space and strand the site pill in
+   the middle of the bar instead of snug against who. */
+/* Pulled in past 0: the row's 12px gap (needed between every other pair in
+   this bar) still read as loose for just these two pills, so this trims it
+   down to 6px rather than touching. */
+.appbar .row > .sitebtn + [data-who] { margin-left: -6px; }
+.appbar .row > .sitebtn { margin-left: auto; }
 .appbar .ttl { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
 .appbar .ttl.sm { font-size: 18px; font-weight: 750; }
 .backbtn {
@@ -266,11 +280,13 @@ button:active, [role="button"]:active {
   color: var(--app-faint); margin-top: 3px;
 }
 
-/* The site selector: which site am I at, and therefore what kit is near me. */
+/* The site selector: which site am I at, and therefore what kit is near me.
+   Height is pinned to match .whobtn (30px) so every appbar's top-right pill
+   sits at the same height, whichever screen drew it. */
 .sitebtn {
   display: inline-flex; align-items: center; gap: 6px; background: var(--teal-tint);
   color: var(--teal-ink); font-weight: 600; font-size: 13.5px; padding: 7px 12px;
-  border-radius: 999px; border: 0; cursor: pointer; max-width: 58%;
+  height: 30px; border-radius: 999px; border: 0; cursor: pointer; max-width: 58%;
 }
 .sitebtn svg { width: 13px; height: 13px; flex: none; }
 .sitebtn .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -279,7 +295,7 @@ button:active, [role="button"]:active {
 .appbar .site {
   margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
   font-size: 12.5px; font-weight: 600; color: var(--teal-ink);
-  background: var(--teal-tint); padding: 6px 10px; border-radius: 999px;
+  background: var(--teal-tint); padding: 6px 10px; height: 30px; border-radius: 999px;
   border: 0; cursor: pointer;
 }
 .appbar .site svg { width: 13px; height: 13px; }
@@ -297,15 +313,19 @@ button:active, [role="button"]:active {
 .whobtn {
   margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; font-weight: 650; color: var(--app-muted); background: var(--app-bg2);
-  padding: 5px 10px 5px 6px; border-radius: 999px; border: 0; cursor: pointer; flex: none;
+  padding: 5px 10px 5px 6px; height: 30px; border-radius: 999px; border: 0; cursor: pointer; flex: none;
 }
 .whobtn .av {
   width: 20px; height: 20px; border-radius: 50%; background: var(--teal); color: #fff;
   font-size: 10px; font-weight: 750; display: flex; align-items: center; justify-content: center;
 }
 .whobtn.out .av { background: var(--app-faint); }
-/* Avatar only, for a bar that has no room for a name. */
-.whobtn.dot { margin-left: 8px; padding: 4px; gap: 0; }
+/* Avatar only, for a bar that has no room for a name. Padding trimmed to 3px
+   (not 4) so the bigger 24px dot avatar still lands on the shared 30px height.
+   No margin-left of its own: the row's 12px gap is enough separation from the
+   site pill next to it on the Catalogue bar, and any more strands it further
+   from the pill than the app's usual spacing. */
+.whobtn.dot { padding: 3px; gap: 0; }
 .whobtn.dot .av { width: 24px; height: 24px; font-size: 11px; }
 .whobtn .key { width: 12px; height: 12px; color: var(--teal); }
 

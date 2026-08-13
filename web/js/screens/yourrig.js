@@ -390,7 +390,7 @@ export async function render(root) {
                   </button>`)
               : html`<div class="altempty">${query
                   ? 'Nothing here matches that.'
-                  : `Every ${slot.noun} that fits is already the one above.`}</div>`}
+                  : `The only ${slot.noun} that fits is the one above.`}</div>`}
           </div>
         </div>
       </div>`;

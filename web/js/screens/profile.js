@@ -51,13 +51,11 @@ export async function render(root) {
     if (!point) return;
     lightbox({
       glyph: 'wind',
-      title: `${num(point.sail)} m² in ${num(point.wind)} kn`,
+      title: `${num(point.sail)} m² in ${num(point.wind)} kn${point.gust ? ` (gusting ${num(point.gust)})` : ''}`,
       sub: [
         point.site || 'Site not recorded',
         point.board ? `${num(point.board)} L board` : null,
-        point.stars ? `${point.stars} of 5 for the session` : null,
-        point.vote === 1 ? 'You rated the sail up'
-          : point.vote === -1 ? 'You rated the sail down' : null,
+        point.stars ? `${point.stars} of 5 for the session` : 'Not rated',
         ago(point.at),
       ].filter(Boolean).join(' · '),
     });
@@ -163,13 +161,19 @@ function favRow(card) {
  * The scatter and the fitted curve.
  *
  * One series (this member's sessions), so there is no colour coding to decode:
- * every dot is teal, and what they thought of the sail is carried by the mark
- * itself (filled for a thumbs up, hollow for a thumbs down, small and grey when
- * they did not say), which the key underneath names in words.
+ * every dot is teal, and how the session went is carried by the mark itself
+ * (the fuller and bigger the dot, the higher the session's star rating; small
+ * and grey when it was not rated), which the key underneath names in words.
+ * A kit item's own thumb rating is a different question, about that piece
+ * rather than the day, so it plays no part in this chart.
  */
 function chart(curve) {
   const points = curve.points;
-  const xs = points.map((p) => p.wind);
+  // Plotted (and fitted) on each session's gust-leaning wind, not its raw
+  // mean: that is the number K was actually built from (suggest.py), so it
+  // is the only axis the curve can be drawn against and still pass through
+  // the points it was fit to.
+  const xs = points.map((p) => p.wind_fit);
   const ys = points.map((p) => p.sail);
 
   // The domain always contains the sailable range, then widens to fit anything
@@ -209,20 +213,20 @@ function chart(curve) {
       <path class="fit" d="${path.join(' ')}"></path>
 
       ${points.map((point, index) => html`
-        <circle class="pt ${point.vote === 1 ? 'up' : point.vote === -1 ? 'down' : 'none'}"
-                cx="${px(point.wind)}" cy="${py(point.sail)}"
-                r="${point.vote ? 4.5 : 3.5}" data-point="${index}" tabindex="0" role="button">
-          <title>${num(point.sail)} m² in ${num(point.wind)} kn</title>
+        <circle class="pt ${point.stars ? `s${point.stars}` : 'none'}"
+                cx="${px(point.wind_fit)}" cy="${py(point.sail)}"
+                r="${point.stars ? 3.3 + point.stars * 0.34 : 3.5}" data-point="${index}" tabindex="0" role="button">
+          <title>${num(point.sail)} m² in ${num(point.wind)} kn${point.gust ? ` (gusting ${num(point.gust)})` : ''}${point.stars ? ` · ${point.stars}★` : ''}</title>
         </circle>`)}
 
-      <text class="axlabel" x="${W / 2}" y="${H - 3}" text-anchor="middle">wind (kn)</text>
+      <text class="axlabel" x="${W / 2}" y="${H - 3}" text-anchor="middle">wind, with gusts (kn)</text>
       <text class="axlabel" x="8" y="${PAD.top + 2}">m²</text>
     </svg>
 
     <div class="fitkey">
-      <span><i class="dot up"></i>rated up</span>
-      <span><i class="dot down"></i>rated down</span>
-      <span><i class="dot none"></i>no verdict</span>
+      <span><i class="dot s1"></i>1★ session</span>
+      <span><i class="dot s5"></i>5★ session</span>
+      <span><i class="dot none"></i>not rated</span>
       <span><i class="line"></i>your fitted size</span>
     </div>`;
 }
@@ -249,6 +253,6 @@ function caption(curve) {
       : 'the club average';
   // The server's own sentence is kept whole: it is already written for a member,
   // and it says which of the two things (their history, today's wind) it used.
-  return `${own}: you rig about ${num(Math.round(curve.k / 18 * 10) / 10)} m² in 18 kn, ${club}. `
+  return `${own}: you rig about ${num(Math.round(curve.k / 18 * 10) / 10)} m² at 18 kn with typical gusts, ${club}. `
     + `Build opens on ${num(suggestion.value)} m² right now. ${suggestion.why}`;
 }

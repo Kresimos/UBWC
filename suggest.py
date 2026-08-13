@@ -1,10 +1,17 @@
 """What size to open the rig wizard on, for this member, in this wind.
 
-The Build screen has always started on a fixed number (5.5 m², 120 L) that was
-right for nobody in particular. A member who has logged sessions has already
-answered the question better than any default can: they have told the app what
+The Build screen used to start on a fixed number (5.5 m², 120 L) that was right
+for nobody in particular. A member who has logged sessions has already
+answered the question better than any formula can: they have told the app what
 they rigged, in what wind, and whether it worked. This module turns that into
-the number the wheel starts on.
+the number the wheel starts on, but only once there is something of theirs to
+turn. The club runs from complete beginners to people who have sailed for
+decades, so a population "average" is not a sensible guess at a specific
+member we know nothing about yet; it would just be confidently wrong in a
+different way for almost everyone. A member with no logbook is suggested a
+flat, middling default (5.5 m², 140 L) and nothing cleverer than that, and the
+moment they have logged even one relevant session, the suggestion is built
+from theirs alone.
 
 **Sail.** For one rider, the sail that planes in a given wind is close to
 inversely proportional to the wind speed: halve the wind, roughly double the
@@ -14,48 +21,74 @@ sail. So each session gives one number,
 
 which is that rider's own "power constant", since it folds their weight, board and
 ambition into a single figure, which is exactly the part a formula cannot know
-in advance. A club-average K of 100 is 5.5 m² at 18 kn, 7 m² at 14 kn, 4.5 m²
-at 22 kn: the sizes a Cheddar Wednesday actually rigs.
+in advance.
+
+The "wind (kn)" a session is sized against is not its mean, but `_effective_wind()`
+leaning toward its gust: being overpowered in a gust is the outcome a rider
+actually sizes to avoid, since a lull just costs a few quiet seconds, so the
+number that governs the size picked is closer to the gust than the average. The
+same blend is used both to fit K from a session's history and to divide by
+"now"'s wind for a live suggestion, so the two sides of the division mean the
+same thing.
 
 The member's own K is a weighted mean of their sessions', weighted by:
 
-  - **verdict**: a session they gave the sail a 👍 is the strongest evidence of
-    a right-sized rig, a 👎 the weakest, with the session's own star rating
-    nudging it either way;
+  - **verdict**: the session's own star rating, since it says how the whole
+    day's rig worked, size included. A thumb on a piece of kit is a different
+    question (would you reach for this one again) and does not speak to
+    whether it was the right size for the day, so it plays no part here;
   - **recency**: this year's sailing counts for more than last year's, with a
     half-life of about a season.
 
-That mean is then **shrunk toward the club average**, which is the honest way to
-treat two sessions' worth of evidence: PRIOR_SESSIONS acts as a couple of
-imaginary club-average sessions, so one lucky day cannot swing the suggestion,
-and a member with a season of logs is suggested their own number rather than
-the club's.
+No blending toward a club figure happens after that: the first logged session
+that has a sail and a wind reading is already a better guess at this member
+than any population number could be.
 
 **Board.** Volume is chosen from rider weight and skill, not from the wind
-(CLAUDE.md, "Board sizing"), so it is not fitted to a curve; it is the member's
-own weighted median volume, nudged one step up in light wind and down in strong,
-and shrunk toward the club default the same way.
+(CLAUDE.md, "Board sizing"), so it is not fitted to a curve the way the sail
+is. But weight and skill barely move session to session for one rider, so they
+are already free in that rider's own history without modelling either: what
+does move is which board of theirs suits the day, and that tracks conditions
+closely (a big sail, light-wind day wants more float than a small, powered
+one). So the weighted median leans on sessions sailed in wind like today's:
+each past board's weight is scaled by how close its session's wind was to
+today's, halving every BOARD_WIND_HALFWIDTH kn of difference. With no wind to
+compare against, that scaling is neutral and the median is the rider's plain
+history. The result is then nudged one step up in light wind and down in
+strong (no club shrinkage here either, once there is a board logged at all).
 
 Everything here is a suggestion the member immediately overrides by moving the
-wheel, so a missing wind reading or an empty logbook is not an error: it just
-means the club default, which is where the app started.
+wheel. A missing wind reading is never an error, it just leaves the tilt out;
+an empty logbook is not an error either, it is exactly the flat default above.
 """
 from datetime import datetime, timezone
 
 import db
 
-# 5.5 m² at 18 kn. The club's own average, and what a member with no logbook
-# is suggested.
+# 5.5 m² at 18 kn: not used to steer a suggestion (see the module docstring),
+# only kept as the reference line the profile chart draws a member's own curve
+# against ("more/less sail than the club average").
 CLUB_K = 100.0
-CLUB_BOARD_L = 120.0
 
-# How many club-average sessions the prior is worth. Two: a member's third
-# logged session is where their own sailing starts to outweigh the default.
-PRIOR_SESSIONS = 2.0
+# The flat starting point for a member with no logbook yet: the middle of the
+# club's own kit range, not a fitted number. From a member's first relevant
+# session on, this is never blended in: their own history stands alone.
+DEFAULT_SAIL_M2 = 5.5
+DEFAULT_BOARD_L = 140.0
 
 # How fast a session stops speaking for the member's current sailing. Eight
 # months, so last winter still counts and the season before it barely does.
 HALF_LIFE_DAYS = 240.0
+
+# How far the wind a session is sized against leans toward its gust rather than
+# its mean. 0 would ignore gusts entirely; 1 would size for the gust outright.
+# A rider aims short of the gust, not at it, hence the middle ground.
+GUST_WEIGHT = 0.6
+
+# A board-wind difference this big roughly halves how much a past session says
+# about today's board. A rider's board choice tracks the day's power more than
+# an old session sailed in very different wind does.
+BOARD_WIND_HALFWIDTH = 6.0
 
 # The wheels' own limits (web/js/rig/engine.js TARGETS), so a suggestion can
 # never open the wizard on a number it cannot show.
@@ -88,16 +121,31 @@ def _recency(at) -> float:
     return 0.5 ** (days / HALF_LIFE_DAYS)
 
 
-def _verdict(vote, stars) -> float:
-    """How much a session's kit choice is worth as evidence it was the right size.
+def _verdict(stars) -> float:
+    """How much a session's kit choice is worth as evidence it was the right
+    size, from the session's own star rating alone (see the module docstring
+    for why a piece's own thumb rating is not part of this)."""
+    return {1: 0.35, 2: 0.6, 3: 1.0, 4: 1.3, 5: 1.6}.get(stars, 1.0)
 
-    A thumb on the piece itself is the direct answer; the session's stars are
-    the weaker, whole-day one, and only tilt what the thumb already said.
-    """
-    weight = {1: 1.6, -1: 0.35}.get(vote, 1.0)
-    if stars:
-        weight *= 0.7 + 0.15 * float(stars)   # 1★ -> 0.85, 3★ -> 1.15, 5★ -> 1.45
-    return weight
+
+def _effective_wind(speed, gust):
+    """The wind a rider actually sizes against: closer to the gust than the
+    mean, for the reason in the module docstring. `gust` under `speed` (a bad
+    reading, not a lull) is treated as no gust at all."""
+    if speed is None:
+        return None
+    if not gust or gust <= speed:
+        return speed
+    return speed + GUST_WEIGHT * (gust - speed)
+
+
+def _proximity(row_wind, today) -> float:
+    """How alike a past session's wind was to today's, on the same half-life
+    shape as `_recency`. 1.0 (neutral) when either side is unknown, so the
+    board median falls back to an unweighted read of the rider's history."""
+    if row_wind is None or today is None:
+        return 1.0
+    return 0.5 ** (abs(row_wind - today) / BOARD_WIND_HALFWIDTH)
 
 
 def _clamp(value, bounds):
@@ -130,7 +178,28 @@ def _usable_wind(wind) -> float:
         speed = float(speed)
     except (TypeError, ValueError):
         return None
-    return _clamp(speed, WIND_RANGE) if speed > 0 else None
+    if speed <= 0:
+        return None
+    return _clamp(_effective_wind(speed, _asfloat(wind.get("gust_kn"))), WIND_RANGE)
+
+
+def _asfloat(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _row_wind(row):
+    """A logged session's own effective wind, on the same gust-leaning terms as
+    `_usable_wind`, so history is fitted on the same basis a live suggestion is
+    divided by."""
+    speed = _asfloat(row.get("wind_kn"))
+    if not speed:
+        return None
+    return _effective_wind(speed, _asfloat(row.get("wind_gust_kn")))
 
 
 def stock_range(component: str, column: str, site=None) -> tuple:
@@ -175,12 +244,14 @@ def for_member(user_id, wind=None, site=None) -> dict:
     sails, boards = [], []
     for row in history:
         weight = _recency(row["at"])
-        if row.get("sail_m2") and row.get("wind_kn"):
-            k = float(row["sail_m2"]) * float(row["wind_kn"])
-            sails.append((k, weight * _verdict(row.get("sail_vote"), row.get("stars"))))
+        row_wind = _row_wind(row)
+        if row.get("sail_m2") and row_wind:
+            size = float(row["sail_m2"])
+            sails.append((size * row_wind, weight * _verdict(row.get("stars")), size))
         if row.get("board_l"):
             boards.append((float(row["board_l"]),
-                           weight * _verdict(row.get("board_vote"), row.get("stars"))))
+                           weight * _verdict(row.get("stars")),
+                           row_wind))
 
     return {
         "sail": _sail(sails, speed, _bounds(SAIL_RANGE, stock_range("sail", "size_m2", site))),
@@ -191,38 +262,51 @@ def for_member(user_id, wind=None, site=None) -> dict:
 
 
 def _sail(sails, speed, bounds=SAIL_RANGE) -> dict:
-    """K, shrunk toward the club's, divided by the wind."""
-    weight = sum(w for _, w in sails)
-    k = (sum(k * w for k, w in sails) + CLUB_K * PRIOR_SESSIONS) / (weight + PRIOR_SESSIONS)
+    """K from the rider's own sessions, divided by the wind. No history, no K:
+    a flat default rather than a guess dressed up as a personal one."""
+    if not sails:
+        return {
+            "value": round(_clamp(DEFAULT_SAIL_M2, bounds), 1),
+            "k": None,
+            "n": 0,
+            "basis": "new",
+            "why": _why_sail("new", 0, speed),
+        }
+
+    weight = sum(w for _, w, _ in sails)
+    k = sum(k * w for k, w, _ in sails) / weight
 
     if speed:
         value = _clamp(k / speed, bounds)
-        basis = "yours" if sails else "club"
+        basis = "yours"
     else:
         # No wind to divide by: fall back on the size they actually rig most.
-        median = _weighted_median([(k / CLUB_K * 5.5, w) for k, w in sails])
-        value = _clamp(median if median else CLUB_K / 18.0, bounds)
-        basis = "yours-nowind" if median else "club-nowind"
+        value = _clamp(_weighted_median([(size, w) for _, w, size in sails]), bounds)
+        basis = "yours-nowind"
 
     return {
         "value": round(value, 1),
         "k": round(k, 1),
         "n": len(sails),
         "basis": basis,
-        "why": _why_sail(basis, len(sails), speed, k),
+        "why": _why_sail(basis, len(sails), speed),
     }
 
 
 def _board(boards, speed, bounds=BOARD_RANGE) -> dict:
-    weight = sum(w for _, w in boards)
-    median = _weighted_median(boards)
-    if median is None:
-        value, basis = CLUB_BOARD_L, "club"
-    else:
-        # Shrink toward the club default on the same terms as the sail: a member
-        # with one logged board is not yet a member with a usual board.
-        value = (median * weight + CLUB_BOARD_L * PRIOR_SESSIONS) / (weight + PRIOR_SESSIONS)
-        basis = "yours"
+    """Weighted median of the rider's own boards, leaning on sessions sailed in
+    wind like today's. No history, no median: the same flat-default rule as
+    the sail."""
+    if not boards:
+        return {
+            "value": round(_clamp(DEFAULT_BOARD_L, bounds)),
+            "n": 0,
+            "basis": "new",
+            "why": _why_board("new", 0, speed),
+        }
+
+    conditioned = [(size, w * _proximity(row_wind, speed)) for size, w, row_wind in boards]
+    value = _weighted_median(conditioned)
 
     # Volume is not a function of wind, but the day still tilts it: light wind
     # wants a little more float under you, a windy one a little less.
@@ -235,25 +319,23 @@ def _board(boards, speed, bounds=BOARD_RANGE) -> dict:
     return {
         "value": round(value),
         "n": len(boards),
-        "basis": basis,
-        "why": _why_board(basis, len(boards), speed),
+        "basis": "yours",
+        "why": _why_board("yours", len(boards), speed),
     }
 
 
-def _why_sail(basis, n, speed, k) -> str:
+def _why_sail(basis, n, speed) -> str:
+    if basis == "new":
+        return "A middling default, no logged sessions yet to learn from."
     sessions = f"{n} of your sessions" if n != 1 else "your one logged session"
     if basis == "yours":
-        return f"From {sessions} and {round(speed)} kn now."
-    if basis == "yours-nowind":
-        return f"From {sessions}. No wind reading for this site."
-    if basis == "club-nowind":
-        return "The club's usual size. Log a session and this learns yours."
-    return f"The club's usual size for {round(speed)} kn. Log a session and this learns yours."
+        return f"From {sessions}, sized for about {round(speed)} kn with the gusts."
+    return f"From {sessions}. No wind reading for this site."
 
 
 def _why_board(basis, n, speed) -> str:
-    if basis != "yours":
-        return "The club's usual volume. Log a session and this learns yours."
+    if basis == "new":
+        return "A middling default, no logged sessions yet to learn from."
     sessions = f"{n} of your sessions" if n != 1 else "your one logged session"
     if speed and (speed < 12 or speed > 25):
         tilt = "a little more float for the light wind" if speed < 12 else "a little less for the wind"
@@ -266,7 +348,11 @@ def curve(user_id, wind=None, site=None) -> dict:
 
     The same numbers the suggestion is made of, laid out so a chart can draw
     them: one point per session (wind against sail size), the curve K/wind
-    through them, and where today sits on it.
+    through them, and where today sits on it. K is fit against each session's
+    gust-leaning `_row_wind()`, not its raw mean, so a point plots on that same
+    axis (`wind_fit`): otherwise the curve would not actually pass through
+    the data it was fit to. `wind` and `gust` are kept alongside as the plain
+    recorded numbers, for the tooltip.
     """
     result = for_member(user_id, wind, site)
     points = []
@@ -275,9 +361,10 @@ def curve(user_id, wind=None, site=None) -> dict:
             continue
         points.append({
             "wind": round(float(row["wind_kn"]), 1),
+            "gust": round(float(row["wind_gust_kn"]), 1) if row.get("wind_gust_kn") else None,
+            "wind_fit": round(_row_wind(row), 1),
             "sail": float(row["sail_m2"]),
             "board": float(row["board_l"]) if row.get("board_l") else None,
-            "vote": row.get("sail_vote"),
             "stars": row.get("stars"),
             "site": row.get("site"),
             "at": row.get("at"),

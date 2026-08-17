@@ -4,14 +4,32 @@ Idempotent: drops everything and rebuilds from schema.sql, then seeds the
 `items` table from each sheet and the `faults` table from the sheet's Faults
 column. Run directly (`python migrate.py`) or via db.rebuild_from_xlsx().
 """
+import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
 
 import openpyxl
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = Path.home() / "Library" / "Application Support" / "UBWC" / "kit.db"
+
+
+def _data_dir() -> Path:
+    """Where the database lives: the OS's per-user application data directory.
+
+    Deliberately outside the repo, so a `git clean` or a fresh clone does not
+    take the club's inventory with it.
+    """
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "UBWC"
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA")
+        return (Path(base) if base else Path.home() / "AppData" / "Local") / "UBWC"
+    return Path.home() / ".local" / "share" / "UBWC"
+
+
+DB_PATH = _data_dir() / "kit.db"
 SCHEMA_PATH = ROOT / "schema.sql"
 XLSX_PATH = ROOT / "data" / "Kit Inventory.xlsx"
 
@@ -109,6 +127,7 @@ def rebuild(db_path: Path = DB_PATH, xlsx_path: Path = XLSX_PATH) -> dict:
     if db_path.exists():
         db_path.unlink()
 
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
 

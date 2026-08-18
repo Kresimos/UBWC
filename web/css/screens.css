@@ -8,18 +8,24 @@
    as drawn instead of forcing a rename.
    ========================================================================== */
 
-/* ======================================================== CATALOGUE: browse */
-[data-screen="catalogue"] .chips {
+/* The category rail: the app's way of asking "which kind of kit". Marked with
+   a class rather than scoped to the catalogue, because the trip packer asks
+   the same question and a second set of chips would only drift out of step.
+   The item page's pill row and the add form's condition picker keep the plain
+   .chips name and their own, more specific, rules. */
+.chiprail {
   flex: none; display: flex; gap: 8px; overflow-x: auto; padding: 12px 18px;
   scrollbar-width: none; background: var(--app-bg);
 }
-[data-screen="catalogue"] .chips::-webkit-scrollbar { display: none; }
-[data-screen="catalogue"] .chip {
+.chiprail::-webkit-scrollbar { display: none; }
+.chiprail .chip {
   flex: none; font-size: 13.5px; font-weight: 600; color: var(--app-muted);
   background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 999px;
   padding: 8px 14px; cursor: pointer; white-space: nowrap;
 }
-[data-screen="catalogue"] .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.chiprail .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+/* ======================================================== CATALOGUE: browse */
 
 [data-screen="catalogue"] .subbar {
   flex: none; display: flex; align-items: center; justify-content: space-between;
@@ -35,49 +41,67 @@
 }
 
 [data-screen="catalogue"] .body { background: var(--app-bg); }
-[data-screen="catalogue"] .grid {
+
+/* The product-shot grid, marked with a class for the same reason as the rail
+   above: the trip packer picks kit and checks it back in from these same
+   tiles, drawn by one shared kitTile() in ui/bits.js. */
+.kitgrid .grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 22px 14px; padding: 2px 18px 24px;
 }
-[data-screen="catalogue"] .card {
+.kitgrid .card {
   background: transparent; border: 0; padding: 0; display: flex; flex-direction: column;
   text-align: left; cursor: pointer; transition: transform .12s ease;
 }
-[data-screen="catalogue"] .card:active { transform: scale(.985); }
-[data-screen="catalogue"] .shot {
+.kitgrid .card:active { transform: scale(.985); }
+.kitgrid .shot {
   position: relative; aspect-ratio: 1 / 1.14; background: var(--shot);
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
-[data-screen="catalogue"] .shot svg.art { width: 66%; height: 66%; }
-[data-screen="catalogue"] .shot img { width: 100%; height: 100%; object-fit: cover; }
-[data-screen="catalogue"] .ratechip {
+.kitgrid .shot svg.art { width: 66%; height: 66%; }
+.kitgrid .shot img { width: 100%; height: 100%; object-fit: cover; }
+.kitgrid .ratechip {
   position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center;
   gap: 3px; background: #fff; color: var(--app-ink); font-size: 11px; font-weight: 700;
   padding: 4px 8px; border-radius: 4px; box-shadow: 0 2px 6px rgba(10, 40, 45, .14);
 }
-[data-screen="catalogue"] .ratechip svg { width: 11px; height: 11px; color: var(--star); }
-[data-screen="catalogue"] .ratechip .n { color: var(--app-faint); font-weight: 600; }
+.kitgrid .ratechip svg { width: 11px; height: 11px; color: var(--star); }
+.kitgrid .ratechip .n { color: var(--app-faint); font-weight: 600; }
 /* .flagchip is in tokens.css for the same reason: a fault flag has to look the
    same on a product shot wherever the shot appears. The away flag sits along
    the bottom instead, because a piece can be both faulty and on a trip and the
    two must not land on top of each other. It is deliberately quiet: away is a
    fact about where the kit is this week, not a warning. */
-[data-screen="catalogue"] .flagchip.away {
+.kitgrid .flagchip.away {
   top: auto; bottom: 8px; right: 8px;
   background: #fff; color: var(--app-muted);
 }
-[data-screen="catalogue"] .meta { padding: 10px 1px 0; display: flex; flex-direction: column; gap: 3px; }
-[data-screen="catalogue"] .size {
+.kitgrid .meta { padding: 10px 1px 0; display: flex; flex-direction: column; gap: 3px; }
+.kitgrid .size {
   font-size: 19px; font-weight: 750; letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; line-height: 1;
 }
-[data-screen="catalogue"] .size small {
+.kitgrid .size small {
   font-size: 11px; font-weight: 600; color: var(--app-faint); margin-left: 1px;
 }
-[data-screen="catalogue"] .nm { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
-[data-screen="catalogue"] .cond { font-size: 12px; font-weight: 600; color: var(--ok); }
-[data-screen="catalogue"] .cond.fair { color: var(--warn); }
-[data-screen="catalogue"] .cond.poor { color: var(--crit); }
-[data-screen="catalogue"] .card .spot { font-size: 11.5px; color: var(--app-faint); }
+.kitgrid .nm { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
+.kitgrid .cond { font-size: 12px; font-weight: 600; color: var(--ok); }
+.kitgrid .cond.fair { color: var(--warn); }
+.kitgrid .cond.poor { color: var(--crit); }
+.kitgrid .card .spot { font-size: 11.5px; color: var(--app-faint); }
+.kitgrid .card.picked .shot { outline: 3px solid var(--teal); outline-offset: -3px; }
+/* The tick that says this one is chosen, or back on its rack. It sits on the
+   shot itself because on a grid of photos the outline alone is easy to miss
+   in a car park in the rain. */
+.kitgrid .card .tickmark {
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+  border-radius: 50%; background: #fff; border: 1.8px solid #C7D2D2;
+  display: flex; align-items: center; justify-content: center; color: transparent;
+  box-shadow: 0 2px 6px rgba(10, 40, 45, .12);
+}
+.kitgrid .card .tickmark svg { width: 15px; height: 15px; }
+.kitgrid .card.picked .tickmark {
+  background: var(--teal); border-color: var(--teal); color: #fff;
+}
 
 /* Compact rows, the other half of the grid/list toggle.
    Marked with a class rather than scoped to the catalogue screen, because the
@@ -117,7 +141,6 @@
 }
 .rowlist .lrow.picked .selbox { background: var(--teal); border-color: var(--teal); color: #fff; }
 .rowlist .lrow .selbox svg { width: 14px; height: 14px; }
-[data-screen="catalogue"] .card.picked .shot { outline: 3px solid var(--teal); outline-offset: -3px; }
 
 /* ================================================================== TRIPS */
 /* Committee-only, and deliberately plain: a packing list is read standing in a
@@ -131,11 +154,12 @@
 [data-screen="trip"] .prog { font-size: 13px; color: var(--app-muted); }
 [data-screen="trip"] .prog b { color: var(--app-ink); font-variant-numeric: tabular-nums; }
 [data-screen="trip"] .prog .warn { color: var(--crit); }
-/* The rows run to the screen edge; the padded body would otherwise indent them
-   away from the headings they belong to. */
-:is([data-screen="trips"], [data-screen="trip"]) .rows {
-  margin: 0 -15px; padding-bottom: 0;
-}
+/* The list of trips runs to the screen edge; the padded body would otherwise
+   indent the rows away from the headings they belong to. */
+[data-screen="trips"] .rows { margin: 0 -15px; padding-bottom: 0; }
+/* The trip's own body is already padded, so its tiles do not need the
+   catalogue's edge padding on top of it. */
+[data-screen="trip"] .grid { padding: 0 0 4px; }
 [data-screen="trip"] .editbtn {
   font-size: 12.5px; font-weight: 700; color: var(--teal); background: transparent;
   border: 1px solid var(--app-line); padding: 7px 12px; border-radius: 9px;

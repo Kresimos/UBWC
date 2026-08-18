@@ -8,8 +8,8 @@
  * is why there is no minimum-votes threshold — and zero votes says "Not yet
  * rated" rather than showing a blank nought.
  */
-import { html, mount, raw, num, initial } from '../dom.js';
-import { icons, icon } from '../icons.js';
+import { html, mount, raw, num, numFixed, initial } from '../dom.js';
+import { icons, icon, artFor } from '../icons.js';
 import { store, subscribe } from '../store.js';
 
 export const STAR_FULL = '★★★★★';
@@ -33,6 +33,53 @@ export function ratingLine(rating) {
   if (!rating || !rating.n) return html`<span class="rc">Not yet rated</span>`;
   return html`${starRow(rating.stars)}<span class="rn">${num(rating.stars)}</span
     ><span class="rc">${rating.n} ${rating.n === 1 ? 'vote' : 'votes'}</span>`;
+}
+
+/**
+ * One piece of kit as a product-shot tile: the catalogue's card, and the same
+ * card wherever else kit is chosen from a screenful of it.
+ *
+ * The trip packer draws its picker and its check-back-in list from this rather
+ * than from a list of its own, because they are the same act — look at the
+ * club's kit and say which of it you mean — and because a photo is how anybody
+ * actually recognises a board they are holding.
+ *
+ * `attr` is the data attribute the screen delegates clicks on, so each caller
+ * keeps its own handler; `tick` turns the tile into something selectable, and
+ * `picked` is whether it currently is. The tile is drawn from an item card
+ * (server.item_card), so everything it shows is the live row.
+ */
+export function kitTile(item, { attr = 'data-item', picked = false, tick = false,
+                                sub = null } = {}) {
+  const fault = worstFault(item.faults);
+  return html`
+    <button class="card ${picked ? 'picked' : ''}" ${raw(attr)}="${item.id}">
+      <span class="shot">
+        ${item.image_path
+          ? html`<img src="${item.image_path}" alt="">`
+          : artFor(item.rig_kind || item.component_type)}
+        ${!tick && item.rating && item.rating.n
+          ? html`<span class="ratechip">${icon('star')}${num(item.rating.stars)}
+              <span class="n">· ${item.rating.n}</span></span>`
+          : ''}
+        ${tick ? html`<span class="tickmark">${icon('tick')}</span>` : ''}
+        ${fault
+          ? html`<span class="flagchip ${fault.severity === 'out_of_action' ? 'oos' : ''}">
+              ${icon('warning')}${fault.severity === 'out_of_action' ? 'Out' : 'Fault'}</span>`
+          : ''}
+        ${item.away ? html`<span class="flagchip away">${icon('move')}Away</span>` : ''}
+      </span>
+      <span class="meta">
+        <span class="size">${item.size_value != null
+          ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
+          : item.size_label || '—'}
+          ${item.size_unit ? html`<small>${item.size_unit}</small>` : ''}</span>
+        <span class="nm">${item.manufacturer} · ${item.model}</span>
+        <span class="cond ${conditionClass(item.condition)}">${item.condition || 'Condition unknown'}</span>
+        ${sub || (store.site === 'all' && item.site
+          ? html`<span class="spot">${item.site}</span>` : '')}
+      </span>
+    </button>`;
 }
 
 export function conditionClass(condition) {

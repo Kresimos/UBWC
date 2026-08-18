@@ -80,9 +80,13 @@ def run() -> None:
               for row in db.all_items()}
 
     # ---------------------------------------------------------------- pack
-    kit = server.trip_kit(admin)["kit"]
+    packable = server.trip_kit(admin)
+    kit, cards = packable["kit"], packable["cards"]
     assert {"sail", "board", "mast", "ext", "boom", "fin", "uj"} <= {p["kind"] for p in kit}
     assert not any(piece.get("away") for piece in kit), "nothing is away yet"
+    # The picker draws the catalogue's tiles, so every piece needs its card.
+    assert {piece["id"] for piece in kit} == set(cards), "a piece has no card to draw"
+    assert all("size_value" in card and "image_path" in card for card in cards.values())
 
     # What the browser posts: what the kit sec chose, plus what packList worked
     # out from it. The solver has its own check; this stands in for its output.

@@ -703,7 +703,21 @@ def trip_kit(request: Request):
     trip, and the server refuses to double-book it.
     """
     require_committee(request)
-    return {"kit": rigkit.kit(None, None, exclude_away=False)}
+    kit = rigkit.kit(None, None, exclude_away=False)
+    # Two shapes of the same kit: the rig pieces the pack maths reasons about,
+    # and the catalogue's own cards to draw them as, so the picker is a wall of
+    # product shots rather than a second, plainer list of the same inventory.
+    ratings = db.ratings_by_item()
+    faults = db.open_faults_by_item()
+    away = db.away_item_ids()
+    cards = {}
+    for piece in kit:
+        item = db.get_item(piece["id"])
+        if item:
+            cards[piece["id"]] = item_card(item, ratings.get(item["id"]),
+                                           faults.get(item["id"]), False,
+                                           away.get(item["id"]))
+    return {"kit": kit, "cards": cards}
 
 
 @app.get("/api/trips")

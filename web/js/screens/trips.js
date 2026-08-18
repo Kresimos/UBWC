@@ -18,15 +18,15 @@
  * that is what hides a piece from the rig picker, and what puts an "away"
  * flag on it in the catalogue.
  */
-import { html, mount, num, numFixed, onClick, ago } from '../dom.js';
+import { html, mount, onClick, ago } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
-import { conditionClass, shortName, worstFault, wireWhoPill } from '../ui/bits.js';
+import { kitTile, wireWhoPill } from '../ui/bits.js';
 import { needCommittee, openIdentity } from '../ui/chrome.js';
 import { confirmSheet, formSheet, toast } from '../ui/overlay.js';
 import { go, back } from '../router.js';
-import { packList, rowName, sizeBits } from '../rig/engine.js';
+import { packList } from '../rig/engine.js';
 
 /** What can be chosen outright, in the order the trailer is thought about. */
 const PICKABLE = [
@@ -112,12 +112,15 @@ export async function renderNew(root, params) {
   if (!(await guard())) return undefined;
 
   const editing = params.trip ? (await api.trip(params.trip)).trip : null;
-  const { kit } = await api.tripKit();
+  // Two views of the same kit: `kit` is what the pack maths reasons about,
+  // `cards` is what it is drawn as (the catalogue's tiles, photos and all).
+  const { kit, cards } = await api.tripKit();
   // A trip being edited is not a clash with itself: its own kit is free to
   // stay on it, so the "already packed for" flag is dropped for those pieces.
   if (editing) {
     const mine = new Set(editing.items.map((row) => row.item.id));
     kit.forEach((piece) => { if (mine.has(piece.id)) delete piece.away; });
+    mine.forEach((id) => { if (cards[id]) cards[id].away = null; });
   }
 
   const state = {
@@ -133,13 +136,13 @@ export async function renderNew(root, params) {
         <button class="backbtn" data-back aria-label="Back">${icon('back')}</button>
         <span class="ttl">${editing ? editing.name : 'Pack a trip'}</span>
       </div>
-      <div class="chips" data-kinds>
+      <div class="chiprail" data-kinds>
         ${PICKABLE.map((entry) => html`
           <button class="chip ${entry.kind === 'board' ? 'on' : ''}"
                   data-kind="${entry.kind}">${entry.label}</button>`)}
       </div>
     </div>
-    <div class="body rowlist" data-list></div>
+    <div class="body kitgrid" data-list></div>
     <div data-bar></div>`);
 
   const listNode = root.querySelector('[data-list]');
@@ -150,7 +153,7 @@ export async function renderNew(root, params) {
     });
     const pieces = kit.filter((piece) => piece.kind === state.kind);
     mount(listNode, pieces.length
-      ? html`<div class="rows">${pieces.map(pickRow)}</div>`
+      ? html`<div class="grid">${pieces.map(pickTile)}</div>`
       : html`<div class="emptystate">${icon('box')}<b>None recorded</b>
                <span>The club has no ${PICKABLE.find((e) => e.kind === state.kind).plural
                      } in the app yet.</span></div>`);
@@ -169,33 +172,28 @@ export async function renderNew(root, params) {
       </div>`);
   }
 
-  function pickRow(piece) {
-    const picked = state.chosen.has(piece.id);
-    const size = sizeBits(piece.kind, piece);
-    const fault = worstFault(piece.faults ? piece.faults.map(
-      (f) => ({ severity: f.s, title: f.t })) : []);
-    return html`
-      <button class="lrow ${picked ? 'picked' : ''} ${piece.away ? 'oos' : ''}"
-              data-pick="${piece.id}" ${piece.away ? 'disabled' : ''}>
-        <span class="selbox">${icon('tick')}</span>
-        <span class="lm">
-          <span class="t">${rowName(piece.kind, piece)}</span>
-          <span class="s">${[piece.away ? `packed for ${piece.away}` : null,
-                             piece.site, piece.spot,
-                             fault ? 'has a fault' : null]
-                            .filter(Boolean).join(' · ')}</span>
-        </span>
-        <span class="lr">
-          <span class="sz">${size ? size.v : ''}${size ? html`<u>${size.u}</u>` : ''}</span>
-          <span class="rt ${conditionClass(piece.cond)}">${piece.cond || ''}</span>
-        </span>
-      </button>`;
+  /** The catalogue's own tile, with the tick that says it is coming. */
+  function pickTile(piece) {
+    return kitTile(cards[piece.id], {
+      attr: 'data-pick',
+      tick: true,
+      picked: state.chosen.has(piece.id),
+      sub: html`<span class="spot">${[piece.site, piece.spot]
+        .filter(Boolean).join(' · ')}</span>`,
+    });
   }
 
   onClick(root, 'data-back', () => back('/trips'));
   onClick(root, 'data-kind', (value) => { state.kind = value; paint(); });
   onClick(root, 'data-pick', (value) => {
     const id = Number(value);
+    const piece = kit.find((entry) => entry.id === id);
+    // Spoken for by another trip: say so rather than letting it be chosen and
+    // refused at save, which would lose the rest of the selection.
+    if (piece && piece.away) {
+      toast(`That one is already packed for ${piece.away}.`, true);
+      return;
+    }
     if (state.chosen.has(id)) state.chosen.delete(id);
     else state.chosen.add(id);
     paint();
@@ -279,7 +277,7 @@ export async function renderTrip(root, params) {
         <button class="editbtn" data-edit>${icon('edit')}Kit</button>
       </div>
     </div>
-    <div class="body pad" data-body></div>
+    <div class="body pad kitgrid" data-body></div>
     <div data-bar></div>`);
 
   function paint() {
@@ -297,7 +295,7 @@ export async function renderTrip(root, params) {
       ${gapNote(trip)}
       ${groups(trip).map(([role, rows]) => html`
         <div class="sectlabel">${store.roleLabels[role] || role}${rows.length > 1 ? 's' : ''}</div>
-        <div class="rows">${rows.map(itemRow)}</div>`)}
+        <div class="grid">${rows.map(itemTile)}</div>`)}
       ${trip.items.length ? '' : html`
         <div class="emptystate">${icon('box')}<b>Nothing packed</b>
           <span>Tap Kit to choose what this trip is taking.</span></div>`}`);
@@ -313,29 +311,20 @@ export async function renderTrip(root, params) {
       : '');
   }
 
-  function itemRow(row) {
-    const item = row.item;
-    const fault = worstFault(item.faults);
-    return html`
-      <button class="lrow ${row.returned ? 'picked' : ''}" data-tick="${item.id}"
-              ${trip.status === 'open' ? '' : 'disabled'}>
-        <span class="selbox">${icon('tick')}</span>
-        <span class="lm">
-          <span class="t">${shortName(item, item.size_value)}</span>
-          <span class="s">${[row.source === 'derived' ? 'goes with the rig' : null,
-                             item.site, item.spot,
-                             fault ? (fault.severity === 'out_of_action'
-                                      ? 'out of action' : 'has a fault') : null]
-                            .filter(Boolean).join(' · ')}</span>
-        </span>
-        <span class="lr">
-          <span class="sz">${item.size_value != null
-            ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
-            : item.size_label || ''}
-            ${item.size_unit ? html`<u>${item.size_unit}</u>` : ''}</span>
-          <span class="rt">${row.returned ? 'back' : 'out'}</span>
-        </span>
-      </button>`;
+  /**
+   * A packed piece as the same tile the catalogue draws, ticked when it is
+   * back. The line underneath is where it belongs rather than where it is,
+   * because checking a trip in is the moment somebody is holding it looking
+   * for the rack.
+   */
+  function itemTile(row) {
+    return kitTile(row.item, {
+      attr: 'data-tick',
+      tick: trip.status === 'open',
+      picked: row.returned,
+      sub: html`<span class="spot">${[row.item.site, row.item.spot]
+        .filter(Boolean).join(' · ')}</span>`,
+    });
   }
 
   onClick(root, 'data-back', () => back('/trips'));

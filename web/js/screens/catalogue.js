@@ -13,7 +13,7 @@ import { html, mount, num, numFixed, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe } from '../store.js';
-import { conditionClass, worstFault, sitePill, wireWhoPill } from '../ui/bits.js';
+import { kitTile, worstFault, wireWhoPill } from '../ui/bits.js';
 import { pickSite, needCommittee, openIdentity } from '../ui/chrome.js';
 import { chooser, formSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
@@ -224,7 +224,7 @@ function shell() {
       </label>
     </div>
 
-    <div class="chips">
+    <div class="chiprail">
       <button class="chip on" data-chip="all">All</button>
       ${store.types.map((type) => html`
         <button class="chip" data-chip="${type.key}">${type.label}s</button>`)}
@@ -239,7 +239,7 @@ function shell() {
       </div>
     </div>
 
-    <div class="body rowlist" data-list></div>
+    <div class="body kitgrid rowlist" data-list></div>
     <div data-movebar></div>`;
 }
 
@@ -261,36 +261,10 @@ function emptyState() {
     </div>`;
 }
 
-function tile(item) {
-  const fault = worstFault(item.faults);
-  const picked = state.selected.has(item.id);
-  return html`
-    <button class="card ${picked ? 'picked' : ''}" data-item="${item.id}">
-      <span class="shot">
-        ${item.image_path
-          ? html`<img src="${item.image_path}" alt="">`
-          : artFor(item.rig_kind || item.component_type)}
-        ${item.rating.n
-          ? html`<span class="ratechip">${icon('star')}${num(item.rating.stars)}
-              <span class="n">· ${item.rating.n}</span></span>`
-          : ''}
-        ${fault
-          ? html`<span class="flagchip ${fault.severity === 'out_of_action' ? 'oos' : ''}">
-              ${icon('warning')}${fault.severity === 'out_of_action' ? 'Out' : 'Fault'}</span>`
-          : ''}
-        ${item.away ? html`<span class="flagchip away">${icon('move')}Away</span>` : ''}
-      </span>
-      <span class="meta">
-        <span class="size">${item.size_value != null
-          ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
-          : item.size_label || '—'}
-          ${item.size_unit ? html`<small>${item.size_unit}</small>` : ''}</span>
-        <span class="nm">${item.manufacturer} · ${item.model}</span>
-        <span class="cond ${conditionClass(item.condition)}">${item.condition || 'Condition unknown'}</span>
-        ${store.site === 'all' && item.site ? html`<span class="spot">${item.site}</span>` : ''}
-      </span>
-    </button>`;
-}
+const tile = (item) => kitTile(item, {
+  picked: state.selected.has(item.id),
+  tick: state.selecting,
+});
 
 function row(item) {
   const fault = worstFault(item.faults);

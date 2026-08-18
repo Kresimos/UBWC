@@ -169,6 +169,18 @@ setup:
 - **Search/autocomplete ranking**: when a user has selected a sail, rank
   masts/extensions/booms that satisfy the exact-fit rules first, then
   same-brand items, then everything else.
+- **Trip packing** (Trips tab, committee only): the kit sec picks the boards,
+  sails, wings and foils a trip is taking and the app derives what those need —
+  **one mast, one extension and one boom per sail, one fin and one base per
+  board**. One each rather than a shared minimum set, because every rig on a
+  trip has to be able to stand up at the same time; a sail with no mast left is
+  reported as a shortfall rather than sharing one. The derivation must go
+  through the same rules as the rig wizard (`packList` calls `ranked` in
+  `web/js/rig/engine.js`) so a mast still reaches the sail's luff, an extension
+  still matches its mast's diameter and a fin still matches its board's box.
+  A trip **never changes `items.location`** — that column is the storage
+  location, always — so "away" is membership of an open trip (`db.away_item_ids`),
+  which is what hides kit from the rig picker and flags it in the catalogue.
 - **Item page "known faults"**: faults are per physical item, not per
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
   Location), matching the `faults` table and the Faults page spec. Each fault

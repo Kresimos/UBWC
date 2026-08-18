@@ -12,7 +12,7 @@ repeat them.
 Three jobs, for two audiences:
 
 1. **Committee**: manage inventory without spreadsheets. One-button add kit,
-   report faults, mark fixes, track where kit is stored, and move kit for trips.
+   report faults, mark fixes, track where kit is stored, and pack a trip.
 2. **Members**: a self-serve rigging assistant so a member can work out what kit
    to grab (and put back) without asking for help, and see what is available at
    the site they are at.
@@ -22,8 +22,16 @@ Three jobs, for two audiences:
 An earlier idea, a combinatorial "which rigs can run at once" solver ("kit
 sex"), was **dropped**: the club rarely runs short of kit and competition sites
 supply their own vans, so the useful part is just recording where our kit is.
-A dedicated **Trips tab was also dropped**: a trip is just a location that kit
-gets moved to (see Locations and trips).
+
+*Revised 18 Aug 2026: a **Trips tab is back**, committee-only, and a trip is no
+longer "a location kit was moved to". Packing a trailer is one of the club's
+main activities and it is the one job the app can do better than a person: the
+kit sec says which boards and sails are going and the app works out the masts,
+extensions, booms, fins and bases those need. Moving kit between locations to
+express that turned out to be wrong twice over — it loses each item's real
+storage spot, which then has to be re-set by hand on return, and it leaves no
+record of what went out to check against. See Tab: Trips and Locations and
+trips, both rewritten below.*
 
 ## Access and roles
 
@@ -49,7 +57,8 @@ replaced by accounts. Everything below is what the app now does.*
 - **Mobile-first, web-hosted.** Primary use is members on their phones at the
   boathouse or beach. Must also be usable on a laptop for committee admin.
 - **Bottom tab bar** is the primary navigation. Tabs: **Catalogue · Rig · Log ·
-  + Add**.
+  + Add**, plus **Trips** for a committee account only — a member's bar is still
+  the four, and the fifth tab appears and disappears with signing in and out.
 - **Home opens straight into the catalogue.**
 - A **site selector** sits at the top: the member picks which site they are at.
   It drives the catalogue's location filter and the rigging assistant's
@@ -69,9 +78,9 @@ Browse the kit like a windsurf shop.
 - **Browse by type**: boards, sails, masts, booms, fins, foils, misc (matching
   the schema). Grid ⇄ list toggle (photo-card grid vs compact rows).
 - **Search** via the autocomplete bar (component types and item names).
-- **Filter by location** (site). Active trips appear here as locations (see
-  below), so "what's at Cheddar" and "what's on the Nottingham trip" are just
-  filter values.
+- **Filter by location** (site). A trip is *not* a location, so a piece packed
+  for one still filters under the site it is stored at; it carries an **away
+  flag** naming the trip instead (see Tab: Trips).
 - **Item view**: image, spec table, current location (site + spot), its **kit
   rating** (star score derived from 👍/👎, see Ratings) with a **👍/👎 control to
   rate it directly**, **known faults** with a **report-a-fault** button, a
@@ -86,11 +95,12 @@ Browse the kit like a windsurf shop.
   style (product shot on a soft grey background). Committee photographs the kit,
   runs the photos through an **external** AI tool to get that look, then
   uploads. No in-app image generation.
-- **Committee move tools** (committee accounts only):
+- **Committee move tools** (committee accounts only). These are for kit that has
+  genuinely changed home — a rack rebuild, kit rehoused between stores — **not**
+  for trips, which move nothing:
   - Per-item **change-location** button on the item view.
   - A **multi-select mode**: select many items, then **Move all** to a chosen
-    location in one go. Returning a trip is just "select all items at
-    Nottingham, move to Cheddar".
+    location in one go.
 
 ## Tab: Rig (rigging assistant)
 
@@ -151,6 +161,37 @@ Self-serve "what do I grab, and where do I put it back".
   confirm straight away if the kit is already away. The checklist is an aid, not a
   gate. **On confirmation the member goes straight to the logbook**, where the
   un-logged-session prompt is waiting.
+
+## Tab: Trips (committee only)
+
+*Added 18 Aug 2026.* Packing the trailer for a trip away is one of the club's
+main activities and is the kit sec's job, so this tab only exists for a
+committee account.
+
+- **You choose what the trip is for; the app works out the rest.** The kit sec
+  picks the **boards, sails, wings and foils** they want to take. The app then
+  derives **one mast, one extension and one boom per sail**, and **one fin and
+  one base per board** — one each, not a shared minimum set, because the point
+  of a trailer is that every rig can be up at once.
+- **The derivation is the rig assistant's own rules**, run over a whole trailer
+  instead of one rig (`packList` in `web/js/rig/engine.js` calls the same
+  `ranked`), so a mast still has to reach its sail's luff, an extension still
+  has to match its mast's diameter, and a fin still has to match its board's box.
+  Nothing is restated, so the two can never disagree.
+- **Running out is an answer, not a gap.** Three sails and two free masts gives
+  a **shortfall line** ("1 mast short"), said when the list is made and again on
+  the trip page, because it is the thing somebody can still fix before driving
+  off.
+- **Kit is drawn from every site**, since a trailer is loaded from every store,
+  and kit already packed for another open trip is shown but not selectable.
+- **A trip is saved with a name** (plus optional destination and dates) and the
+  list is the record of what went out.
+- **Coming back is checking the list off.** Per-item ticks for the case where
+  something is missing, and a single **"Check it all back in"** button for the
+  usual case where the trailer is empty and everything is on its rack. The trip
+  closes when it is checked in; anything left unticked on a closed trip is what
+  went missing.
+- **A trip never moves kit.** See Locations and trips.
 
 ## Tab: Log (session logbook)
 
@@ -279,13 +320,16 @@ sailing, which nothing else can:
 - **Sites are a managed list** committee maintains; new ones can be **added
   inline** while moving kit (avoids "Notts" vs "Nottingham" drift and gives the
   catalogue filter clean values).
-- **A trip is not a separate object.** Packing = committee bulk-selects kit and
-  moves it to the trip location; that location then shows up as a catalogue
-  filter value. **Returning** = select all items at that location and move them
-  back. No named/dated trip record is stored.
-- Consequence to accept: because a move overwrites location, an item's fine
-  **spot** may need re-setting after a trip when kit is unpacked. That is normal
-  put-away, not a special flow.
+- **A trip is a named list, not a location** (revised 18 Aug 2026). Packing a
+  trip **changes no item's location**: an item's site and spot are where it is
+  *stored*, for the whole trip, so unpacking is putting kit back where the app
+  already says it lives and no fine spot has to be re-set afterwards.
+- **"Away" is membership of an open trip**, not a place. It is what hides a
+  piece from the **rig assistant** (it is in a trailer in Wales, whatever its
+  rack says) and what puts an **away flag** on it in the catalogue and on its
+  item page. It clears when the trip is checked back in.
+- Moving kit between sites is still a committee tool, and now means only what it
+  says: this piece has genuinely changed home.
 
 ## Open items / to decide during build
 

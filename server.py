@@ -137,10 +137,14 @@ def _throttle_clear(request: Request, username: str) -> None:
 # Shaping: one place that decides what an item looks like as JSON
 # --------------------------------------------------------------------------- #
 def item_card(item: dict, rating: dict = None, faults: list = None,
-              favourite: bool = False) -> dict:
+              favourite: bool = False, away: Optional[str] = None) -> dict:
     """The shape the catalogue's grid and list rows are drawn from."""
     return {
         "favourite": bool(favourite),
+        # The trip this piece is packed for, if any. Its location does not
+        # change while it is away — a trip never moves kit — so this is the
+        # only thing that can say the rack is currently empty.
+        "away": away,
         "id": item["id"],
         "component_type": item["component_type"],
         "manufacturer": item.get("manufacturer"),
@@ -384,6 +388,7 @@ def list_items(request: Request,
     ratings = db.ratings_by_item(user_id)
     faults = db.open_faults_by_item()
     favourites = db.favourite_ids(user_id)
+    away = db.away_item_ids()
 
     needle = (q or "").strip().lower()
     rows = []
@@ -400,7 +405,7 @@ def list_items(request: Request,
             if needle not in haystack:
                 continue
         rows.append(item_card(item, ratings.get(item["id"]), faults.get(item["id"]),
-                              item["id"] in favourites))
+                              item["id"] in favourites, away.get(item["id"])))
 
     def sort_key(card):
         blocked = any(f["severity"] == "out_of_action" for f in card["faults"])
@@ -422,7 +427,8 @@ def read_item(item_id: int, request: Request):
     history = db.fault_history(item_id)
     card = item_card(item, db.rating_for(item_id, user_id),
                      [f for f in history if f["status"] == "open"],
-                     db.is_favourite(item_id, user_id))
+                     db.is_favourite(item_id, user_id),
+                     db.away_item_ids().get(item_id))
     return {
         **card,
         "notes": item.get("notes"),
@@ -673,6 +679,140 @@ def bin_setup(setup_id: int, request: Request):
     require_user(request)
     db.close_setup(setup_id, "binned")
     return {"setup": None}
+
+
+# --------------------------------------------------------------------------- #
+# API: trips
+#
+# Committee only, all of it: packing the trailer is the kit sec's job and the
+# list is the club's record of what left the building.
+#
+# Nothing here writes items.location. A trip is a named list, not a place, so
+# kit keeps saying where it is stored for the whole trip and unpacking is
+# putting it back where the app already says it lives. What being on a trip
+# does change is availability: db.away_item_ids is subtracted from the rig
+# picker, and shown as a flag in the catalogue.
+# --------------------------------------------------------------------------- #
+@app.get("/api/trips/kit")
+def trip_kit(request: Request):
+    """Everything packable, from every site, including kit already on a trip.
+
+    Not filtered to the member's site (a trailer is loaded from every store)
+    and not filtered by availability, because seeing that the good 5.0 is
+    already down for another weekend is the point — `piece.away` carries which
+    trip, and the server refuses to double-book it.
+    """
+    require_committee(request)
+    return {"kit": rigkit.kit(None, None, exclude_away=False)}
+
+
+@app.get("/api/trips")
+def list_trips(request: Request):
+    require_committee(request)
+    return {"trips": db.get_trips()}
+
+
+@app.post("/api/trips")
+def create_trip(request: Request, payload: dict = Body(...)):
+    user = require_committee(request)
+    try:
+        trip = db.create_trip(user["id"], payload.get("name") or "",
+                              payload.get("items") or [],
+                              payload.get("destination"),
+                              payload.get("starts_on"), payload.get("ends_on"))
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip)}
+
+
+@app.get("/api/trips/{trip_id}")
+def read_trip(trip_id: int, request: Request):
+    require_committee(request)
+    trip = db.get_trip(trip_id)
+    if not trip:
+        raise HTTPException(404, "No such trip.")
+    return {"trip": _expand_trip(trip)}
+
+
+@app.post("/api/trips/{trip_id}/items")
+def write_trip_items(trip_id: int, request: Request, payload: dict = Body(...)):
+    """Replace a trip's kit. What the packing screen saves, first time and after."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    try:
+        trip = db.set_trip_items(trip_id, payload.get("items") or [])
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip)}
+
+
+@app.post("/api/trips/{trip_id}/edit")
+def edit_trip(trip_id: int, request: Request, payload: dict = Body(...)):
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    try:
+        trip = db.update_trip(trip_id, payload or {})
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip)}
+
+
+@app.post("/api/trips/{trip_id}/returned")
+def trip_returned(trip_id: int, request: Request, payload: dict = Body(...)):
+    """One piece ticked back in. Moves nothing: it never left its rack."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    item_id = payload.get("item_id")
+    if item_id is None:
+        raise HTTPException(400, "Say which piece came back.")
+    trip = db.set_trip_returned(trip_id, int(item_id), bool(payload.get("on", True)))
+    return {"trip": _expand_trip(trip)}
+
+
+@app.post("/api/trips/{trip_id}/close")
+def close_trip(trip_id: int, request: Request, payload: dict = Body({})):
+    """End a trip. `all` is the usual way: everything came back, tick the lot."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    payload = payload or {}
+    try:
+        if payload.get("all"):
+            trip = db.return_all(trip_id)
+        else:
+            trip = db.close_trip(trip_id, payload.get("status") or "returned")
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip)}
+
+
+def _expand_trip(trip: Optional[dict]) -> Optional[dict]:
+    """Join a trip's stored item ids back to live inventory rows.
+
+    Read fresh, like a setup is: a fault reported on the Friday of a trip
+    should be on the list the kit sec checks against on the Sunday.
+    """
+    if not trip:
+        return None
+    ratings = db.ratings_by_item()
+    faults = db.open_faults_by_item()
+    rows = []
+    for entry in trip["items"]:
+        item = db.get_item(entry["item_id"])
+        if not item:
+            continue
+        rows.append({
+            "role": entry["role"],
+            "role_label": db.ROLE_LABELS.get(entry["role"], entry["role"]),
+            "source": entry["source"],
+            "returned": bool(entry["returned"]),
+            "note": entry["note"],
+            "item": item_card(item, ratings.get(item["id"]), faults.get(item["id"])),
+        })
+    return {**{k: v for k, v in trip.items() if k != "items"}, "items": rows}
 
 
 # --------------------------------------------------------------------------- #

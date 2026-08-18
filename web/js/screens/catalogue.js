@@ -89,7 +89,8 @@ export async function render(root) {
         <button class="bigbtn ${count ? '' : 'mute'}" data-move>
           ${icon('move')}${count ? `Move ${count} ${count === 1 ? 'piece' : 'pieces'}` : 'Select kit to move'}
         </button>
-        <span class="helper">Packing a trip is moving kit to that location. Returning is moving it back.</span>
+        <span class="helper">For kit that has genuinely changed home. Packing a
+          trip is the Trips tab, and leaves locations alone.</span>
       </div>`);
     slot.querySelector('[data-move]').addEventListener('click', moveSelected);
   }
@@ -100,7 +101,8 @@ export async function render(root) {
 
     const target = await chooser({
       title: `Move ${state.selected.size} ${state.selected.size === 1 ? 'piece' : 'pieces'}`,
-      sub: 'Moving overwrites where the kit lives. A trip is just a location kit was moved to.',
+      sub: 'Moving overwrites where the kit lives, so it is for kit that has '
+         + 'actually changed home — a trip does not move anything.',
       rows: [
         ...store.sites.map((site) => ({ value: site.name, label: site.name, sub: `${site.n_items} pieces now` })),
         { value: '__new', label: 'A new location', sub: 'Add it to the club list' },
@@ -237,7 +239,7 @@ function shell() {
       </div>
     </div>
 
-    <div class="body" data-list></div>
+    <div class="body rowlist" data-list></div>
     <div data-movebar></div>`;
 }
 
@@ -276,6 +278,7 @@ function tile(item) {
           ? html`<span class="flagchip ${fault.severity === 'out_of_action' ? 'oos' : ''}">
               ${icon('warning')}${fault.severity === 'out_of_action' ? 'Out' : 'Fault'}</span>`
           : ''}
+        ${item.away ? html`<span class="flagchip away">${icon('move')}Away</span>` : ''}
       </span>
       <span class="meta">
         <span class="size">${item.size_value != null
@@ -302,6 +305,7 @@ function row(item) {
       <span class="lm">
         <span class="t">${item.manufacturer} ${item.model}</span>
         <span class="s">${[item.type, item.spot || item.site,
+          item.away ? `away on ${item.away}` : null,
           fault ? (fault.severity === 'out_of_action' ? 'out of action' : 'has a fault') : null]
           .filter(Boolean).join(' · ')}</span>
       </span>

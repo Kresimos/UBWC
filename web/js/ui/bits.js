@@ -48,11 +48,17 @@ export function ratingLine(rating) {
  * keeps its own handler; `tick` turns the tile into something selectable, and
  * `picked` is whether it currently is. The tile is drawn from an item card
  * (server.item_card), so everything it shows is the live row.
+ *
+ * `chip` is a caller's own corner label — the trip ballot's vote count — put
+ * along the bottom rather than in the star's corner so it never collides with
+ * the tick. `info` adds a second, smaller target that opens the item page:
+ * the card is one big button, so the only way to have two answers to a tap is
+ * to wrap it and put the second button alongside rather than inside.
  */
 export function kitTile(item, { attr = 'data-item', picked = false, tick = false,
-                                sub = null } = {}) {
+                                sub = null, chip = null, info = false } = {}) {
   const fault = worstFault(item.faults);
-  return html`
+  const card = html`
     <button class="card ${picked ? 'picked' : ''}" ${raw(attr)}="${item.id}">
       <span class="shot">
         ${item.image_path
@@ -68,6 +74,7 @@ export function kitTile(item, { attr = 'data-item', picked = false, tick = false
               ${icon('warning')}${fault.severity === 'out_of_action' ? 'Out' : 'Fault'}</span>`
           : ''}
         ${item.away ? html`<span class="flagchip away">${icon('move')}Away</span>` : ''}
+        ${chip ? html`<span class="votechip">${chip}</span>` : ''}
       </span>
       <span class="meta">
         <span class="size">${item.size_value != null
@@ -80,6 +87,13 @@ export function kitTile(item, { attr = 'data-item', picked = false, tick = false
           ? html`<span class="spot">${item.site}</span>` : '')}
       </span>
     </button>`;
+  if (!info) return card;
+  return html`
+    <span class="cardwrap">
+      ${card}
+      <button class="infobtn" data-info="${item.id}"
+              aria-label="About this kit">${icon('info')}</button>
+    </span>`;
 }
 
 export function conditionClass(condition) {

@@ -98,6 +98,8 @@ export const api = {
   tripReturned: (id, itemId, on) =>
     request('POST', `/api/trips/${id}/returned`, { item_id: itemId, on }),
   closeTrip: (id, payload) => request('POST', `/api/trips/${id}/close`, payload || {}),
+  tripVote: (id, itemId, on) =>
+    request('POST', `/api/trips/${id}/vote`, { item_id: itemId, on }),
 
   sessions: (scope) => get('/api/sessions', { scope }),
   logSession: (payload) => request('POST', '/api/sessions', payload),

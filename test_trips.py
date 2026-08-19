@@ -8,7 +8,10 @@ three promises the Trips tab makes and nothing else:
   * packed kit is **not offered by the rig assistant** while it is away, but is
     still in the catalogue at its own location, flagged;
   * a piece **cannot be on two trips at once**, and everything comes back with
-    one button.
+    one button;
+  * a trip the club is **voting** on holds nothing back — voted-for kit is still
+    offered by the rig assistant — one member is one vote per piece, and the kit
+    sec packing the trip is what closes the vote.
 
 It runs against a throwaway copy of the real database, seeded with enough kit
 to pack, and deletes it afterwards. The pack solver itself is JavaScript and
@@ -46,6 +49,13 @@ def run() -> None:
     import server
 
     db.ensure_db()
+
+    # The scratch copy is the club's real database, which may well have a trip
+    # out right now. Everything below is one pack cycle from a clean slate, so
+    # anything already away or being voted on is closed off in the copy first.
+    for existing in db.get_trips():
+        if existing["status"] in ("open", "voting"):
+            db.close_trip(existing["id"], "cancelled")
 
     def add(**record):
         record.setdefault("condition", "Good")
@@ -145,16 +155,68 @@ def run() -> None:
     assert before == {k: v for k, v in after.items() if k in before}, \
         "an item moved during the trip"
 
-    # ------------------------------------------------------- committee only
+    # ------------------------------------------------------- who may do what
     member = db.create_user("test_member", "notcommittee", "Member")
     ordinary = _Request(db.start_session(member["id"], "test"))
-    for call in (lambda: server.list_trips(ordinary),
-                 lambda: server.trip_kit(ordinary)):
+    nobody = _Request()
+
+    # Reading is open, the way the catalogue is.
+    assert server.list_trips(nobody)["trips"], "the trip list is public"
+    assert server.read_trip(trip["id"], nobody)["trip"], "a trip page is public"
+    # Packing it is not.
+    for call in (lambda: server.trip_kit(nobody),
+                 lambda: server.write_trip_items(trip["id"], ordinary, {"items": []}),
+                 lambda: server.close_trip(trip["id"], ordinary, {"all": True})):
         try:
             call()
-            raise AssertionError("trips are committee only")
+            raise AssertionError("a trip write was allowed without committee")
         except server.HTTPException as error:
-            assert error.status_code == 403, error.status_code
+            assert error.status_code in (401, 403), error.status_code
+
+    # ------------------------------------------------------------- the vote
+    ballot = server.create_trip(admin, {"name": "Cornwall", "items": [],
+                                        "voting": True})["trip"]
+    assert ballot["status"] == "voting"
+    assert ballot["n_items"] == 0, "a trip is voted on before it has any kit"
+
+    # Any member votes, and voting for a piece nobody has voted for is what
+    # suggests it — there is no separate suggestion to make first.
+    server.trip_vote(ballot["id"], ordinary, {"item_id": boards[1]})
+    result = server.trip_vote(ballot["id"], admin, {"item_id": boards[1]})
+    assert result["counts"][boards[1]] == 2, result["counts"]
+    # Twice from the same member is still one vote.
+    server.trip_vote(ballot["id"], ordinary, {"item_id": boards[1]})
+    assert db.trip_vote_counts(ballot["id"])[boards[1]] == 2, "a vote was counted twice"
+    # And it can be taken back.
+    server.trip_vote(ballot["id"], admin, {"item_id": sails[2]})
+    result = server.trip_vote(ballot["id"], admin, {"item_id": sails[2], "on": False})
+    assert sails[2] not in result["counts"], "a withdrawn vote was still counted"
+
+    # A vote is a wish, not a reservation: nothing is away, and the rig picker
+    # still offers everything the club voted for.
+    assert not db.away_item_ids(), "a trip being voted on made kit unavailable"
+    assert boards[1] in {p["id"] for p in rigkit.kit("Cheddar")},         "voted-for kit was hidden from the rig picker"
+
+    # The tally reaches whoever is looking, signed in or not.
+    seen = server.read_trip(ballot["id"], nobody)["trip"]
+    assert seen["votes"][boards[1]] == 2, seen["votes"]
+    assert [row["item"]["id"] for row in seen["voted"]] == [boards[1]], seen["voted"]
+    assert server.read_trip(ballot["id"], ordinary)["trip"]["my_votes"] == [boards[1]]
+
+    # ------------------------------------------- packing closes the vote
+    ballot = server.write_trip_items(ballot["id"], admin, {"items": [
+        {"item_id": boards[1], "role": "board", "source": "chosen"}]})["trip"]
+    assert ballot["status"] == "open", "packing a trip did not close its vote"
+    assert ballot["votes"], "the tally was thrown away when the trip was packed"
+
+    try:
+        server.trip_vote(ballot["id"], ordinary, {"item_id": sails[2]})
+        raise AssertionError("a vote was accepted after the kit was picked")
+    except server.HTTPException as error:
+        assert error.status_code == 409, error.status_code
+
+    # Now that it is packed, it is away like any other trip's kit.
+    assert boards[1] in db.away_item_ids()
 
     print("test_trips: ok")
 

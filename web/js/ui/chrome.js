@@ -14,18 +14,17 @@ import { store, setSite, setIdentity, subscribe, emit } from '../store.js';
 import { chooser, formSheet, confirmSheet, toast } from './overlay.js';
 import { go } from '../router.js';
 
-// Trips is the one tab that is not for everybody: packing the trailer is the
-// kit sec's job, so it only exists for a committee account and the bar goes
-// back to the spec's four for everyone else.
+// Trips is for everybody: what the trailer is taking is the whole club's
+// business, and a trip can be opened for members to vote on the boards and
+// sails it should take. Packing it and checking it back in stay committee, and
+// the screens that do that ask for themselves.
 const TABS = [
   { key: 'catalogue', label: 'Catalogue', icon: 'gridIcon', path: '/catalogue' },
   { key: 'rig', label: 'Rig', icon: 'sailNav', path: '/rig' },
-  { key: 'trips', label: 'Trips', icon: 'move', path: '/trips', committee: true },
+  { key: 'trips', label: 'Trips', icon: 'move', path: '/trips' },
   { key: 'log', label: 'Log', icon: 'doc', path: '/log' },
   { key: 'add', label: 'Add', icon: 'plusCircle', path: '/add' },
 ];
-
-const visibleTabs = () => TABS.filter((tab) => !tab.committee || store.committee);
 
 let activeTab = 'catalogue';
 
@@ -50,7 +49,7 @@ function paintTabs() {
   // is the only thing that earns a badge.
   const waiting = store.setup && store.setup.status === 'derigged';
   mount(document.getElementById('tabbar'), html`
-    ${visibleTabs().map((tab) => html`
+    ${TABS.map((tab) => html`
       <button class="tab ${tab.key === activeTab ? 'on' : ''}" data-tab="${tab.key}"
               aria-current="${tab.key === activeTab ? 'page' : 'false'}">
         ${icon(tab.icon)}${tab.label}

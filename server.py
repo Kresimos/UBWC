@@ -684,8 +684,11 @@ def bin_setup(setup_id: int, request: Request):
 # --------------------------------------------------------------------------- #
 # API: trips
 #
-# Committee only, all of it: packing the trailer is the kit sec's job and the
-# list is the club's record of what left the building.
+# Reading is open, the way the catalogue is: what the trailer is taking is the
+# whole club's business, and a trip can be opened for members to vote on before
+# it is packed. Writing the list is still committee — packing the trailer is
+# the kit sec's job and the list is the club's record of what left the
+# building — with the one exception of a vote, which is any member's to cast.
 #
 # Nothing here writes items.location. A trip is a named list, not a place, so
 # kit keeps saying where it is stored for the whole trip and unpacking is
@@ -702,7 +705,9 @@ def trip_kit(request: Request):
     already down for another weekend is the point — `piece.away` carries which
     trip, and the server refuses to double-book it.
     """
-    require_committee(request)
+    # Any signed-in member: this is the ballot's kit list as well as the kit
+    # sec's picker, and it says nothing the catalogue does not already show.
+    require_user(request)
     kit = rigkit.kit(None, None, exclude_away=False)
     # Two shapes of the same kit: the rig pieces the pack maths reasons about,
     # and the catalogue's own cards to draw them as, so the picker is a wall of
@@ -722,7 +727,6 @@ def trip_kit(request: Request):
 
 @app.get("/api/trips")
 def list_trips(request: Request):
-    require_committee(request)
     return {"trips": db.get_trips()}
 
 
@@ -733,7 +737,8 @@ def create_trip(request: Request, payload: dict = Body(...)):
         trip = db.create_trip(user["id"], payload.get("name") or "",
                               payload.get("items") or [],
                               payload.get("destination"),
-                              payload.get("starts_on"), payload.get("ends_on"))
+                              payload.get("starts_on"), payload.get("ends_on"),
+                              bool(payload.get("voting")))
     except db.TripError as error:
         raise HTTPException(422, str(error))
     return {"trip": _expand_trip(trip)}
@@ -741,11 +746,10 @@ def create_trip(request: Request, payload: dict = Body(...)):
 
 @app.get("/api/trips/{trip_id}")
 def read_trip(trip_id: int, request: Request):
-    require_committee(request)
     trip = db.get_trip(trip_id)
     if not trip:
         raise HTTPException(404, "No such trip.")
-    return {"trip": _expand_trip(trip)}
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
 @app.post("/api/trips/{trip_id}/items")
@@ -803,7 +807,29 @@ def close_trip(trip_id: int, request: Request, payload: dict = Body({})):
     return {"trip": _expand_trip(trip)}
 
 
-def _expand_trip(trip: Optional[dict]) -> Optional[dict]:
+@app.post("/api/trips/{trip_id}/vote")
+def trip_vote(trip_id: int, request: Request, payload: dict = Body(...)):
+    """One member's vote for one piece of kit, cast or withdrawn.
+
+    The only trip write an ordinary member can make, and only while the trip is
+    still being voted on: once the kit sec has packed it the tally is a record,
+    not a poll.
+    """
+    user = require_user(request)
+    trip = db.get_trip(trip_id)
+    if not trip:
+        raise HTTPException(404, "No such trip.")
+    if trip["status"] != "voting":
+        raise HTTPException(409, "Voting on this trip has closed.")
+    item_id = payload.get("item_id")
+    if item_id is None:
+        raise HTTPException(400, "Say which piece you are voting for.")
+    return db.set_trip_vote(trip_id, int(item_id), user["id"],
+                            bool(payload.get("on", True)))
+
+
+def _expand_trip(trip: Optional[dict],
+                 user: Optional[dict] = None) -> Optional[dict]:
     """Join a trip's stored item ids back to live inventory rows.
 
     Read fresh, like a setup is: a fault reported on the Friday of a trip
@@ -813,6 +839,22 @@ def _expand_trip(trip: Optional[dict]) -> Optional[dict]:
         return None
     ratings = db.ratings_by_item()
     faults = db.open_faults_by_item()
+    # The ballot, drawn server-side: which pieces have been voted for and by how
+    # many. Carried on every trip, not just a voting one, because the tally is
+    # kept after the kit sec packs — what the club asked for, beside what went.
+    # It is also the whole of what somebody who is not signed in can see, since
+    # the picker's kit list (/api/trips/kit) needs an account.
+    counts = db.trip_vote_counts(trip["id"])
+    voted = []
+    for item_id, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        item = db.get_item(item_id)
+        if item:
+            voted.append({"votes": n,
+                          "item": item_card(item, ratings.get(item_id),
+                                            faults.get(item_id))})
+    trip = {**trip, "votes": counts, "voted": voted,
+            "my_votes": db.trip_votes_by_user(trip["id"],
+                                              user["id"] if user else None)}
     rows = []
     for entry in trip["items"]:
         item = db.get_item(entry["item_id"])

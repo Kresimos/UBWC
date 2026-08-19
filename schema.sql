@@ -18,6 +18,7 @@ DROP VIEW IF EXISTS v_extensions;
 DROP VIEW IF EXISTS v_misc;
 DROP TABLE IF EXISTS session_items;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS trip_votes;
 DROP TABLE IF EXISTS trip_items;
 DROP TABLE IF EXISTS trips;
 DROP TABLE IF EXISTS setup_items;
@@ -313,6 +314,11 @@ CREATE TABLE setup_items (
 --
 -- The same list is the return checklist: `returned` is ticked per item as kit
 -- comes back, and a trip closes when nothing is outstanding.
+--
+-- `status` = 'voting' is a trip that exists before any of that: named, dated,
+-- and open for the club to vote on what it should take (see `trip_votes`). It
+-- has no kit yet, and because "away" is membership of an OPEN trip, nothing on
+-- a voting trip is away. Saving its kit flips it to 'open' and closes voting.
 -- ---------------------------------------------------------------------------
 CREATE TABLE trips (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -321,7 +327,7 @@ CREATE TABLE trips (
     starts_on   TEXT,
     ends_on     TEXT,
     status      TEXT NOT NULL DEFAULT 'open'
-                CHECK (status IN ('open','returned','cancelled')),
+                CHECK (status IN ('voting','open','returned','cancelled')),
     created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     returned_at TEXT
@@ -342,6 +348,37 @@ CREATE TABLE trip_items (
 );
 
 CREATE INDEX idx_trip_items_trip ON trip_items(trip_id);
+
+-- ---------------------------------------------------------------------------
+-- trip_votes: the club's say in what a trip takes.
+--
+-- A trip can be opened for voting before anything is packed (`trips.status` =
+-- 'voting'): every board, sail, wing and foil the club owns is on the ballot at
+-- nought votes, and voting for one IS suggesting it, so there is no separate
+-- suggestion to moderate and no zero-vote suggestion to tidy up. One row per
+-- member per piece, enforced by the UNIQUE, and un-voting deletes the row —
+-- there is no voided-vote history here as there is on `ratings`, because a
+-- ballot is settled in a fortnight by a person reading the tally, not a
+-- standing public score on club property.
+--
+-- A vote RESERVES NOTHING. Away is membership of an *open* trip (see `trips`),
+-- and a trip being voted on is not open, so kit somebody has voted for is still
+-- offered by the rig picker right up until the kit sec actually packs it.
+--
+-- Voting closes when the kit sec saves the trip's kit, which flips the trip to
+-- 'open'. The rows stay: the packed trip page shows what the club asked for
+-- next to what actually went, which is the record worth keeping.
+-- ---------------------------------------------------------------------------
+CREATE TABLE trip_votes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id    INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (trip_id, item_id, user_id)
+);
+
+CREATE INDEX idx_trip_votes_trip ON trip_votes(trip_id);
 
 -- ---------------------------------------------------------------------------
 -- sessions: the logbook. Saving is always a deliberate act, so a row here means

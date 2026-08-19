@@ -169,7 +169,7 @@ setup:
 - **Search/autocomplete ranking**: when a user has selected a sail, rank
   masts/extensions/booms that satisfy the exact-fit rules first, then
   same-brand items, then everything else.
-- **Trip packing** (Trips tab, committee only): the kit sec picks the boards,
+- **Trip packing** (Trips tab, open to everybody): the kit sec picks the boards,
   sails, wings and foils a trip is taking and the app derives what those need —
   **one mast, one extension and one boom per sail, one fin and one base per
   board**. One each rather than a shared minimum set, because every rig on a
@@ -181,6 +181,13 @@ setup:
   A trip **never changes `items.location`** — that column is the storage
   location, always — so "away" is membership of an open trip (`db.away_item_ids`),
   which is what hides kit from the rig picker and flags it in the catalogue.
+  Before it is packed, a trip can sit in `trips.status = 'voting'`: members vote
+  on the boards, sails, wings and foils it should take (`trip_votes`, one row per
+  member per piece), and the kit sec's first `set_trip_items` both picks the kit
+  and closes the vote. A vote **reserves nothing** — a voting trip is not an
+  open one, so `away_item_ids` skips it and voted-for kit is still rig-able —
+  and the tally is kept after packing as the record of what the club asked for.
+  Reading trips is open to everyone; every write except a vote is committee.
 - **Item page "known faults"**: faults are per physical item, not per
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
   Location), matching the `faults` table and the Faults page spec. Each fault

@@ -23,7 +23,7 @@ An earlier idea, a combinatorial "which rigs can run at once" solver ("kit
 sex"), was **dropped**: the club rarely runs short of kit and competition sites
 supply their own vans, so the useful part is just recording where our kit is.
 
-*Revised 18 Aug 2026: a **Trips tab is back**, committee-only, and a trip is no
+*Revised 18 Aug 2026: a **Trips tab is back** and a trip is no
 longer "a location kit was moved to". Packing a trailer is one of the club's
 main activities and it is the one job the app can do better than a person: the
 kit sec says which boards and sails are going and the app works out the masts,
@@ -31,7 +31,8 @@ extensions, booms, fins and bases those need. Moving kit between locations to
 express that turned out to be wrong twice over — it loses each item's real
 storage spot, which then has to be re-set by hand on return, and it leaves no
 record of what went out to check against. See Tab: Trips and Locations and
-trips, both rewritten below.*
+trips, both rewritten below. (Revised again 19 Aug 2026: the tab is open to
+every member, and a trip can be voted on before it is packed.)*
 
 ## Access and roles
 
@@ -45,7 +46,8 @@ replaced by accounts. Everything below is what the app now does.*
 - **A sign-in lasts a term** and can be ended from the server, which is what a
   lost phone needs. Changing a password signs the other devices out.
 - **Two roles: member and committee.** Ordinary members can add kit, report
-  faults, use the rigging assistant, and keep a logbook. **Committee-only
+  faults, use the rigging assistant, keep a logbook, and vote on the kit a trip
+  takes. **Committee-only
   actions** (delete kit, move kit / bulk-move, edit the roster and site list,
   clear/close faults, strike out spammed ratings) are gated on the **account's
   own committee flag**. Committee is handed out by an existing committee member,
@@ -56,9 +58,9 @@ replaced by accounts. Everything below is what the app now does.*
 
 - **Mobile-first, web-hosted.** Primary use is members on their phones at the
   boathouse or beach. Must also be usable on a laptop for committee admin.
-- **Bottom tab bar** is the primary navigation. Tabs: **Catalogue · Rig · Log ·
-  + Add**, plus **Trips** for a committee account only — a member's bar is still
-  the four, and the fifth tab appears and disappears with signing in and out.
+- **Bottom tab bar** is the primary navigation. Tabs: **Catalogue · Rig ·
+  Trips · Log · + Add**. Trips is there for everybody, signed in or not; what it
+  *lets* you do depends on the account (see Tab: Trips).
 - **Home opens straight into the catalogue.**
 - A **site selector** sits at the top: the member picks which site they are at.
   It drives the catalogue's location filter and the rigging assistant's
@@ -162,11 +164,39 @@ Self-serve "what do I grab, and where do I put it back".
   gate. **On confirmation the member goes straight to the logbook**, where the
   un-logged-session prompt is waiting.
 
-## Tab: Trips (committee only)
+## Tab: Trips
 
-*Added 18 Aug 2026.* Packing the trailer for a trip away is one of the club's
-main activities and is the kit sec's job, so this tab only exists for a
-committee account.
+*Added 18 Aug 2026. Revised 19 Aug 2026: the tab is **no longer committee-only**
+and a trip can be **voted on** before it is packed. What the trailer is taking
+is the whole club's business, and which boards and sails go is the part members
+actually have an opinion about. Packing and checking in are still the kit sec's.*
+
+- **Everybody sees the tab.** Signed out, a trip is read-only: the list, the
+  dates, what is packed and what the club voted for. Same rule as the
+  catalogue — browsing is open, actions need an account.
+- **A trip is named before it is packed.** The kit sec starts it with a name,
+  optional destination and dates, and a **"let members vote first" tick**. Left
+  unticked, the trip goes straight to the picker as before. Ticked, the trip
+  exists with **no kit** and the club votes on what it should take.
+- **The ballot is the whole packable inventory.** Every board, sail, wing and
+  foil is on it at nought votes, and **voting for a piece is suggesting it** —
+  there is no separate suggestion step, nothing to moderate, and no zero-vote
+  suggestion to tidy away. **One vote per member per piece**, tapped on and off,
+  ordered most-wanted first within each kind. Tallies are shown as **counts, not
+  names**: the kit sec needs the number, not the roll call. A small info button
+  on each card opens the item page for its rating and faults.
+- **A vote holds nothing back.** Kit somebody voted for is still offered by the
+  rig assistant and is not flagged away, because "away" is membership of an
+  *open* trip and a trip being voted on is not one. Nothing is reserved until
+  the kit sec actually packs it.
+- **Packing closes the vote.** The kit sec opens the picker, which shows each
+  piece's tally as a badge and sorts by it, **pre-selects nothing**, and lets
+  them take what they like and fill in the rest. Saving the kit flips the trip
+  to open and stops the ballot — packing *is* the decision, so there is no
+  separate "close voting" button to forget. The tally is kept and shown against
+  the packed list afterwards: what the club asked for, beside what went.
+- **A trip that does not happen is called off**, not deleted, so the fact it was
+  discussed and what the club wanted is kept.
 
 - **You choose what the trip is for; the app works out the rest.** The kit sec
   picks the **boards, sails, wings and foils** they want to take. The app then

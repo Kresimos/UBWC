@@ -102,6 +102,26 @@
 .kitgrid .card.picked .tickmark {
   background: var(--teal); border-color: var(--teal); color: #fff;
 }
+/* The trip ballot's tally. It borrows the rating chip's look because it is the
+   same kind of fact — a number other members put there — but sits bottom-left,
+   clear of the tick that says whether YOUR vote is one of them. */
+.kitgrid .votechip {
+  position: absolute; bottom: 8px; left: 8px; background: #fff;
+  color: var(--app-ink); font-size: 11px; font-weight: 700; padding: 4px 8px;
+  border-radius: 4px; box-shadow: 0 2px 6px rgba(10, 40, 45, .14);
+}
+/* A card is one button, so the "see its ratings and faults" tap cannot live
+   inside it. The wrapper exists only to hold that second target above the
+   shot's top-left corner, which is free on a ballot (the star chip is hidden
+   whenever a tile is selectable). */
+.kitgrid .cardwrap { position: relative; display: flex; flex-direction: column; }
+.kitgrid .infobtn {
+  position: absolute; top: 8px; left: 8px; width: 26px; height: 26px;
+  border-radius: 50%; background: #fff; border: 1.8px solid #C7D2D2;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  color: var(--app-muted); box-shadow: 0 2px 6px rgba(10, 40, 45, .12); padding: 0;
+}
+.kitgrid .infobtn svg { width: 15px; height: 15px; }
 
 /* Compact rows, the other half of the grid/list toggle.
    Marked with a class rather than scoped to the catalogue screen, because the

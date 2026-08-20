@@ -22,6 +22,9 @@ const VIEW_KEY = 'ubwc.view';
 
 const state = {
   type: 'all',
+  // 'all' | 'faulty' | 'clean'. Deliberately not persisted like `view` is: a
+  // sticky "no faults" filter would silently hide broken kit next session.
+  fault: 'all',
   q: '',
   view: localStorage.getItem(VIEW_KEY) || 'grid',
   selecting: false,
@@ -54,6 +57,13 @@ export async function render(root) {
   }
 
   function paint() {
+    // Fault filtering happens here, not on the server: every card already
+    // carries its open faults and the catalogue loads everything, so this is
+    // an array predicate over data in memory. Open faults only — a cleared
+    // fault should not mark a piece as faulty.
+    const shown = state.fault === 'all' ? items
+      : items.filter((i) => (i.faults.length > 0) === (state.fault === 'faulty'));
+
     root.querySelector('[data-sitelabel]').textContent = siteLabel();
     root.querySelectorAll('[data-chip]').forEach((chip) => {
       chip.classList.toggle('on', chip.getAttribute('data-chip') === state.type);
@@ -61,18 +71,21 @@ export async function render(root) {
     root.querySelectorAll('[data-view]').forEach((button) => {
       button.classList.toggle('on', button.getAttribute('data-view') === state.view);
     });
-    root.querySelector('[data-count]').innerHTML = countLabel(items.length, loading);
+    root.querySelectorAll('[data-fault]').forEach((button) => {
+      button.classList.toggle('on', button.getAttribute('data-fault') === state.fault);
+    });
+    root.querySelector('[data-count]').innerHTML = countLabel(shown.length, loading);
     root.querySelector('[data-select]').textContent = state.selecting ? 'Done' : 'Select';
     root.querySelector('.searchbar').classList.toggle('filled', Boolean(state.q));
 
     if (loading) {
       mount(listNode, html`<div class="spinner"></div>`);
-    } else if (!items.length) {
+    } else if (!shown.length) {
       mount(listNode, emptyState());
     } else if (state.view === 'grid') {
-      mount(listNode, html`<div class="grid">${items.map(tile)}</div>`);
+      mount(listNode, html`<div class="grid">${shown.map(tile)}</div>`);
     } else {
-      mount(listNode, html`<div class="rows">${items.map(row)}</div>`);
+      mount(listNode, html`<div class="rows">${shown.map(row)}</div>`);
     }
     paintMoveBar();
   }
@@ -173,6 +186,12 @@ export async function render(root) {
     localStorage.setItem(VIEW_KEY, value);
     paint();
   });
+  // Pressing the active one again returns to all. paint() only, never load():
+  // nothing needs refetching.
+  onClick(root, 'data-fault', (value) => {
+    state.fault = state.fault === value ? 'all' : value;
+    paint();
+  });
   root.querySelector('[data-select]').addEventListener('click', () => {
     state.selecting = !state.selecting;
     state.selected.clear();
@@ -232,6 +251,10 @@ function shell() {
       <span class="count" data-count></span>
       <button class="selbtn" data-select>Select</button>
       <div class="viewtoggle">
+        <button data-fault="faulty" aria-label="Show only kit with a fault">${icon('warning')}</button>
+        <button data-fault="clean" aria-label="Hide kit with a fault">${icon('tick')}</button>
+      </div>
+      <div class="viewtoggle">
         <button data-view="grid" aria-label="Grid view">${icon('gridIcon')}</button>
         <button data-view="list" aria-label="List view">${icon('listIcon')}</button>
       </div>
@@ -253,7 +276,11 @@ function emptyState() {
     <div class="emptystate">
       ${icon('box')}
       <b>Nothing here</b>
-      <span>${state.q
+      <span>${state.fault === 'faulty'
+        ? `Nothing here has an open fault.`
+        : state.fault === 'clean'
+        ? `Everything here has an open fault.`
+        : state.q
         ? `No kit matches "${state.q}" at ${siteLabel().toLowerCase()}.`
         : `No kit of this type is recorded at ${siteLabel().toLowerCase()}.`}</span>
     </div>`;

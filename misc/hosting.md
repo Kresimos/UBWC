@@ -234,6 +234,72 @@ Two things to do whichever way you go:
 2. **Ask the SU whether they will host it first.** It costs one email and
    could make this entire document irrelevant.
 
+## Deploying on Railway
+
+Connect the GitHub repo (Railway → New Project → Deploy from GitHub repo) and
+it builds from `requirements.txt` on every push to main. Everything else is
+variables and one volume.
+
+### Environment variables
+
+Variables never come from your machine or the repo — that is the point, secrets
+stay out of git. Set them on the service under the **Variables** tab (or
+`railway variables --set`); they are injected at runtime. Mark
+`UBWC_SMTP_PASS` **sealed** so it is write-only after saving.
+
+| Variable | Value |
+|---|---|
+| `UBWC_HOST` | `0.0.0.0` — the server defaults to loopback, which is unreachable inside a container |
+| `UBWC_PORT` | `${{PORT}}` — Railway assigns the port |
+| `UBWC_HTTPS` | `1` — Railway terminates TLS, so cookies can be Secure |
+| `UBWC_SMTP_HOST` | `smtp-relay.brevo.com` |
+| `UBWC_SMTP_PORT` | `587` (STARTTLS — Brevo's relay does not speak implicit TLS; 465 is only for providers that do) |
+| `UBWC_SMTP_USER` | the SMTP login Brevo shows (an `@smtp-brevo.com` identifier) |
+| `UBWC_SMTP_PASS` | the Brevo SMTP key (**sealed**) |
+| `UBWC_MAIL_FROM` | the sender address verified in Brevo, e.g. `uob.windsurfing@gmail.com` — without it the From header is the SMTP login, which Gmail spam-bins |
+| `UBWC_FAULT_EMAIL` | omit — defaults to `uob.windsurfing@gmail.com` |
+| `UBWC_BASE_URL` | the public URL Railway gives the service, e.g. `https://<app>.up.railway.app` |
+
+### The database needs a volume
+
+`kit.db` lives at `~/.local/share/UBWC/kit.db` on Linux (`migrate.py`
+`_data_dir`), and a container's filesystem is thrown away on every deploy.
+Mount a Railway **volume at `/root/.local/share/UBWC`** or the inventory
+resets on every push.
+
+### Why Brevo sends the mail, not a Gmail app password
+
+The fault email only has to *arrive* at `uob.windsurfing@gmail.com`; nothing
+says Google has to send it. A Gmail app password was the obvious route and was
+rejected: it is a full-strength credential that bypasses 2FA and can **read the
+club inbox** over IMAP as well as send, so a leaked Railway variable would
+expose the whole club account — and it dies when the 2FA phone graduates.
+A Brevo SMTP key, if leaked, can send at most ~300 mails/day as the verified
+sender, can read nothing, and is revoked in one click. That asymmetry is the
+whole argument.
+
+Setup, once:
+
+1. Create a Brevo account **with a club-owned login, not a personal one** —
+   this login is now a handover credential.
+2. Verify one sender address (Brevo emails a confirmation link). Verifying
+   `uob.windsurfing@gmail.com` itself is simplest: the club already owns that
+   inbox, and club-to-club mail needs no domain.
+3. Brevo dashboard → **SMTP & API → SMTP tab** → copy the login and key into
+   the variables above.
+
+`UBWC_MAIL_FROM` is not optional with Brevo in practice: the first test mail
+went out From the `@smtp-brevo.com` SMTP login and Gmail never delivered it
+(Brevo showed "Sent", the inbox showed nothing). Set it to the verified sender.
+
+### First-deploy checklist
+
+Deploy, set the variables, report a test fault on any item, and confirm the
+mail lands at `uob.windsurfing@gmail.com` with a working item link and an
+acceptable From line. Then clear the test fault (committee action). The same
+Brevo credentials can be dry-run locally first by setting them in a shell and
+reporting a fault against `./run.sh`.
+
 ## Not decided yet
 
 - Domain name. `ubwc.co.uk` or similar is roughly £10/year, or the SU may let
@@ -241,9 +307,18 @@ Two things to do whichever way you go:
   above gives you a working HTTPS address on day one.
 - Password resets by email. Members have real accounts as of 2 Aug 2026
   (username and password, hashed with PBKDF2, sessions in the database), but a
-  forgotten password is reset by a committee member rather than by email, which
-  is why no email provider appears in this document. Adding self-service resets
-  is what would add one.
+  forgotten password is reset by a committee member rather than by email.
+- The app does now send one kind of email (added 20 Aug 2026): a notification
+  to the club inbox whenever a fault is reported, via plain SMTP (`mailer.py`).
+  It is off until these are set in the environment: `UBWC_SMTP_HOST`,
+  `UBWC_SMTP_PORT` (default 587/STARTTLS; 465 switches to implicit TLS),
+  `UBWC_SMTP_USER`, `UBWC_SMTP_PASS`,
+  `UBWC_FAULT_EMAIL` (default `uob.windsurfing@gmail.com`), and `UBWC_BASE_URL`
+  for the link in the mail. With Gmail that means an **app password** on the
+  club account, which requires 2FA to be enabled first — and note that the 2FA
+  device and the app password both have to survive committee handover, or the
+  mail silently stops when a committee member graduates. Unset, sending is a
+  logged no-op and fault reports work as before.
 - One consequence of accounts for hosting: set `UBWC_HTTPS=1` wherever the app
   ends up, so the session cookie is marked Secure. Every option above terminates
   HTTPS for you.

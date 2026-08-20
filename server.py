@@ -12,11 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import db
+import mailer
 import rigkit
 import suggest
 import validation
@@ -438,7 +439,8 @@ def read_item(item_id: int, request: Request):
 
 
 @app.post("/api/items")
-def create_item(request: Request, payload: dict = Body(...)):
+def create_item(request: Request, background: BackgroundTasks,
+                payload: dict = Body(...)):
     """Add a piece of kit. Requires an account; any signed-in member can add."""
     require_user(request)
     record = dict(payload.get("item") or {})
@@ -451,12 +453,13 @@ def create_item(request: Request, payload: dict = Body(...)):
         raise HTTPException(422, "; ".join(problems.errors))
 
     item_id = db.add_item(record)
-    _write_faults(item_id, payload.get("faults") or [], request)
+    _write_faults(item_id, payload.get("faults") or [], request, background)
     return {"id": item_id, "warnings": problems.warnings}
 
 
 @app.put("/api/items/{item_id}")
-def edit_item(item_id: int, request: Request, payload: dict = Body(...)):
+def edit_item(item_id: int, request: Request, background: BackgroundTasks,
+              payload: dict = Body(...)):
     """Edit opens the same form as Add, so it takes the same body."""
     require_user(request)
     if not db.get_item(item_id):
@@ -467,11 +470,23 @@ def edit_item(item_id: int, request: Request, payload: dict = Body(...)):
     if problems.errors:
         raise HTTPException(422, "; ".join(problems.errors))
     db.update_item(item_id, record)
-    _write_faults(item_id, payload.get("faults") or [], request)
+    _write_faults(item_id, payload.get("faults") or [], request, background)
     return {"id": item_id, "warnings": problems.warnings}
 
 
-def _write_faults(item_id: int, faults: list, request: Request) -> None:
+def _report_fault(item_id: int, title: str, description: str, severity: str,
+                  author, image_path, background: BackgroundTasks) -> int:
+    """The one place a new fault is recorded, so the email hook covers every
+    entry path (item-page report and the add/edit form's fault fields)."""
+    fault_id = db.report_fault(item_id, title, description, severity, author,
+                               image_path)
+    background.add_task(mailer.fault_reported, item_id, title, description,
+                        severity, author)
+    return fault_id
+
+
+def _write_faults(item_id: int, faults: list, request: Request,
+                  background: BackgroundTasks) -> None:
     """Faults typed on the add/edit form. Only new ones are inserted, so
     re-saving an item does not duplicate the flags it already carries."""
     who = identity(request)
@@ -485,9 +500,9 @@ def _write_faults(item_id: int, faults: list, request: Request) -> None:
             continue
         if title.lower() in existing:
             continue
-        db.report_fault(item_id, title or description[:60], description or title,
-                        fault.get("severity") or "usable", author,
-                        fault.get("image_path"))
+        _report_fault(item_id, title or description[:60], description or title,
+                      fault.get("severity") or "usable", author,
+                      fault.get("image_path"), background)
 
 
 @app.delete("/api/items/{item_id}")
@@ -562,15 +577,16 @@ def comment(item_id: int, request: Request, payload: dict = Body(...)):
 
 
 @app.post("/api/items/{item_id}/faults")
-def add_fault(item_id: int, request: Request, payload: dict = Body(...)):
+def add_fault(item_id: int, request: Request, background: BackgroundTasks,
+              payload: dict = Body(...)):
     user = require_user(request)
     description = (payload.get("description") or "").strip()
     title = (payload.get("title") or "").strip()
     if not title:
         raise HTTPException(400, "Give the fault a short name.")
-    db.report_fault(item_id, title, description or title,
-                    payload.get("severity") or "usable", user["display_name"],
-                    payload.get("image_path"))
+    _report_fault(item_id, title, description or title,
+                  payload.get("severity") or "usable", user["display_name"],
+                  payload.get("image_path"), background)
     return {"fault_history": db.fault_history(item_id)}
 
 

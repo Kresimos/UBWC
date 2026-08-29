@@ -7,7 +7,7 @@
  * a deliberate act and the nudge is what turns a finished sail into one.
  */
 import { html, mount, num, numFixed, ago, clockTime, spanned, stampDate, onClick, initial } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
 import { starIcons, wireWhoPill } from '../ui/bits.js';
@@ -57,6 +57,10 @@ export async function render(root) {
 
   onClick(root, 'data-log', () => go('/compose'));
   onClick(root, 'data-kititem', (value) => { if (value) go(`/item/${value}`); });
+
+  // The stat strip is the toggle: tapping it opens the full spec list (every
+  // piece on the session, not just the sail and board it headlines) below it.
+  onClick(root, 'data-expand', (_, node) => node.closest('.sess').classList.toggle('open'));
 
   // "Repeat last time" reuses that session's kit as a fresh active setup, then
   // drops you on the setup screen — the same place a wizard build lands.
@@ -169,10 +173,8 @@ function dayLabel(when, session) {
 }
 
 function sessionCard(session) {
-  const up = session.pieces.filter((p) => p.vote === 1).length;
-  const down = session.pieces.filter((p) => p.vote === -1).length;
-  const heads = session.pieces.filter(headliner);
-  const rest = session.pieces.filter((piece) => !headliner(piece));
+  const sail = session.pieces.find((p) => p.role === 'sail');
+  const board = session.pieces.find((p) => p.role === 'board');
   const stamp = session.ended_at || session.created_at;
   return html`
     <article class="sess">
@@ -182,70 +184,114 @@ function sessionCard(session) {
           <span class="nm">${session.user_name}</span>
           <span class="meta">${[clockTime(stamp) || ago(stamp), session.site].filter(Boolean).join(' · ')}</span>
         </span>
-        ${session.stars ? html`<span class="stars">${starIcons(session.stars)}</span>` : ''}
+        ${session.stars ? html`
+          <span class="stars">${starIcons(session.stars)}</span>` : ''}
       </div>
-      ${heads.length || rest.length ? html`
-        <div class="rig">
-          ${heads.map(kitRow)}
-          ${rest.length ? html`<span class="also">plus ${rest.map(restLabel).join(' · ')}</span>` : ''}
-        </div>` : ''}
-      ${conditions(session)}
-      ${session.note ? html`<p class="cmt">${session.note}</p>` : ''}
-      <div class="foot">
+      ${session.note ? html`<div class="note"><p>${session.note}</p></div>` : ''}
+      <div class="strip" data-expand role="button">
+        ${windTile(session)}
+        ${kitTile(sail, 'm²')}
+        ${kitTile(board, 'L')}
+      </div>
+      ${duration(session)}
+      <div class="specs">
+        ${session.pieces.map(specRow)}
         <button class="repeat" data-repeat="${session.id}">${icon('refresh')}Repeat this kit</button>
-        ${up || down ? html`
-          <span class="votes" title="How the kit rated on this session">
-            ${up ? html`<span class="v up">${icon('thumbUp')}${up}</span>` : ''}
-            ${down ? html`<span class="v down">${icon('thumbDown')}${down}</span>` : ''}
-          </span>` : ''}
       </div>
     </article>`;
 }
 
 /**
- * Wind and time on the water share one quiet line. Both are optional and often
- * absent, so the line disappears rather than leaving a gap behind. A duration
- * is only worth printing once it is long enough to have been a sail rather
- * than a mis-tap, hence the ten-minute floor.
+ * Time on the water is its own quiet line below the strip — optional, and
+ * often absent, so the line disappears rather than leaving a gap behind. A
+ * duration is only worth printing once it is long enough to have been a sail
+ * rather than a mis-tap, hence the ten-minute floor.
  */
 const SHORTEST_SAIL_MS = 10 * 60 * 1000;
 
-function conditions(session) {
-  const bits = [];
-  if (session.wind_kn != null) {
-    const extra = [session.wind_dir, session.wind_gust_kn != null ? `gusts ${num(session.wind_gust_kn, 0)}` : null]
-      .filter(Boolean).join(' · ');
-    bits.push(html`<span class="c">${icon('wind')}<b>${num(session.wind_kn, 0)} kn</b>${extra ? ` ${extra}` : ''}</span>`);
-  }
+function duration(session) {
   const started = stampDate(session.started_at);
   const ended = stampDate(session.ended_at);
   if (started && ended && ended - started >= SHORTEST_SAIL_MS) {
-    bits.push(html`<span class="c">${icon('clock')}<b>${spanned(session.started_at, session.ended_at)}</b> on the water</span>`);
+    return html`<div class="cond"><span class="c">${icon('clock')}<b>${spanned(session.started_at, session.ended_at)}</b> on the water</span></div>`;
   }
-  return bits.length ? html`<div class="cond">${bits}</div>` : '';
+  return '';
 }
 
-// The feed leads on the two pieces that name a session: the sail (or wing) and
-// the board. The rest of the rig is still on the session, named on one quiet
-// line under them rather than given a row of its own.
-const headliner = (piece) => piece.role === 'sail' || piece.role === 'board' || !piece.role;
+function windTile(session) {
+  if (session.wind_kn == null) {
+    return html`<div class="tile empty"><span class="val">&mdash;</span><span class="lbl">No wind</span></div>`;
+  }
+  const gust = session.wind_gust_kn;
+  return html`
+    <div class="tile">
+      <span class="val">${num(session.wind_kn, 0)}${gust != null ? html`<span class="sep">/</span>${num(gust, 0)}` : ''}<span class="unit">kn</span></span>
+      <span class="lbl">${session.wind_dir ? `${session.wind_dir} wind` : 'Wind'}</span>
+    </div>`;
+}
 
-const restLabel = (piece) =>
-  (store.roleLabels[piece.role] || piece.role || 'kit').toLowerCase();
-
-function kitRow(piece) {
-  const kind = piece.component_type || piece.role;
+// Drop a trailing number from a model when it is just the size again, so a
+// "Start 185" board beside its 185 L value reads "Starboard Start", not twice.
+function kitParts(piece) {
   const size = piece.size_m2 ?? piece.size_l ?? null;
-  // Drop a trailing number from the model when it is just the size again, so a
-  // "Start 185" board beside its 185 L headline reads "Starboard Start", not twice.
   let model = piece.model || '';
   const tail = model.match(/^(.*[^\s-])[\s-]+(\d+(?:\.\d+)?)$/);
   if (tail && size != null && Math.abs(Number(size) - Number(tail[2])) < 0.51) model = tail[1];
-  const name = model ? `${piece.manufacturer || ''} ${model}`.trim() : (piece.label || 'Kit');
+  return { brand: piece.manufacturer || '', model: model || piece.label || 'Kit' };
+}
+
+function kitName(piece) {
+  const { brand, model } = kitParts(piece);
+  return `${brand} ${model}`.trim();
+}
+
+// Sail and board tiles share one shape: a value with its unit riding beside
+// it, and the model underneath. No icon — the value+label pair already says
+// what the tile is, so a glyph above them would only repeat it. Neither tile
+// links out on its own any more — the whole strip is one tap target that
+// opens the spec list below, where every piece (these two included) is its
+// own row with its own link to the catalogue.
+//
+// Brand and model sit in their own spans, each unbreakable, so a label that
+// needs two lines wraps cleanly between them rather than mid-word wherever
+// the text happens to run out of room.
+function kitTile(piece, unit) {
+  if (!piece) return html`<div class="tile empty"><span class="val">&mdash;</span><span class="lbl">Not logged</span></div>`;
+  const kind = piece.component_type || piece.role;
+  const size = piece.size_m2 ?? piece.size_l ?? null;
+  const val = size != null ? (kind === 'sail' ? numFixed(size) : num(size)) : '';
+  const { brand, model } = kitParts(piece);
   return html`
-    <button class="krow" data-kititem="${piece.item_id || ''}">
-      ${artFor(kind)}
-      <b class="sz">${size != null ? (kind === 'sail' ? numFixed(size) : num(size)) : ''}</b>
-      <span class="knm">${name}</span>
+    <div class="tile">
+      <span class="val">${val}<span class="unit">${unit}</span></span>
+      <span class="lbl">${brand ? html`<span class="brand">${brand}</span>` : ''}<span class="model">${model}</span></span>
+    </div>`;
+}
+
+// A piece's headline number, whichever field it actually lives on — a sail's
+// area, a board's volume, or a length for anything rigid (mast, extension,
+// boom, fin).
+function pieceSize(piece) {
+  if (piece.size_m2 != null) return `${numFixed(piece.size_m2)} m²`;
+  if (piece.size_l != null) return `${num(piece.size_l, 0)} L`;
+  if (piece.length_cm != null) return `${num(piece.length_cm, 0)} cm`;
+  if (piece.fin_length_cm != null) return `${num(piece.fin_length_cm, 0)} cm`;
+  return '';
+}
+
+// One row per piece on the session — sail and board included, plus whatever
+// else was rigged (mast, extension, boom, fin, harness...). Each is its own
+// link to the catalogue, and carries the thumb this member left on it, if any.
+function specRow(piece) {
+  const size = pieceSize(piece);
+  return html`
+    <button class="specrow" data-kititem="${piece.item_id || ''}">
+      <span class="sn">
+        <span class="sr">${store.roleLabels[piece.role] || piece.role || 'Kit'}</span>
+        <span class="sm">${kitName(piece)}</span>
+      </span>
+      ${size ? html`<span class="ssz">${size}</span>` : ''}
+      ${piece.vote === 1 ? html`<span class="svote up">${icon('thumbUp')}</span>` : ''}
+      ${piece.vote === -1 ? html`<span class="svote down">${icon('thumbDown')}</span>` : ''}
     </button>`;
 }

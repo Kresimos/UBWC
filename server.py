@@ -157,7 +157,10 @@ def item_card(item: dict, rating: dict = None, faults: list = None,
         "size_value": _size_value(item),
         "size_unit": _size_unit(item),
         "rating": rating or {"up": 0, "down": 0, "n": 0, "stars": None, "mine": None},
-        "faults": [{"id": f["id"], "title": f["title"], "severity": f["severity"]}
+        # description travels too now: the catalogue tile's fault chip opens a
+        # pop-up with what is actually wrong, the same as the Build picker's.
+        "faults": [{"id": f["id"], "title": f["title"], "severity": f["severity"],
+                    "description": f.get("description")}
                    for f in (faults or [])],
         "rig_kind": rigkit.rig_kind(item),
         "cams": bool(item.get("cams")),

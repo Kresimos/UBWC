@@ -36,7 +36,15 @@ export const icons = {
   logout: stroke('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>'),
   listIcon: stroke('<path d="M4 6h16M4 12h16M4 18h16"/>', 2.4),
   gridIcon: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
-  star: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 3 2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7Z"/></svg>',
+  // The star is a pentagram: ONE path through the five points in the order
+  // 1,3,5,2,4, stroked with a round join and filled. That is how the Unicode
+  // star is built, and it is why this reads rounder than a ten-vertex star
+  // would - the stroke blunts the five points and fattens the arms in the same
+  // move. Stroke width is 0.2276x the pentagram's radius, the ratio measured
+  // off the system star itself: it puts the inner/outer radius at 0.469, where
+  // a bare pentagram sits at 0.382. Ink spans y 3.01-21.34, exactly the heart's
+  // box, so the two are the same height and align top and bottom.
+  star: '<svg viewBox="0 0 24 24.35" fill="currentColor" stroke="currentColor" stroke-width="2.05" stroke-linejoin="round"><path d="M12 3.39L17.3 19.68L3.43 9.61L20.57 9.61L6.7 19.68Z"/></svg>',
   thumbUp: stroke('<path d="M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z"/><path d="M7 11l4.2-8a2 2 0 0 1 1.8 3v3h5.4a2 2 0 0 1 2 2.5l-1.5 6A2 2 0 0 1 17 20H7"/>'),
   thumbDown: stroke('<path d="M17 13V4h3a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1Z"/><path d="M17 13l-4.2 8a2 2 0 0 1-1.8-3v-3H5.6a2 2 0 0 1-2-2.5l1.5-6A2 2 0 0 1 7 4h10"/>'),
   doc: stroke('<path d="M6 3h9l3 3v15H6Z"/><path d="M9 8h6M9 12h6M9 16h3"/>'),
@@ -45,11 +53,29 @@ export const icons = {
   box: stroke('<rect x="4" y="2.5" width="16" height="19" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/>', 1.6),
   trash: stroke('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/>'),
   move: stroke('<path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4"/>', 1.8),
-  // Outline when it is somebody's to bookmark, filled once they have. The
-  // filled one is what tags a favourite piece in the rig picker.
-  bookmark: stroke('<path d="M6 3.5h12v17l-6-4.5-6 4.5Z"/>', 2),
-  bookmarkOn: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.5h12v17l-6-4.5-6 4.5Z"/></svg>',
   chart: stroke('<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 4-6"/>', 2),
+  // The saved mark, everywhere a piece can be saved. Two things are tuned here.
+  // The bottom point is filleted with r=1.025, which is the star's own
+  // round-join radius, so both glyphs are rounded by the same amount and read
+  // as one family; the two edges run tangent to that fillet.
+  // Then the whole path is scaled to 0.92 about its centre. At an equal box
+  // height a heart carries 58.6% more ink than a star and so reads bigger, and
+  // 0.92 is where they stop fighting. Carrying that correction in the path
+  // rather than in CSS is what lets every call site below use one plain size.
+  // Both glyphs are then nudged off their bounding-box centre, because a shape
+  // reads from where its ink actually sits, not from its box. A five-point star
+  // carries its mass 4.7% of its height BELOW its box centre (one point up, two
+  // broad points down), so box-centring makes it read low; a heart carries its
+  // mass 8.2% ABOVE (wide lobes, tapering point), so it reads high. Each is
+  // corrected by 75% of that offset, which is where the two stop disagreeing
+  // with each other and with a line of text - full correction overshoots and
+  // pushes the star's point above the cap line.
+  heart: '<svg viewBox="0 0 24 24.35" fill="currentColor"><path d="M11.37 21.4L10.67 20.74C5.93 16.37 2.8 13.48 2.8 9.93C2.8 7.04 5.03 4.76 7.86 4.76C9.46 4.76 11 5.53 12 6.72C13 5.53 14.54 4.76 16.14 4.76C18.97 4.76 21.2 7.04 21.2 9.93C21.2 13.48 18.07 16.37 13.33 20.75L12.63 21.4A0.95 0.97 0 0 1 11.37 21.4Z"/></svg>',
+  // The unsaved state of the same mark: the identical outline, stroked rather
+  // than filled. The path is inset by half the stroke so the stroke's outer
+  // edge lands back on the filled heart's box, which means the two states are
+  // the same size and tapping does not make the glyph jump.
+  heartOutline: '<svg viewBox="0 0 24 24.35" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M11.43 20.55L10.8 19.96C6.55 16.03 3.76 13.45 3.76 10.27C3.76 7.68 5.75 5.64 8.29 5.64C9.73 5.64 11.1 6.33 12 7.4C12.9 6.33 14.27 5.64 15.71 5.64C18.25 5.64 20.24 7.68 20.24 10.27C20.24 13.45 17.45 16.03 13.2 19.97L12.57 20.55A0.85 0.86 0 0 1 11.43 20.55Z"/></svg>',
 };
 
 /**

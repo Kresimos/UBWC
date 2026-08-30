@@ -267,7 +267,7 @@ function screen(item, historyOpen) {
             <button class="iconbtn ${item.favourite ? 'on' : ''}" data-fav
                     aria-pressed="${item.favourite ? 'true' : 'false'}"
                     aria-label="${item.favourite ? 'Remove from your kit' : 'Save to your kit'}">
-              ${icon(item.favourite ? 'bookmarkOn' : 'bookmark')}
+              ${icon(item.favourite ? 'heart' : 'heartOutline')}
             </button>
             <button class="iconbtn" data-edit aria-label="Edit">${icon('edit')}</button>
           </span>

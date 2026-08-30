@@ -54,7 +54,7 @@ export function chooser({ title, sub, rows, footer }) {
           ${rows.map((row) => html`
             <button class="sheetrow ${row.on ? 'on' : ''}" data-value="${row.value}">
               ${row.avatar ? html`<span class="av">${row.avatar}</span>` : ''}
-              <span class="rn"><b>${row.label}</b>${row.sub ? html`<span>${row.sub}</span>` : ''}</span>
+              <span class="rowlabel"><b>${row.label}</b>${row.sub ? html`<span>${row.sub}</span>` : ''}</span>
               <span class="tick">${icon('tick')}</span>
             </button>`)}
         </div>

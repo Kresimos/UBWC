@@ -4,9 +4,10 @@
  * The rating is the one worth reading twice: members vote with a single thumb
  * because picking a number is more thought than the rating deserves, and the
  * app *displays* the tally as stars so the catalogue reads like a shop. The
- * vote count travels with the stars everywhere — it is the pinch of salt, which
- * is why there is no minimum-votes threshold — and zero votes says "Not yet
- * rated" rather than showing a blank nought.
+ * vote count travels with the stars on the item page and Your rig — it is the
+ * pinch of salt, which is why there is no minimum-votes threshold — while the
+ * catalogue and the build picker show the star number alone. Zero votes says
+ * "Not yet rated" rather than showing a blank nought.
  */
 import { html, mount, raw, num, initial } from '../dom.js';
 import { icons, icon } from '../icons.js';

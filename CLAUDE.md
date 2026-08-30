@@ -122,15 +122,17 @@ Treat this as a **suggestion/sanity-check band**, surfaced e.g. as "this
 board is usually paired with sails in the X–Ym² range" — never a hard
 validation error, since rider preference and conditions vary.
 
-## Fin and foil boxes (not yet modelled)
+## Fin and foil boxes
 
 Boards accept fins/foils via a **box standard** (US Box, Powerbox, Tuttle,
 Deep Tuttle for foils) that is a hard compatibility constraint distinct from
 size — a fin/foil is either physically compatible with a board's box or it
-isn't. When `Fins`/`Foils` sheets are added:
+isn't. `items.box_type` already carries this on `board`, `fin` and `foil`
+(choices in `db.FIELD_META["box_type"]`), and the catalogue filter panel
+groups boards/fins/foils by it. Still to build when the `Fins`/`Foils` sheets
+are populated:
 
-- Add a `Box Type` column to `Boards`, `Fins`, and `Foils`.
-- Validation rule: `fin.Box Type == board.Box Type` (exact match, no
+- Validation rule: `fin.box_type == board.box_type` (exact match, no
   tolerance — unlike the rig's cm-based checks).
 - Fin/foil **size** (fin: cm length; foil: front wing area, mast/fuselage
   length) should be suggested from board volume + sail size + wind range,
@@ -173,7 +175,14 @@ setup:
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
   Location), matching the `faults` table and the Faults page spec. Each fault
   has a **title** (flag label), a **description** (diagnosis + fix) and a
-  **severity**: `usable` (amber flag, item stays in the catalogue and rig
-  picker) or `out_of_action` (red flag, hidden from the rig picker, shown in
-  the catalogue but **sorted to the bottom of lists by default**). A single
-  item can carry several faults, each surfaced as its own flag.
+  **severity**: `usable` (amber flag, "minor fault") or `out_of_action` (red
+  flag, "major fault"). A single item can carry several faults, each surfaced
+  as its own flag; a piece is bucketed by its **worst** open fault.
+- **Fault visibility in the catalogue**: the filter panel's Faults section has
+  three buckets — no faults / minor / major — and opens on **no faults +
+  minor** (never persisted, so a member never returns to silently hidden
+  broken kit). A red `out_of_action` piece is therefore hidden until "major"
+  is ticked; when shown it still **sorts to the very bottom** of the list
+  whatever the chosen sort. The rig picker still hides `out_of_action`
+  outright. The `/api/items` endpoint returns everything regardless — the
+  hiding is the browser's, so the inventory stays complete.

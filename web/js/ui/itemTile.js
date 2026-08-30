@@ -78,7 +78,7 @@ export function itemTile(opts) {
           <span class="size">${figure}</span>
           <span class="nm">${name}</span>
           ${rating
-            ? html`<span class="rating">${starRow(rating.stars)}<span class="n">${num(rating.stars)} · ${rating.n}</span></span>`
+            ? html`<span class="rating">${starRow(rating.stars)}<span class="n">${num(rating.stars)}</span></span>`
             : html`<span class="rating muted">Not yet rated</span>`}
         </span>
       </div>`;
@@ -92,7 +92,7 @@ export function itemTile(opts) {
       <span class="lm">
         <span class="t">${name}</span>
         <span class="s">${type}${type ? ' · ' : ''}<span class="rt">${ratingMark}${rating
-          ? html`${num(rating.stars)} · ${rating.n}`
+          ? html`${num(rating.stars)}`
           : 'Not yet rated'}</span></span>
       </span>
       <span class="lr">${faultChip}<span class="sz">${figureList}</span></span>

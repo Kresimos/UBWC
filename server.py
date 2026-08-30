@@ -149,6 +149,10 @@ def item_card(item: dict, rating: dict = None, faults: list = None,
         # extension) fall back to what the component type is called, so the
         # catalogue row and the item page still say what the thing is.
         "type": item.get("type") or db.COMPONENT_LABELS.get(item["component_type"]),
+        # The raw `type` cell, null when there isn't one: the catalogue's filter
+        # panel groups by it ("Freewave", "Wave"...) and a fallen-back label
+        # ("Extension") is not a real subtype to offer.
+        "raw_type": item.get("type"),
         "condition": item.get("condition"),
         "site": item.get("location"),
         "spot": item.get("spot"),
@@ -156,6 +160,11 @@ def item_card(item: dict, rating: dict = None, faults: list = None,
         "size_label": db.size_label(item),
         "size_value": _size_value(item),
         "size_unit": _size_unit(item),
+        # For the filter panel's per-type sections and its sorts. diameter/box
+        # are already columns; created_at drives the default "newest first".
+        "diameter": item.get("diameter"),
+        "box_type": item.get("box_type"),
+        "created_at": item.get("created_at"),
         "rating": rating or {"up": 0, "down": 0, "n": 0, "stars": None, "mine": None},
         # description travels too now: the catalogue tile's fault chip opens a
         # pop-up with what is actually wrong, the same as the Build picker's.
@@ -374,11 +383,15 @@ def list_items(request: Request,
                site: Optional[str] = Query(None),
                q: Optional[str] = Query(None),
                archived: bool = Query(False)):
-    """The catalogue, filtered by type chip, site selector and search text.
+    """The catalogue for a site: everything there, shaped for the grid.
 
-    Out-of-action kit stays visible (this is the catalogue, not the rig picker)
-    but sorts to the bottom, so what a member can actually use reads first.
-    Archived kit is a committee-only view, off by default (`archived=true`).
+    The catalogue now loads a whole site in one call and does its own
+    type/subtype/fault/sort work in the browser, so the panel's every toggle is
+    instant. `type` and `q` are still honoured for older links and any other
+    caller, but the app leaves them off. This endpoint returns out-of-action kit
+    like any other row — the app hides it by default (Major-faults filter off)
+    but the inventory itself is complete. Archived kit stays a committee-only
+    view, off by default (`archived=true`).
     """
     who = identity(request)
     user_id = who["user"]["id"] if who["user"] else None

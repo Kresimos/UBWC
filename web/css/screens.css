@@ -9,29 +9,156 @@
    ========================================================================== */
 
 /* ======================================================== CATALOGUE: browse */
+/* The panel slides up inside this element, so it is the positioning context. */
+[data-screen="catalogue"] { position: relative; }
+
+/* The type rail: a quick one-tap switch, sized to match Build's subtype chips
+   so the two screens' chip rows read as the same control. */
 [data-screen="catalogue"] .chips {
-  flex: none; display: flex; gap: 8px; overflow-x: auto; padding: 12px var(--gutter);
+  flex: none; display: flex; gap: 7px; overflow-x: auto; padding: 10px var(--gutter);
   scrollbar-width: none; background: var(--app-bg);
 }
 [data-screen="catalogue"] .chips::-webkit-scrollbar { display: none; }
 [data-screen="catalogue"] .chip {
-  flex: none; font-size: 13.5px; font-weight: 600; color: var(--app-muted);
+  flex: none; font-size: 11.5px; font-weight: 600; color: var(--app-muted);
   background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 999px;
-  padding: 8px 14px; cursor: pointer; white-space: nowrap;
+  padding: 5px 10px; cursor: pointer; white-space: nowrap;
 }
 [data-screen="catalogue"] .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
 
+/* The rail and the control row: a sticky layer pinned to the top of the grid's
+   scroll box, *not* part of its flow. Tucking slides it up under the app bar
+   (z-index below it) — the grid's size and scroll position never change, so no
+   tile moves and there's nothing to clamp at the end of the list. It only ever
+   translates; the duration is written inline from JS to follow the scroll
+   speed, and this rule is the fallback. */
+[data-screen="catalogue"] .catchrome {
+  position: sticky; top: 0; z-index: 6; background: var(--app-bg);
+  transition: transform .34s ease-in-out;
+  will-change: transform;
+}
+[data-screen="catalogue"] .catchrome.tucked {
+  transform: translateY(-101%); pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="catalogue"] .catchrome { transition: none; }
+}
+
+[data-screen="catalogue"] .selecthint {
+  flex: none; margin: 0 var(--gutter) 8px; padding: 7px 11px; border-radius: 9px;
+  background: var(--teal-tint); color: var(--teal-ink); font-size: 11.5px;
+  font-weight: 600; text-align: center;
+}
+
+/* [filter | sort] · count · grid/list. The count owns the middle and centres
+   itself; both segmented boxes are the same .viewtoggle component. */
 [data-screen="catalogue"] .subbar {
-  flex: none; display: flex; align-items: center; justify-content: space-between;
+  flex: none; display: flex; align-items: center;
   padding: 2px var(--gutter) 12px; background: var(--app-bg); gap: 10px;
 }
-[data-screen="catalogue"] .count { font-size: 13px; color: var(--app-muted); }
+[data-screen="catalogue"] .count {
+  flex: 1; text-align: center; font-size: 13px; color: var(--app-muted);
+}
 [data-screen="catalogue"] .count b { color: var(--app-ink); font-weight: 700; }
-/* .viewtoggle now lives in tokens.css: Build shows the same grid/list switch,
-   and two copies of it would be two things to keep in step. */
-[data-screen="catalogue"] .selbtn {
-  border: 0; background: transparent; color: var(--teal); font-size: 12.5px;
-  font-weight: 700; cursor: pointer; padding: 5px 2px; flex: none;
+[data-screen="catalogue"] .count.sel { color: var(--teal-ink); font-weight: 650; }
+
+[data-screen="catalogue"] .fsbtn { position: relative; }
+[data-screen="catalogue"] .fsdot {
+  position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 999px; background: var(--teal); color: #fff;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--app-bg);
+}
+[data-screen="catalogue"] .fsdot[hidden] { display: none; }
+
+/* Done, beside the Move button while selecting kit for a trip. */
+[data-screen="catalogue"] .actionbar .selrow { display: flex; gap: 8px; align-items: stretch; }
+[data-screen="catalogue"] .actionbar .selrow .bigbtn { flex: 1; width: auto; }
+[data-screen="catalogue"] .actionbar .donebtn {
+  flex: none; border: 1px solid var(--app-line); background: var(--app-bg);
+  color: var(--app-ink); font-weight: 700; font-size: 14px; border-radius: 15px;
+  padding: 0 18px; cursor: pointer;
+}
+
+/* -------------------------------------------------- CATALOGUE: filter panel */
+/* One surface behind both the filter and the sort icon. It slides up over the
+   grid rather than routing anywhere, so the catalogue keeps its scroll and its
+   selection while a member narrows the shelf. No dimming behind it — the app
+   bar is opaque white and a scrim only made a hard grey-on-white seam; the
+   sheet's own shadow is what separates it. The strip of screen left showing
+   above the sheet still closes it on a tap. */
+[data-screen="catalogue"] .filterpanel { position: absolute; inset: 0; z-index: 30; }
+[data-screen="catalogue"] .filterpanel[hidden] { display: none; }
+[data-screen="catalogue"] .fp-scrim { position: absolute; inset: 0; background: transparent; }
+[data-screen="catalogue"] .fp-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 40px;
+  background: var(--app-bg); border-radius: 18px 18px 0 0;
+  display: flex; flex-direction: column;
+  transform: translateY(100%);
+  transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+  /* Kept tight so it has fully faded before the app bar's definitely-white
+     upper strip — the shadow is a seam, not a spotlight. */
+  box-shadow: 0 -0.5px 0 rgba(9, 22, 25, .07), 0 -3px 9px rgba(9, 22, 25, .12);
+}
+[data-screen="catalogue"] .filterpanel.open .fp-sheet { transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="catalogue"] .fp-sheet { transition: none; }
+}
+/* The whole top of the sheet is the drag surface — grab handle and search row
+   both. `pan-x` lets the browser keep horizontal gestures (and leaves the
+   input tappable) while the vertical pull is ours to handle. */
+[data-screen="catalogue"] .fp-top {
+  flex: none; touch-action: pan-x;
+}
+[data-screen="catalogue"] .fp-grab {
+  width: 36px; height: 4px; border-radius: 999px; background: #D5DEDE;
+  margin: 8px auto 4px; cursor: grab;
+}
+[data-screen="catalogue"] .fp-top:active .fp-grab { cursor: grabbing; }
+[data-screen="catalogue"] .fp-head {
+  flex: none; padding: 4px var(--gutter) 10px; border-bottom: 1px solid var(--app-line);
+}
+[data-screen="catalogue"] .fp-head .searchbar { width: 100%; }
+[data-screen="catalogue"] .fp-body {
+  flex: 1; overflow-y: auto; padding: 2px var(--gutter) 16px;
+}
+
+[data-screen="catalogue"] .fpsect {
+  padding: 13px 0 12px; border-bottom: 1px solid var(--app-line);
+}
+[data-screen="catalogue"] .fpsect:last-child { border-bottom: 0; }
+[data-screen="catalogue"] .fplab {
+  font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--app-faint); font-weight: 700; margin-bottom: 9px;
+}
+[data-screen="catalogue"] .fpopts { display: flex; flex-wrap: wrap; gap: 7px; }
+[data-screen="catalogue"] .fpopt {
+  font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px;
+  border: 1px solid var(--app-line); background: var(--app-bg); color: var(--app-muted);
+  cursor: pointer;
+}
+[data-screen="catalogue"] .fpopt.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+[data-screen="catalogue"] .fpopt.amber.on { background: var(--warn); border-color: var(--warn); }
+[data-screen="catalogue"] .fpopt.red.on { background: var(--crit); border-color: var(--crit); }
+[data-screen="catalogue"] .fpopt.wide { flex: 1; min-width: 130px; text-align: center; }
+
+[data-screen="catalogue"] .fp-foot {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 10px var(--gutter) max(12px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--app-line);
+}
+[data-screen="catalogue"] .fp-reset {
+  border: 0; background: transparent; color: var(--teal); font-weight: 700;
+  font-size: 13px; cursor: pointer; flex: none;
+}
+[data-screen="catalogue"] .fp-count {
+  flex: 1; text-align: center; font-size: 12.5px; color: var(--app-muted);
+}
+[data-screen="catalogue"] .fp-count b { color: var(--app-ink); font-weight: 700; }
+[data-screen="catalogue"] .fp-done {
+  flex: none; border: 0; background: var(--teal); color: #fff; font-weight: 750;
+  font-size: 13px; padding: 9px 20px; border-radius: 11px; cursor: pointer;
 }
 
 [data-screen="catalogue"] .body { background: var(--app-bg); }
@@ -41,6 +168,12 @@
    is set here any more; what this screen still owns is the chrome above it,
    which uses the same --gutter so the chips and the count line up with the
    tiles under them. */
+/* A long-press on a tile starts selecting kit for a trip, so it must not also
+   start a text selection or raise the iOS text-callout menu. */
+[data-screen="catalogue"] .itemgrid .card,
+[data-screen="catalogue"] .itemlist .card {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
 
 /* ========================================================= CATALOGUE: item */
 [data-screen="item"] .body { background: var(--app-bg); }

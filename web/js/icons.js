@@ -35,6 +35,8 @@ export const icons = {
   key: stroke('<circle cx="8" cy="14" r="4"/><path d="m11 11 8-8"/><path d="m17 5 2 2"/><path d="m14 8 2 2"/>'),
   logout: stroke('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>'),
   listIcon: stroke('<path d="M4 6h16M4 12h16M4 18h16"/>', 2.4),
+  filter: stroke('<path d="M3 5h18l-7 8v5l-4 2v-9Z"/>', 2),
+  sortArrows: stroke('<path d="M8 4v16M8 4 5 7m3-3 3 3M16 20V4m0 16-3-3m3 3 3-3"/>', 2),
   gridIcon: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
   // The star is a pentagram: ONE path through the five points in the order
   // 1,3,5,2,4, stroked with a round join and filled. That is how the Unicode

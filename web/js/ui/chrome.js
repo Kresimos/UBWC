@@ -14,14 +14,9 @@ import { store, setSite, setIdentity, subscribe, emit } from '../store.js';
 import { chooser, formSheet, confirmSheet, toast } from './overlay.js';
 import { go } from '../router.js';
 
-// Trips is for everybody: what the trailer is taking is the whole club's
-// business, and a trip can be opened for members to vote on the boards and
-// sails it should take. Packing it and checking it back in stay committee, and
-// the screens that do that ask for themselves.
 const TABS = [
   { key: 'catalogue', label: 'Catalogue', icon: 'gridIcon', path: '/catalogue' },
   { key: 'rig', label: 'Rig', icon: 'sailNav', path: '/rig' },
-  { key: 'trips', label: 'Trips', icon: 'box', path: '/trips' },
   { key: 'log', label: 'Log', icon: 'doc', path: '/log' },
   { key: 'add', label: 'Add', icon: 'plusCircle', path: '/add' },
 ];

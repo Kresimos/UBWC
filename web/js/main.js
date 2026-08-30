@@ -17,7 +17,6 @@ import * as build from './screens/build.js';
 import * as yourrig from './screens/yourrig.js';
 import * as derig from './screens/derig.js';
 import * as log from './screens/log.js';
-import * as trips from './screens/trips.js';
 import * as compose from './screens/compose.js';
 import * as add from './screens/add.js';
 import * as form from './screens/form.js';
@@ -31,10 +30,6 @@ const ROUTES = [
   { path: '/rig', screen: 'build', tab: 'rig', render: build.render },
   { path: '/setup', screen: 'yourrig', tab: 'rig', render: yourrig.render },
   { path: '/derig', screen: 'derig', tab: 'rig', render: derig.render },
-
-  { path: '/trips', screen: 'trips', tab: 'trips', render: trips.renderList },
-  { path: '/trips/new', screen: 'trippick', tab: 'trips', render: trips.renderNew },
-  { path: '/trips/:id', screen: 'trip', tab: 'trips', render: trips.renderTrip },
 
   { path: '/log', screen: 'log', tab: 'log', render: log.render },
   { path: '/compose', screen: 'compose', tab: 'log', render: compose.render },

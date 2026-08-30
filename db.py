@@ -269,6 +269,50 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                 settings TEXT,
                 UNIQUE (setup_id, role)
             )""")
+    if "trips" not in tables:
+        conn.execute("""
+            CREATE TABLE trips (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                destination TEXT,
+                starts_on   TEXT,
+                ends_on     TEXT,
+                status      TEXT NOT NULL DEFAULT 'open'
+                            CHECK (status IN ('open','returned','cancelled')),
+                created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                returned_at TEXT
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status, id)")
+    if "trip_items" not in tables:
+        conn.execute("""
+            CREATE TABLE trip_items (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                trip_id  INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+                item_id  INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                role     TEXT,
+                source   TEXT NOT NULL DEFAULT 'derived'
+                         CHECK (source IN ('chosen','derived')),
+                returned INTEGER NOT NULL DEFAULT 0,
+                note     TEXT,
+                UNIQUE (trip_id, item_id)
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_items_trip "
+                     "ON trip_items(trip_id)")
+    if "trips" in tables:
+        _widen_trip_status(conn)
+    if "trip_votes" not in tables:
+        conn.execute("""
+            CREATE TABLE trip_votes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                trip_id    INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+                item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (trip_id, item_id, user_id)
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_votes_trip "
+                     "ON trip_votes(trip_id)")
     if "sessions" not in tables:
         conn.execute("""
             CREATE TABLE sessions (
@@ -399,6 +443,50 @@ def _migrate_extensions(conn: sqlite3.Connection) -> None:
             (match.group(1).upper(), item["notes"][match.end():].strip() or None,
              item["id"]),
         )
+
+
+_TRIPS_DDL = """
+    CREATE TABLE {name} (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        destination TEXT,
+        starts_on   TEXT,
+        ends_on     TEXT,
+        status      TEXT NOT NULL DEFAULT 'open'
+                    CHECK (status IN ('voting','open','returned','cancelled')),
+        created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        returned_at TEXT
+    )
+"""
+
+
+def _widen_trip_status(conn: sqlite3.Connection) -> None:
+    """Let `trips.status` hold 'voting' on a database that predates it.
+
+    Same reason as _rebuild_items below: widening a CHECK is the one migration
+    SQLite has no ALTER for, so the table is rebuilt. Ids are copied, so
+    trip_items and trip_votes still point at the right trips.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'trips'"
+    ).fetchone()
+    if not row or "'voting'" in (row["sql"] or ""):
+        return
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("DROP TABLE IF EXISTS trips_new")
+        conn.execute(_TRIPS_DDL.format(name="trips_new"))
+        columns = ", ".join(_columns(conn, "trips_new") & _columns(conn, "trips"))
+        conn.execute(f"INSERT INTO trips_new ({columns}) SELECT {columns} FROM trips")
+        conn.execute("DROP TABLE trips")
+        conn.execute("ALTER TABLE trips_new RENAME TO trips")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status, id)")
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _rebuild_items(conn: sqlite3.Connection) -> None:
@@ -1508,7 +1596,10 @@ def comment_summary(item_id: int) -> dict:
 # Setups: the rig a member is currently out on
 # --------------------------------------------------------------------------- #
 ROLE_LABELS = {"sail": "Sail", "mast": "Mast", "ext": "Extension", "boom": "Boom",
-               "board": "Board", "fin": "Fin", "uj": "Base"}
+               "board": "Board", "fin": "Fin", "uj": "Base",
+               # Only a trip packs these: a wing rigs on nothing and a foil is
+               # chosen outright, so the rig wizard has no slot for either.
+               "wing": "Wing", "foil": "Foil"}
 ROLE_ORDER = ["sail", "mast", "ext", "boom", "board", "fin", "uj"]
 
 
@@ -1588,6 +1679,267 @@ def close_setup(setup_id: int, status: str = "logged") -> None:
     with connect() as conn:
         conn.execute("UPDATE setups SET status = ? WHERE id = ?", (status, setup_id))
         conn.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Trips: the kit packed for a trip away, and the list it is checked back against
+#
+# A trip never moves anything. `items.location` is where a piece is stored and
+# stays that for the whole trip, so unpacking is putting kit back where the app
+# already says it lives. "Away" is not a location, it is membership of an open
+# trip, which is what `away_item_ids` answers.
+# --------------------------------------------------------------------------- #
+TRIP_ROLE_ORDER = ["sail", "mast", "ext", "boom", "board", "fin", "uj",
+                   "wing", "foil"]
+
+
+class TripError(ValueError):
+    """Something the kit sec has to resolve. Shown to them verbatim."""
+
+
+def _trip_row(conn: sqlite3.Connection, trip_id: int) -> Optional[dict]:
+    row = conn.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
+    if not row:
+        return None
+    trip = dict(row)
+    trip["items"] = [dict(r) for r in conn.execute(
+        "SELECT * FROM trip_items WHERE trip_id = ?", (trip_id,))]
+    trip["items"].sort(key=lambda i: (TRIP_ROLE_ORDER.index(i["role"])
+                                      if i["role"] in TRIP_ROLE_ORDER else 99,
+                                      i["id"]))
+    trip["n_items"] = len(trip["items"])
+    trip["n_returned"] = sum(1 for i in trip["items"] if i["returned"])
+    return trip
+
+
+def get_trips(status: Optional[str] = None) -> list:
+    """Every trip: being voted on first, then out now, then done.
+
+    Each carries how much of it is back and how many votes it has taken, which
+    is the one number a trip still being decided has to show.
+    """
+    # n_votes is a subquery, not a third join: joining trip_votes as well would
+    # fan the item rows out by the number of votes and quietly break the
+    # returned tally that the trip list is mostly here to show.
+    query = ("SELECT t.*, u.display_name AS created_by_name, "
+             "       COUNT(ti.id) AS n_items, "
+             "       COALESCE(SUM(ti.returned), 0) AS n_returned, "
+             "       (SELECT COUNT(*) FROM trip_votes tv WHERE tv.trip_id = t.id) "
+             "         AS n_votes "
+             "FROM trips t "
+             "LEFT JOIN users u ON u.id = t.created_by "
+             "LEFT JOIN trip_items ti ON ti.trip_id = t.id ")
+    params: list = []
+    if status:
+        query += "WHERE t.status = ? "
+        params.append(status)
+    query += ("GROUP BY t.id ORDER BY (t.status = 'voting') DESC, "
+              "(t.status = 'open') DESC, t.id DESC")
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(query, params)]
+
+
+def get_trip(trip_id: int) -> Optional[dict]:
+    with connect() as conn:
+        return _trip_row(conn, trip_id)
+
+
+def _write_items(conn: sqlite3.Connection, trip_id: int, items: list) -> None:
+    """Replace a trip's item set, keeping the ticks already made.
+
+    Editing a packed list mid-trip is normal (something would not fit, somebody
+    threw an extra board in), and a piece that is already back should not
+    un-return itself because the list around it was re-saved.
+    """
+    ticked = {r["item_id"] for r in conn.execute(
+        "SELECT item_id FROM trip_items WHERE trip_id = ? AND returned = 1",
+        (trip_id,))}
+    clashes = _away(conn, exclude_trip_id=trip_id)
+    conn.execute("DELETE FROM trip_items WHERE trip_id = ?", (trip_id,))
+    seen = set()
+    for entry in items:
+        item_id = entry.get("item_id")
+        if item_id is None or item_id in seen:
+            continue
+        if item_id in clashes:
+            raise TripError(f"{_item_title_by_id(conn, item_id)} is already packed "
+                            f"for {clashes[item_id]}.")
+        seen.add(item_id)
+        role = entry.get("role")
+        conn.execute(
+            "INSERT INTO trip_items (trip_id, item_id, role, source, returned, note) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (trip_id, item_id, role if role in TRIP_ROLE_ORDER else None,
+             "chosen" if entry.get("source") == "chosen" else "derived",
+             1 if item_id in ticked else 0, entry.get("note")),
+        )
+
+
+def _item_title_by_id(conn: sqlite3.Connection, item_id: int) -> str:
+    row = conn.execute("SELECT manufacturer, model FROM items WHERE id = ?",
+                       (item_id,)).fetchone()
+    return item_title(dict(row)) if row else f"Item {item_id}"
+
+
+def create_trip(user_id: int, name: str, items: list,
+                destination: Optional[str] = None,
+                starts_on: Optional[str] = None,
+                ends_on: Optional[str] = None,
+                voting: bool = False) -> Optional[dict]:
+    """Start a trip, either packed outright or open for the club to vote on.
+
+    `voting` is the kit sec ticking "let members vote first" on the name sheet:
+    the trip exists with no kit, members vote, and the kit sec's first
+    `set_trip_items` closes voting by making it open.
+    """
+    name = (name or "").strip()
+    if not name:
+        raise TripError("Give the trip a name.")
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO trips (name, destination, starts_on, ends_on, created_by, "
+            "                   status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, (destination or "").strip() or None, starts_on or None,
+             ends_on or None, user_id, "voting" if voting else "open"),
+        )
+        trip_id = cur.lastrowid
+        _write_items(conn, trip_id, items or [])
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def set_trip_items(trip_id: int, items: list) -> Optional[dict]:
+    """Save a trip's kit — and, first time round, close its voting.
+
+    Packing IS the decision, so there is no separate "close the vote" button to
+    forget: the moment the kit sec saves a list, the trip becomes an open trip
+    and the ballot stops taking votes. The votes themselves are kept, and shown
+    against the packed list.
+    """
+    with connect() as conn:
+        _write_items(conn, trip_id, items or [])
+        conn.execute("UPDATE trips SET status = 'open' "
+                     "WHERE id = ? AND status = 'voting'", (trip_id,))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def update_trip(trip_id: int, fields: dict) -> Optional[dict]:
+    """Rename a trip or change its dates. Its kit is `set_trip_items`."""
+    allowed = {k: v for k, v in fields.items()
+               if k in ("name", "destination", "starts_on", "ends_on")}
+    if allowed:
+        if "name" in allowed and not (allowed["name"] or "").strip():
+            raise TripError("Give the trip a name.")
+        sets = ", ".join(f"{k} = ?" for k in allowed)
+        with connect() as conn:
+            conn.execute(f"UPDATE trips SET {sets} WHERE id = ?",
+                         [*allowed.values(), trip_id])
+            conn.commit()
+    return get_trip(trip_id)
+
+
+def set_trip_returned(trip_id: int, item_id: int, on: bool = True) -> Optional[dict]:
+    """Tick one piece back in. Changes no location: it never left its rack."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE trip_items SET returned = ? WHERE trip_id = ? AND item_id = ?",
+            (1 if on else 0, trip_id, item_id),
+        )
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def return_all(trip_id: int) -> Optional[dict]:
+    """The normal end of a trip: everything came back, so tick the lot and close.
+
+    One button rather than thirty, because unpacking a trailer where nothing is
+    missing is the usual case and tapping every row to say so is the kind of
+    chore that stops the list being kept at all.
+    """
+    with connect() as conn:
+        conn.execute("UPDATE trip_items SET returned = 1 WHERE trip_id = ?", (trip_id,))
+        conn.execute("UPDATE trips SET status = 'returned', "
+                     "returned_at = datetime('now') WHERE id = ?", (trip_id,))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def close_trip(trip_id: int, status: str = "returned") -> Optional[dict]:
+    if status not in ("open", "returned", "cancelled"):
+        raise TripError("A trip is open, returned or cancelled.")
+    with connect() as conn:
+        conn.execute(
+            "UPDATE trips SET status = ?, returned_at = CASE WHEN ? = 'returned' "
+            "THEN datetime('now') ELSE NULL END WHERE id = ?",
+            (status, status, trip_id),
+        )
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def trip_vote_counts(trip_id: int) -> dict:
+    """{item_id: how many members voted for it} for one trip's ballot."""
+    with connect() as conn:
+        return {r["item_id"]: r["n"] for r in conn.execute(
+            "SELECT item_id, COUNT(*) AS n FROM trip_votes WHERE trip_id = ? "
+            "GROUP BY item_id", (trip_id,))}
+
+
+def trip_votes_by_user(trip_id: int, user_id: Optional[int]) -> list:
+    """The item ids this member has voted for, so the ballot can show them back."""
+    if not user_id:
+        return []
+    with connect() as conn:
+        return [r["item_id"] for r in conn.execute(
+            "SELECT item_id FROM trip_votes WHERE trip_id = ? AND user_id = ?",
+            (trip_id, user_id))]
+
+
+def set_trip_vote(trip_id: int, item_id: int, user_id: int,
+                  on: bool = True) -> dict:
+    """Cast or withdraw one member's vote for one piece.
+
+    Voting for something nobody has voted for yet IS suggesting it, so there is
+    no separate suggestion to make first. The UNIQUE on (trip, item, member)
+    does the only anti-stuffing this needs; un-voting deletes the row rather
+    than voiding it, because a ballot is read once and thrown away.
+    """
+    with connect() as conn:
+        if on:
+            conn.execute(
+                "INSERT OR IGNORE INTO trip_votes (trip_id, item_id, user_id) "
+                "VALUES (?, ?, ?)", (trip_id, item_id, user_id))
+        else:
+            conn.execute(
+                "DELETE FROM trip_votes WHERE trip_id = ? AND item_id = ? "
+                "AND user_id = ?", (trip_id, item_id, user_id))
+        conn.commit()
+    return {"counts": trip_vote_counts(trip_id),
+            "mine": trip_votes_by_user(trip_id, user_id)}
+
+
+def away_item_ids(exclude_trip_id: Optional[int] = None) -> dict:
+    """{item_id: trip name} for everything on an open trip.
+
+    The one question the rest of the app asks about trips: the rig picker hides
+    these (they are in a trailer, whatever their location says) and the
+    catalogue flags them. `exclude_trip_id` is for the trip doing the asking,
+    since its own kit is not a clash with itself.
+    """
+    with connect() as conn:
+        return _away(conn, exclude_trip_id)
+
+
+def _away(conn: sqlite3.Connection, exclude_trip_id: Optional[int] = None) -> dict:
+    query = ("SELECT ti.item_id, t.name FROM trip_items ti "
+             "JOIN trips t ON t.id = ti.trip_id WHERE t.status = 'open'")
+    params: list = []
+    if exclude_trip_id is not None:
+        query += " AND t.id != ?"
+        params.append(exclude_trip_id)
+    return {r["item_id"]: r["name"] for r in conn.execute(query, params)}
 
 
 # --------------------------------------------------------------------------- #

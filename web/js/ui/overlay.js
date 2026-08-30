@@ -130,6 +130,10 @@ export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = f
       const values = {};
       for (const field of fields) {
         const input = node.querySelector(`#f-${CSS.escape(field.name)}`);
+        if (input && input.type === 'checkbox') {
+          values[field.name] = input.checked;
+          continue;
+        }
         values[field.name] = input ? input.value.trim() : '';
         if (field.required && !values[field.name]) {
           show(`${field.label} is needed.`);
@@ -183,6 +187,9 @@ function control(field) {
       }>${esc(option.label ?? option)}</option>`
     ).join('');
     return `<select id="${id}">${options}</select>`;
+  }
+  if (field.type === 'checkbox') {
+    return `<input id="${id}" type="checkbox"${field.value ? ' checked' : ''}>`;
   }
   if (field.type === 'textarea') {
     return `<textarea id="${id}" rows="${field.rows || 3}" placeholder="${

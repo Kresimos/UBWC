@@ -89,6 +89,18 @@ export const api = {
   derig: (setupId) => request('POST', `/api/setup/${setupId}/derig`, {}),
   binSetup: (setupId) => request('POST', `/api/setup/${setupId}/bin`, {}),
 
+  tripKit: () => get('/api/trips/kit'),
+  trips: () => get('/api/trips'),
+  trip: (id) => get(`/api/trips/${id}`),
+  createTrip: (payload) => request('POST', '/api/trips', payload),
+  setTripItems: (id, items) => request('POST', `/api/trips/${id}/items`, { items }),
+  editTrip: (id, fields) => request('POST', `/api/trips/${id}/edit`, fields),
+  tripReturned: (id, itemId, on) =>
+    request('POST', `/api/trips/${id}/returned`, { item_id: itemId, on }),
+  closeTrip: (id, payload) => request('POST', `/api/trips/${id}/close`, payload || {}),
+  tripVote: (id, itemId, on) =>
+    request('POST', `/api/trips/${id}/vote`, { item_id: itemId, on }),
+
   sessions: (scope) => get('/api/sessions', { scope }),
   logSession: (payload) => request('POST', '/api/sessions', payload),
   wind: (site, start, end) => get('/api/wind', { site, start, end }),

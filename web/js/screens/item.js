@@ -298,6 +298,15 @@ function screen(item, historyOpen) {
               ? html`<span class="pill cond ${conditionClass(item.condition)}">${item.condition} condition</span>`
               : ''}
           </div>
+          ${item.away
+            // Where it is stored has not changed and is still shown below —
+            // this says the rack is empty this week, which is the one thing
+            // somebody standing in front of it needs to know.
+            ? html`<div class="warnrow">${icon('move')}
+                     <span>Packed for ${item.away}. It is away, so it is not
+                           offered in the rig assistant until it is checked
+                           back in.</span></div>`
+            : ''}
           <div class="locrow">
             <button class="loc" data-spot>
               ${icon('pin')}<b>${item.site || 'Location unknown'}</b>${item.spot ? ` · ${item.spot}` : ''}

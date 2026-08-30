@@ -291,6 +291,90 @@ function score(key, piece, picks, partner) {
   return total;
 }
 
+/* --------------------------------------------------------- trip packing */
+
+/**
+ * The kit a trip needs, worked from the boards and sails somebody has decided
+ * to take.
+ *
+ * This is the same reasoning as Your rig, run many times over instead of once,
+ * so it goes through `ranked` and inherits every hard rule and every nudge
+ * rather than restating them: a sail's mast still has to reach its luff, an
+ * extension still has to match its mast's diameter, a fin still has to match
+ * its board's box.
+ *
+ * Two things are different from rigging one rig on a beach:
+ *
+ *  - **nothing is shared.** Each sail gets its own mast, extension and boom and
+ *    each board its own fin and base, because the point of the trailer is that
+ *    every rig can be up at once. So a piece is assigned once and then out of
+ *    the pool;
+ *  - **running out is the answer.** A trip where the club owns three sails and
+ *    two masts is a fact the kit sec has to know before they drive off, so a
+ *    sail left without a mast comes back as a shortfall line rather than
+ *    silently sharing one.
+ *
+ * Sails are served most-constrained-first: the sail only one mast in the club
+ * fits gets that mast, rather than losing it to a sail anything would have done
+ * for.
+ *
+ * ponytail: greedy assignment, not an optimal matching. It can only strand a
+ * sail that a proper (Hungarian) match would have saved when the club's kit is
+ * tight enough for two sails to want the last two masts in opposite orders;
+ * with a shortfall line to read, that is visible rather than silent.
+ */
+export function packList(kit, chosen) {
+  const sails = chosen.sails || [];
+  const boards = chosen.boards || [];
+  const used = new Set([...sails, ...boards,
+                        ...(chosen.wings || []), ...(chosen.foils || [])]
+                       .map((piece) => piece.id));
+  const assigned = [];
+  const short = [];
+  const free = (piece) => !used.has(piece.id);
+
+  const take = (role, piece, forPiece) => {
+    used.add(piece.id);
+    assigned.push({ role, piece, for: forPiece });
+  };
+
+  // The three rig slots, in the order they are rigged, so the extension is
+  // chosen knowing which mast this sail ended up with.
+  const mastFor = new Map();
+  SLOTS.filter((slot) => slot.needs === 'sail').forEach((slot) => {
+    sails
+      .map((sail) => ({
+        sail,
+        options: ranked(kit, slot.k, { sail, mast: mastFor.get(sail.id) }),
+      }))
+      .sort((a, b) => a.options.length - b.options.length)
+      .forEach(({ sail, options }) => {
+        const pick = options.find(free);
+        if (!pick) {
+          short.push({ role: slot.k, for: sail, noun: slot.noun,
+                       why: options.length ? 'all taken' : 'none fits' });
+          return;
+        }
+        take(slot.k, pick, sail);
+        if (slot.k === 'mast') mastFor.set(sail.id, pick);
+      });
+  });
+
+  // One fin and one base per board. A base has no rule to apply — any UJ fits
+  // any board — so it is only ever a count.
+  boards.forEach((board) => {
+    const fin = ranked(kit, 'fin', { board }).find(free);
+    if (fin) take('fin', fin, board);
+    else short.push({ role: 'fin', for: board, noun: 'fin', why: 'none fits' });
+
+    const base = kit.filter((piece) => piece.kind === 'uj').find(free);
+    if (base) take('uj', base, board);
+    else short.push({ role: 'uj', for: board, noun: 'base', why: 'all taken' });
+  });
+
+  return { assigned, short };
+}
+
 /* -------------------------------------------------------------- wording */
 
 /**
@@ -317,7 +401,10 @@ export function shortName(piece) {
 
 /** The headline size a sailor picks this kind of kit by. */
 export function sizeBits(kind, piece) {
-  if (kind === 'sail') return known(piece.m2) ? { v: fmtSail(piece.m2), u: 'm²' } : null;
+  // A wing is sized the way a sail is, and is only ever seen by the trip packer.
+  if (kind === 'sail' || kind === 'wing') {
+    return known(piece.m2) ? { v: fmtSail(piece.m2), u: 'm²' } : null;
+  }
   if (kind === 'mast' || kind === 'fin') return known(piece.len) ? { v: fmt(piece.len), u: 'cm' } : null;
   if (kind === 'ext' || kind === 'boom') {
     return known(piece.max) ? { v: `${fmt(piece.min || 0)}-${fmt(piece.max)}`, u: 'cm' } : null;

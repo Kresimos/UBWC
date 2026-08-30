@@ -1486,12 +1486,10 @@
 /* ==========================================================================
    TRIPS — merged from features/trip-packing (Ben).
 
-   These selectors are all new: .chiprail (the trip packer's kind-of-kit
-   chips), .kitgrid / .rowlist (shared product-shot and row tiles that
-   trips.js draws through kitTile() in ui/bits.js) and the [data-screen="trip"]
-   / [data-screen="trips"] chrome. The catalogue keeps its own .chips rail and
-   .itemgrid / .itemlist tiles (tokens.css). Folding kitTile and itemTile into
-   one tile is a follow-up.
+   .chiprail is the trip packer's kind-of-kit chip rail; .rowlist is the trip
+   list's rows; the [data-screen="trip"] / [data-screen="trips"] rules are
+   that tab's own chrome. Kit tiles on the trip screens are the catalogue's
+   shared .itemgrid tile (js/ui/itemTile.js, styled in tokens.css).
    ========================================================================== */
 
 /* The category rail: the app's way of asking "which kind of kit". Marked with
@@ -1510,87 +1508,6 @@
   padding: 8px 14px; cursor: pointer; white-space: nowrap;
 }
 .chiprail .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
-
-/* The product-shot grid, marked with a class for the same reason as the rail
-   above: the trip packer picks kit and checks it back in from these same
-   tiles, drawn by one shared kitTile() in ui/bits.js. */
-.kitgrid .grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 22px 14px; padding: 2px 18px 24px;
-}
-.kitgrid .card {
-  background: transparent; border: 0; padding: 0; display: flex; flex-direction: column;
-  text-align: left; cursor: pointer; transition: transform .12s ease;
-}
-.kitgrid .card:active { transform: scale(.985); }
-.kitgrid .shot {
-  position: relative; aspect-ratio: 1 / 1.14; background: var(--shot);
-  display: flex; align-items: center; justify-content: center; overflow: hidden;
-}
-.kitgrid .shot svg.art { width: 66%; height: 66%; }
-.kitgrid .shot img { width: 100%; height: 100%; object-fit: cover; }
-.kitgrid .ratechip {
-  position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center;
-  gap: 3px; background: #fff; color: var(--app-ink); font-size: 11px; font-weight: 700;
-  padding: 4px 8px; border-radius: 4px; box-shadow: 0 2px 6px rgba(10, 40, 45, .14);
-}
-.kitgrid .ratechip svg { width: 11px; height: 11px; color: var(--star); }
-.kitgrid .ratechip .n { color: var(--app-faint); font-weight: 600; }
-/* .flagchip is in tokens.css for the same reason: a fault flag has to look the
-   same on a product shot wherever the shot appears. The away flag sits along
-   the bottom instead, because a piece can be both faulty and on a trip and the
-   two must not land on top of each other. It is deliberately quiet: away is a
-   fact about where the kit is this week, not a warning. */
-.kitgrid .flagchip.away {
-  top: auto; bottom: 8px; right: 8px;
-  background: #fff; color: var(--app-muted);
-}
-.kitgrid .meta { padding: 10px 1px 0; display: flex; flex-direction: column; gap: 3px; }
-.kitgrid .size {
-  font-size: 19px; font-weight: 750; letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; line-height: 1;
-}
-.kitgrid .size small {
-  font-size: 11px; font-weight: 600; color: var(--app-faint); margin-left: 1px;
-}
-.kitgrid .nm { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
-.kitgrid .cond { font-size: 12px; font-weight: 600; color: var(--ok); }
-.kitgrid .cond.fair { color: var(--warn); }
-.kitgrid .cond.poor { color: var(--crit); }
-.kitgrid .card .spot { font-size: 11.5px; color: var(--app-faint); }
-.kitgrid .card.picked .shot { outline: 3px solid var(--teal); outline-offset: -3px; }
-/* The tick that says this one is chosen, or back on its rack. It sits on the
-   shot itself because on a grid of photos the outline alone is easy to miss
-   in a car park in the rain. */
-.kitgrid .card .tickmark {
-  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
-  border-radius: 50%; background: #fff; border: 1.8px solid #C7D2D2;
-  display: flex; align-items: center; justify-content: center; color: transparent;
-  box-shadow: 0 2px 6px rgba(10, 40, 45, .12);
-}
-.kitgrid .card .tickmark svg { width: 15px; height: 15px; }
-.kitgrid .card.picked .tickmark {
-  background: var(--teal); border-color: var(--teal); color: #fff;
-}
-/* The trip ballot's tally. It borrows the rating chip's look because it is the
-   same kind of fact — a number other members put there — but sits bottom-left,
-   clear of the tick that says whether YOUR vote is one of them. */
-.kitgrid .votechip {
-  position: absolute; bottom: 8px; left: 8px; background: #fff;
-  color: var(--app-ink); font-size: 11px; font-weight: 700; padding: 4px 8px;
-  border-radius: 4px; box-shadow: 0 2px 6px rgba(10, 40, 45, .14);
-}
-/* A card is one button, so the "see its ratings and faults" tap cannot live
-   inside it. The wrapper exists only to hold that second target above the
-   shot's top-left corner, which is free on a ballot (the star chip is hidden
-   whenever a tile is selectable). */
-.kitgrid .cardwrap { position: relative; display: flex; flex-direction: column; }
-.kitgrid .infobtn {
-  position: absolute; top: 8px; left: 8px; width: 26px; height: 26px;
-  border-radius: 50%; background: #fff; border: 1.8px solid #C7D2D2;
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-  color: var(--app-muted); box-shadow: 0 2px 6px rgba(10, 40, 45, .12); padding: 0;
-}
-.kitgrid .infobtn svg { width: 15px; height: 15px; }
 
 /* Compact rows, the other half of the grid/list toggle.
    Marked with a class rather than scoped to the catalogue screen, because the
@@ -1646,9 +1563,10 @@
 /* The list of trips runs to the screen edge; the padded body would otherwise
    indent the rows away from the headings they belong to. */
 [data-screen="trips"] .rows { margin: 0 -15px; padding-bottom: 0; }
-/* The trip's own body is already padded, so its tiles do not need the
-   catalogue's edge padding on top of it. */
-[data-screen="trip"] .grid { padding: 0 0 4px; }
+/* renderBallot and renderPacked mount the shared .itemgrid inside a body
+   that already has .pad, so its own edge gutter comes off. The picker
+   (trippick) has no .pad, so it keeps the gutter. */
+:is([data-screen="trip"]) .itemgrid { padding-left: 0; padding-right: 0; }
 [data-screen="trip"] .editbtn {
   font-size: 12.5px; font-weight: 700; color: var(--teal); background: transparent;
   border: 1px solid var(--app-line); padding: 7px 12px; border-radius: 9px;

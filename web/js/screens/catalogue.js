@@ -21,14 +21,14 @@
  * is a long-press on a tile; the picks survive every filter change after that,
  * counted even when a filter has scrolled them out of view.
  */
-import { html, mount, num, numFixed, onClick, on, stampDate } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { html, mount, onClick, on, stampDate } from '../dom.js';
+import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe } from '../store.js';
-import { worstFault, fullName, wireWhoPill } from '../ui/bits.js';
-import { itemTile, faultPopup } from '../ui/itemTile.js';
+import { fullName, wireWhoPill } from '../ui/bits.js';
+import { itemTile, cardTileOpts, faultPopup } from '../ui/itemTile.js';
 import { pickSite, needCommittee, openIdentity } from '../ui/chrome.js';
-import { chooser, formSheet, toast } from '../ui/overlay.js';
+import { chooser, toast } from '../ui/overlay.js';
 import { haptic, PICK } from '../ui/haptics.js';
 import { go } from '../router.js';
 
@@ -354,14 +354,14 @@ export async function render(root) {
     mount(slot, html`
       <div class="actionbar">
         <div class="selrow">
-          <button class="bigbtn ${count ? '' : 'mute'}" data-move>
-            ${icon('move')}${count ? `Move ${count} ${count === 1 ? 'piece' : 'pieces'}` : 'Tap kit to select'}
+          <button class="bigbtn ${count ? '' : 'mute'}" data-totrip>
+            ${icon('box')}${count ? `Add ${count} ${count === 1 ? 'piece' : 'pieces'} to a trip` : 'Tap kit for a trip'}
           </button>
           <button class="donebtn" data-doneselect>Done</button>
         </div>
-        <span class="helper">Packing a trip is moving kit to that location. Filters stay on — picks you can't see are still counted.</span>
+        <span class="helper">Adds kit to a trip's list, ready to pack. Nothing moves — kit keeps saying where it is stored. Filters stay on; picks you can't see are still counted.</span>
       </div>`);
-    slot.querySelector('[data-move]').addEventListener('click', moveSelected);
+    slot.querySelector('[data-totrip]').addEventListener('click', addToTrip);
     slot.querySelector('[data-doneselect]').addEventListener('click', exitSelect);
   }
 
@@ -577,56 +577,55 @@ export async function render(root) {
     go(`/item/${id}`);
   }
 
-  async function moveSelected() {
+  // Long-press picks kit; this hands it to the Trips tab. The actual packing —
+  // and the masts/booms/fins the picks imply — happens on the trip picker, so
+  // this only ever chooses *which* trip and carries the ids there in the URL.
+  // TODO(johnny): if it turns out members expect the picks to land on the trip
+  // without a second screen, this wants a real "append to trip" endpoint rather
+  // than routing through the picker.
+  async function addToTrip() {
     if (!state.selected.size) return;
-    if (!(await needCommittee('Moving kit is a committee action.'))) return;
+    if (!(await needCommittee('Packing a trip is a committee action.'))) return;
+
+    const picked = [...state.selected].join(',');
+    const n = state.selected.size;
+
+    let trips = [];
+    try {
+      trips = (await api.trips()).trips
+        .filter((trip) => trip.status === 'voting' || trip.status === 'open');
+    } catch (error) {
+      toast(error.message, true);
+      return;
+    }
+
+    // Nothing to add to yet: straight into naming a trip, picks carried through.
+    if (!trips.length) {
+      exitSelect();
+      go(`/trips/new?picked=${picked}`);
+      return;
+    }
 
     const target = await chooser({
-      title: `Move ${state.selected.size} ${state.selected.size === 1 ? 'piece' : 'pieces'}`,
-      sub: 'Moving overwrites where the kit lives. A trip is just a location kit was moved to.',
+      title: `Add ${n} ${n === 1 ? 'piece' : 'pieces'} to a trip`,
+      sub: 'The masts, booms, fins and bases that go with them are worked out on the next screen.',
       rows: [
-        ...store.sites.map((site) => ({ value: site.name, label: site.name, sub: `${site.n_items} pieces now` })),
-        { value: '__new', label: 'A new location', sub: 'Add it to the club list' },
+        ...trips.map((trip) => ({
+          value: String(trip.id),
+          label: trip.name,
+          sub: trip.status === 'voting'
+            ? 'still voting'
+            : `${trip.n_items} ${trip.n_items === 1 ? 'piece' : 'pieces'} so far`,
+        })),
+        { value: '__new', label: 'A new trip', sub: 'Name it on the next screen' },
       ],
     });
     if (!target) return;
 
-    let site = target;
-    let spot = '';
-    if (target === '__new') {
-      const values = await formSheet({
-        title: 'New location',
-        sub: 'Committee keeps this list, so the catalogue filter stays clean.',
-        fields: [
-          { name: 'site', label: 'Site name', required: true, placeholder: 'Nottingham' },
-          { name: 'spot', label: 'Spot within it (optional)', placeholder: 'van' },
-        ],
-        submitLabel: 'Move here',
-      });
-      if (!values) return;
-      site = values.site;
-      spot = values.spot;
-    } else {
-      const values = await formSheet({
-        title: `Move to ${site}`,
-        sub: 'A spot is optional. After a trip, kit often needs its fine spot re-setting.',
-        fields: [{ name: 'spot', label: 'Spot within the site', placeholder: 'wooden rack' }],
-        submitLabel: 'Move',
-      });
-      if (!values) return;
-      spot = values.spot;
-    }
-
-    try {
-      const result = await api.moveItems([...state.selected], site, spot);
-      store.sites = result.sites;
-      toast(`Moved ${result.moved} ${result.moved === 1 ? 'piece' : 'pieces'} to ${site}.`);
-      state.selected.clear();
-      state.selecting = false;
-      await load();
-    } catch (error) {
-      toast(error.message, true);
-    }
+    exitSelect();
+    go(target === '__new'
+      ? `/trips/new?picked=${picked}`
+      : `/trips/new?trip=${target}&picked=${picked}`);
   }
 
   // ---------------------------------------------------------------- events
@@ -853,7 +852,7 @@ function shell() {
     </div>
 
     <div class="selecthint" data-selecthint hidden>
-      Hold a piece to pick several — for packing a trip.
+      Hold a piece to pick several — to add to a trip.
     </div>
 
     <div class="body" data-scroll>
@@ -920,22 +919,9 @@ function emptyState() {
 
 function tile(item, grid) {
   return itemTile({
+    ...cardTileOpts(item),
     grid,
     pickAttr: 'item',
-    id: item.id,
-    art: item.image_path
-      ? html`<img src="${item.image_path}" alt="">`
-      : artFor(item.rig_kind || item.component_type),
-    size: item.size_value != null
-      ? { value: item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value),
-          unit: item.size_unit }
-      : { label: item.size_label },
-    name: fullName(item),
-    type: item.type,
-    rating: item.rating.n ? { stars: item.rating.stars, n: item.rating.n } : null,
-    fault: worstFault(item.faults),
-    saved: item.favourite,
-    faultNoun: item.type,
     picked: state.selected.has(item.id),
     selecting: state.selecting,
   });

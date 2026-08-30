@@ -21,7 +21,7 @@ import { go } from '../router.js';
 const TABS = [
   { key: 'catalogue', label: 'Catalogue', icon: 'gridIcon', path: '/catalogue' },
   { key: 'rig', label: 'Rig', icon: 'sailNav', path: '/rig' },
-  { key: 'trips', label: 'Trips', icon: 'move', path: '/trips' },
+  { key: 'trips', label: 'Trips', icon: 'box', path: '/trips' },
   { key: 'log', label: 'Log', icon: 'doc', path: '/log' },
   { key: 'add', label: 'Add', icon: 'plusCircle', path: '/add' },
 ];

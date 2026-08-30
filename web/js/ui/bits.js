@@ -9,8 +9,8 @@
  * catalogue and the build picker show the star number alone. Zero votes says
  * "Not yet rated" rather than showing a blank nought.
  */
-import { html, mount, raw, num, numFixed, initial } from '../dom.js';
-import { icons, icon, artFor } from '../icons.js';
+import { html, mount, raw, num, initial } from '../dom.js';
+import { icons, icon } from '../icons.js';
 import { store, subscribe } from '../store.js';
 
 /* One star's box is 24 wide and the ink sits 2.43 in from each edge, so laying
@@ -61,67 +61,6 @@ export function ratingLine(rating) {
   if (!rating || !rating.n) return html`<span class="rcount">Not yet rated</span>`;
   return html`${starRow(rating.stars)}<span class="rtext"><span class="ravg">${num(rating.stars)}</span
     ><span class="rcount">${rating.n} ${rating.n === 1 ? 'vote' : 'votes'}</span></span>`;
-}
-
-/**
- * One piece of kit as a product-shot tile: the catalogue's card, and the same
- * card wherever else kit is chosen from a screenful of it.
- *
- * The trip packer draws its picker and its check-back-in list from this rather
- * than from a list of its own, because they are the same act — look at the
- * club's kit and say which of it you mean — and because a photo is how anybody
- * actually recognises a board they are holding.
- *
- * `attr` is the data attribute the screen delegates clicks on, so each caller
- * keeps its own handler; `tick` turns the tile into something selectable, and
- * `picked` is whether it currently is. The tile is drawn from an item card
- * (server.item_card), so everything it shows is the live row.
- *
- * `chip` is a caller's own corner label — the trip ballot's vote count — put
- * along the bottom rather than in the star's corner so it never collides with
- * the tick. `info` adds a second, smaller target that opens the item page:
- * the card is one big button, so the only way to have two answers to a tap is
- * to wrap it and put the second button alongside rather than inside.
- */
-export function kitTile(item, { attr = 'data-item', picked = false, tick = false,
-                                sub = null, chip = null, info = false } = {}) {
-  const fault = worstFault(item.faults);
-  const card = html`
-    <button class="card ${picked ? 'picked' : ''}" ${raw(attr)}="${item.id}">
-      <span class="shot">
-        ${item.image_path
-          ? html`<img src="${item.image_path}" alt="">`
-          : artFor(item.rig_kind || item.component_type)}
-        ${!tick && item.rating && item.rating.n
-          ? html`<span class="ratechip">${icon('star')}${num(item.rating.stars)}
-              <span class="n">· ${item.rating.n}</span></span>`
-          : ''}
-        ${tick ? html`<span class="tickmark">${icon('tick')}</span>` : ''}
-        ${fault
-          ? html`<span class="flagchip ${fault.severity === 'out_of_action' ? 'oos' : ''}">
-              ${icon('warning')}${fault.severity === 'out_of_action' ? 'Out' : 'Fault'}</span>`
-          : ''}
-        ${item.away ? html`<span class="flagchip away">${icon('move')}Away</span>` : ''}
-        ${chip ? html`<span class="votechip">${chip}</span>` : ''}
-      </span>
-      <span class="meta">
-        <span class="size">${item.size_value != null
-          ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
-          : item.size_label || '—'}
-          ${item.size_unit ? html`<small>${item.size_unit}</small>` : ''}</span>
-        <span class="nm">${item.manufacturer} · ${item.model}</span>
-        <span class="cond ${conditionClass(item.condition)}">${item.condition || 'Condition unknown'}</span>
-        ${sub || (store.site === 'all' && item.site
-          ? html`<span class="spot">${item.site}</span>` : '')}
-      </span>
-    </button>`;
-  if (!info) return card;
-  return html`
-    <span class="cardwrap">
-      ${card}
-      <button class="infobtn" data-info="${item.id}"
-              aria-label="About this kit">${icon('info')}</button>
-    </span>`;
 }
 
 export function conditionClass(condition) {

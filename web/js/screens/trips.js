@@ -35,11 +35,29 @@ import { html, mount, onClick, ago } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
-import { kitTile, wireWhoPill } from '../ui/bits.js';
+import { wireWhoPill } from '../ui/bits.js';
+import { itemTile as baseTile, cardTileOpts, faultPopup } from '../ui/itemTile.js';
 import { needCommittee, openIdentity } from '../ui/chrome.js';
 import { confirmSheet, formSheet, toast } from '../ui/overlay.js';
 import { go, back, refresh } from '../router.js';
 import { packList } from '../rig/engine.js';
+
+/**
+ * The trip screens draw kit through the catalogue's own tile (js/ui/itemTile.js)
+ * so a board reads the same whether a member is browsing it or packing it. Trip
+ * tiles are always grid; `attr` is the whole data-* string the old kitTile took,
+ * so its callers here read unchanged.
+ */
+function kitTile(card, { attr = 'data-item', picked = false, tick = false,
+                         sub = null, chip = null, info = false } = {}) {
+  return baseTile({
+    ...cardTileOpts(card),
+    grid: true,
+    pickAttr: attr.replace(/^data-/, ''),
+    picked, tick, info, chip, sub,
+    away: card.away || null,
+  });
+}
 
 /** What can be chosen outright, in the order the trailer is thought about. */
 const PICKABLE = [
@@ -153,7 +171,7 @@ function tripRow(trip) {
  * two ways a trip starts: leave it and you go straight to the picker, take it
  * and the club gets a say first.
  */
-async function newTrip() {
+async function promptNewTrip({ voting = true } = {}) {
   const result = await formSheet({
     title: 'Start a trip',
     sub: 'What the club calls it. This is how you will find the list again when '
@@ -163,18 +181,22 @@ async function newTrip() {
       { name: 'destination', label: 'Where (optional)', placeholder: 'Hoveringham' },
       { name: 'starts_on', label: 'Leaves (optional)', type: 'date' },
       { name: 'ends_on', label: 'Back (optional)', type: 'date' },
-      { name: 'voting', label: 'Let members vote first', type: 'checkbox',
+      ...(voting ? [{ name: 'voting', label: 'Let members vote first', type: 'checkbox',
         hint: 'Members vote on the boards and sails it should take. Voting closes '
             + 'the moment you pick the kit. Nothing is held back while it runs, so '
-            + 'voted-for kit can still be rigged this week.' },
+            + 'voted-for kit can still be rigged this week.' }] : []),
     ],
     submitLabel: 'Start it',
     onSubmit: (values) => api.createTrip({ ...values, items: [] }),
   });
-  if (!result) return;
+  return result ? result.trip : null;
+}
+
+async function newTrip() {
+  const trip = await promptNewTrip();
+  if (!trip) return;
   // Voting first means the trip page is now the ballot; otherwise straight on to
   // the picker, which is the same screen that edits a packed trip's kit.
-  const trip = result.trip;
   go(trip.status === 'voting' ? `/trips/${trip.id}` : `/trips/new?trip=${trip.id}`);
 }
 
@@ -184,7 +206,15 @@ export async function renderNew(root, params) {
   if (!(await guard())) return undefined;
   if (!params.trip) {
     // The picker always edits a trip that already exists: a trip is named
-    // first, so there is nothing to pack kit onto without one.
+    // first, so there is nothing to pack kit onto without one. Coming from the
+    // catalogue's "add to trip" with kit but no trip, name one now and carry
+    // the picks through.
+    if (params.picked) {
+      const made = await promptNewTrip({ voting: false });
+      go(made ? `/trips/new?trip=${made.id}&picked=${params.picked}` : '/trips',
+         { replace: true });
+      return undefined;
+    }
     go('/trips', { replace: true });
     return undefined;
   }
@@ -209,6 +239,26 @@ export async function renderNew(root, params) {
                                  .map((row) => row.item.id)),
   };
 
+  // Kit ticked in the catalogue's "add to trip" arrives as ?picked=id,id. Only
+  // the kinds this screen chooses outright are added — a mast picked by mistake
+  // is worked out here, not carried — and only if it is not already spoken for.
+  if (params.picked) {
+    const wanted = new Set(params.picked.split(',').map(Number).filter(Boolean));
+    const pickable = new Set(PICKABLE.map((entry) => entry.kind));
+    let added = 0;
+    kit.forEach((piece) => {
+      if (wanted.has(piece.id) && pickable.has(piece.kind) && !piece.away) {
+        state.chosen.add(piece.id);
+        added += 1;
+      }
+    });
+    const first = kit.find((piece) => state.chosen.has(piece.id));
+    if (first) state.kind = first.kind;
+    if (added < wanted.size) {
+      toast(`${added} of ${wanted.size} added — the rest get worked out for you.`);
+    }
+  }
+
   mount(root, html`
     <div class="appbar">
       <div class="row">
@@ -221,7 +271,7 @@ export async function renderNew(root, params) {
                   data-kind="${entry.kind}">${entry.label}</button>`)}
       </div>
     </div>
-    <div class="body kitgrid" data-list></div>
+    <div class="body" data-list></div>
     <div data-bar></div>`);
 
   const listNode = root.querySelector('[data-list]');
@@ -232,7 +282,7 @@ export async function renderNew(root, params) {
     });
     const pieces = byVotes(kit.filter((piece) => piece.kind === state.kind), tally);
     mount(listNode, pieces.length
-      ? html`<div class="grid">${pieces.map(pickTile)}</div>`
+      ? html`<div class="itemgrid">${pieces.map(pickTile)}</div>`
       : html`<div class="emptystate">${icon('box')}<b>None recorded</b>
                <span>The club has no ${PICKABLE.find((e) => e.kind === state.kind).plural
                      } in the app yet.</span></div>`);
@@ -272,6 +322,7 @@ export async function renderNew(root, params) {
   onClick(root, 'data-back', () => back('/trips'));
   onClick(root, 'data-kind', (value) => { state.kind = value; paint(); });
   onClick(root, 'data-info', (value) => go(`/item/${value}`));
+  onClick(root, 'data-flag', (value) => faultPopup((cards[value] || {}).faults));
   onClick(root, 'data-pick', (value) => {
     const id = Number(value);
     const piece = kit.find((entry) => entry.id === id);
@@ -389,7 +440,7 @@ async function renderBallot(root, trip) {
                     data-kind="${entry.kind}">${entry.label}</button>`)}
         </div>` : ''}
     </div>
-    <div class="body pad kitgrid" data-body></div>
+    <div class="body pad" data-body></div>
     <div data-bar></div>`);
 
   function paint() {
@@ -405,7 +456,7 @@ async function renderBallot(root, trip) {
                               [trip.starts_on, trip.ends_on].filter(Boolean).join(' to '),
                               'kit not picked yet'].filter(Boolean).join(' · ')}</div>
       ${pieces.length
-        ? html`<div class="grid">${pieces.map(voteTile)}</div>`
+        ? html`<div class="itemgrid">${pieces.map(voteTile)}</div>`
         : html`<div class="emptystate">${icon('box')}
             <b>${signedIn ? 'None recorded' : 'Nothing voted for yet'}</b>
             <span>${signedIn
@@ -443,6 +494,7 @@ async function renderBallot(root, trip) {
   onClick(root, 'data-back', () => back('/trips'));
   onClick(root, 'data-kind', (value) => { state.kind = value; paint(); });
   onClick(root, 'data-info', (value) => go(`/item/${value}`));
+  onClick(root, 'data-flag', (value) => faultPopup((cards[value] || {}).faults));
   // Signing in from here has to redraw the page: the ballot a member can vote
   // on is a different screen from the one they were just reading.
   onClick(root, 'data-signin', async () => {
@@ -515,7 +567,7 @@ async function renderPacked(root, packed) {
           : ''}
       </div>
     </div>
-    <div class="body pad kitgrid" data-body></div>
+    <div class="body pad" data-body></div>
     <div data-bar></div>`);
 
   function paint() {
@@ -533,7 +585,7 @@ async function renderPacked(root, packed) {
       ${gapNote(trip)}
       ${groups(trip).map(([role, rows]) => html`
         <div class="sectlabel">${store.roleLabels[role] || role}${rows.length > 1 ? 's' : ''}</div>
-        <div class="grid">${rows.map(itemTile)}</div>`)}
+        <div class="itemgrid">${rows.map(itemTile)}</div>`)}
       ${trip.items.length ? '' : html`
         <div class="emptystate">${icon('box')}<b>Nothing packed</b>
           <span>${store.committee
@@ -581,6 +633,10 @@ async function renderPacked(root, packed) {
   onClick(root, 'data-back', () => back('/trips'));
   onClick(root, 'data-edit', () => go(`/trips/new?trip=${trip.id}`));
   onClick(root, 'data-info', (value) => go(`/item/${value}`));
+  onClick(root, 'data-flag', (value) => {
+    const row = trip.items.find((entry) => String(entry.item.id) === value);
+    faultPopup(row ? row.item.faults : []);
+  });
   onClick(root, 'data-cancel', () => callOff(trip.id));
 
   onClick(root, 'data-tick', async (value) => {

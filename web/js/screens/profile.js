@@ -121,7 +121,7 @@ function screen(data) {
         <h3>Saved kit</h3>
         ${favourites.length
           ? html`<div class="usetable">${favourites.map(favRow)}</div>`
-          : html`<p class="calc" style="margin:0">Nothing saved. The bookmark on an item page keeps
+          : html`<p class="calc" style="margin:0">Nothing saved. The heart on an item page keeps
               it here, and flags it in the rig assistant while you are choosing.</p>`}
       </div>
     </div>`;
@@ -138,7 +138,7 @@ function kitRow(row) {
         <b>${row.manufacturer} ${row.model}</b>
         <span>${row.times} ${row.times === 1 ? 'session' : 'sessions'} · last ${ago(row.last_used)}</span>
       </span>
-      ${row.favourite ? html`<span class="savedmark">${icon('bookmarkOn')}</span>` : ''}
+      ${row.favourite ? html`<span class="savedmark" role="img" aria-label="Saved">${icon('heart')}</span>` : ''}
       <span class="uvote ${row.my_vote === 1 ? 'up' : row.my_vote === -1 ? 'down' : 'none'}">
         ${row.my_vote === 1 ? icon('thumbUp') : row.my_vote === -1 ? icon('thumbDown') : ''}
       </span>
@@ -216,7 +216,7 @@ function chart(curve) {
         <circle class="pt ${point.stars ? `s${point.stars}` : 'none'}"
                 cx="${px(point.wind_fit)}" cy="${py(point.sail)}"
                 r="${point.stars ? 3.3 + point.stars * 0.34 : 3.5}" data-point="${index}" tabindex="0" role="button">
-          <title>${num(point.sail)} m² in ${num(point.wind)} kn${point.gust ? ` (gusting ${num(point.gust)})` : ''}${point.stars ? ` · ${point.stars}★` : ''}</title>
+          <title>${num(point.sail)} m² in ${num(point.wind)} kn${point.gust ? ` (gusting ${num(point.gust)})` : ''}${point.stars ? ` · rated ${point.stars} of 5` : ''}</title>
         </circle>`)}
 
       <text class="axlabel" x="${W / 2}" y="${H - 3}" text-anchor="middle">wind, with gusts (kn)</text>
@@ -224,8 +224,8 @@ function chart(curve) {
     </svg>
 
     <div class="fitkey">
-      <span><i class="dot s1"></i>1★ session</span>
-      <span><i class="dot s5"></i>5★ session</span>
+      <span><i class="dot s1"></i>1${icon('star')} session</span>
+      <span><i class="dot s5"></i>5${icon('star')} session</span>
       <span><i class="dot none"></i>not rated</span>
       <span><i class="line"></i>your fitted size</span>
     </div>`;

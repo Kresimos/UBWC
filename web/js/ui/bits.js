@@ -12,13 +12,31 @@ import { html, mount, raw, num, initial } from '../dom.js';
 import { icons, icon } from '../icons.js';
 import { store, subscribe } from '../store.js';
 
-export const STAR_FULL = '★★★★★';
+/* One star's box is 24 wide and the ink sits 2.43 in from each edge, so laying
+   the boxes edge to edge already leaves an even gap and the row needs no
+   letter-spacing. Five of them make a 120-wide viewBox. */
+const STAR_D = 'M12 3.39L17.3 19.68L3.43 9.61L20.57 9.61L6.7 19.68Z';
+const PITCH = 24, ROW_W = 120, INK_L = 2.43, INK_W = 19.14;
 
-/** Stars as one clipped overlay, so 3.7 is genuinely 3.7 stars wide. */
+const starsRow = (colour) => `<svg viewBox="0 0 ${ROW_W} 24.35" fill="${colour}" stroke="${colour}"
+  stroke-width="2.05" stroke-linejoin="round" aria-hidden="true">${
+  Array.from({ length: 5 }, (_, i) =>
+    `<path transform="translate(${i * PITCH} 0)" d="${STAR_D}"/>`).join('')}</svg>`;
+
+/**
+ * Stars as a coloured row masked over a grey one, so 3.7 really is 3.7 stars.
+ * The cut is measured in the row's own units - three whole boxes, then 70% of
+ * the fourth star's *ink* - rather than as a percentage of the whole element,
+ * which is what used to let the trailing gap eat into the fraction.
+ */
 export function starRow(stars) {
-  const width = stars ? (stars / 5) * 100 : 0;
-  return html`<span class="starrow"><span class="base">${STAR_FULL}</span><span
-    class="fill" style="width:${width.toFixed(1)}%">${STAR_FULL}</span></span>`;
+  const value = Math.max(0, Math.min(5, Number(stars) || 0));
+  const whole = Math.floor(value);
+  const cut = whole * PITCH + INK_L + (value - whole) * INK_W;
+  const pct = Math.max(0, Math.min(100, (cut / ROW_W) * 100)).toFixed(2);
+  return html`<span class="starrow"
+    >${raw(starsRow('var(--star-off)'))}<span class="fill" style="--cut:${pct}%"
+    >${raw(starsRow('var(--star)'))}</span></span>`;
 }
 
 /** Five separate glyphs, for the places the sketches drew them individually. */
@@ -28,11 +46,20 @@ export function starIcons(stars, total = 5) {
     icons.star.replace('<svg', `<svg class="${i < filled ? '' : 'off'}"`)).join(''));
 }
 
-/** "4.2 · 5 votes", or "Not yet rated". Never stars without their count. */
+/**
+ * The rating as one line: the stars, the average, then the vote count. Never
+ * stars without their count, and "Not yet rated" rather than a blank nought.
+ *
+ * The average and the count are wrapped together rather than sitting beside the
+ * stars as two more flex items. They are different sizes, and as separate items
+ * each would be centred on its own line box, which left their baselines a
+ * fraction apart; inside one wrapper they are ordinary inline siblings sharing
+ * a line box, so they share a baseline.
+ */
 export function ratingLine(rating) {
-  if (!rating || !rating.n) return html`<span class="rc">Not yet rated</span>`;
-  return html`${starRow(rating.stars)}<span class="rn">${num(rating.stars)}</span
-    ><span class="rc">${rating.n} ${rating.n === 1 ? 'vote' : 'votes'}</span>`;
+  if (!rating || !rating.n) return html`<span class="rcount">Not yet rated</span>`;
+  return html`${starRow(rating.stars)}<span class="rtext"><span class="ravg">${num(rating.stars)}</span
+    ><span class="rcount">${rating.n} ${rating.n === 1 ? 'vote' : 'votes'}</span></span>`;
 }
 
 export function conditionClass(condition) {

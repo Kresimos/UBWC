@@ -21,7 +21,7 @@ import { html, mount, numify, num, on, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
-import { starRow } from '../ui/bits.js';
+import { ratingLine } from '../ui/bits.js';
 import { needUser, refreshSetup } from '../ui/chrome.js';
 import { lightbox, confirmSheet, toast } from '../ui/overlay.js';
 import { haptic, CONFIRM } from '../ui/haptics.js';
@@ -199,12 +199,7 @@ export async function render(root) {
           ${set ? html`<span class="tag ok">${icon('tick')}set to ${set}</span>` : ''}
         </div>
         <div class="krate">
-          <span class="ratingrow">
-            ${rating.n
-              ? html`${starRow(rating.stars)}<span class="rn">${num(rating.stars)}</span
-                  ><span class="rc">${rating.n} ${rating.n === 1 ? 'vote' : 'votes'}</span>`
-              : html`<span class="rc">Not yet rated</span>`}
-          </span>
+          <span class="ratingrow">${ratingLine(rating)}</span>
           <span class="votes">
             <button class="vote ${rating.mine === 1 ? 'picked' : ''}" data-vote="1"
                     data-voteitem="${item.id}" aria-label="Rate good">${icon('thumbUp')}<span>${rating.up}</span></button>
@@ -355,12 +350,8 @@ export async function render(root) {
     return html`
       <div class="quickfacts">
         ${tags.length ? html`<div class="tags expanded">${tags.map(tagChip)}</div>` : ''}
-        <span class="ratingrow recrating">
-          ${current.rate
-            ? html`${starRow(current.rate.avg)}<span class="rn">${num(current.rate.avg)}</span
-                ><span class="rc">${current.rate.n} ${current.rate.n === 1 ? 'vote' : 'votes'}</span>`
-            : html`<span class="rc">Not yet rated</span>`}
-        </span>
+        <span class="ratingrow recrating">${ratingLine(
+          current.rate && { stars: current.rate.avg, n: current.rate.n })}</span>
         <dl class="kspecs">
           ${recSpecs(slot, current, picks).map((pair) => html`
             <div><dt>${pair[0]}</dt><dd>${numify(pair[1])}</dd></div>`)}
@@ -701,13 +692,15 @@ export async function render(root) {
 /* ---------------------------------------------------------------- helpers */
 
 /**
- * The bookmark on a piece this member saved from its item page. It says only
+ * The heart on a piece this member saved from its item page. It says only
  * "you have had this one before and kept it", and it changes no recommendation
- * and no order, which is why it is a mark rather than a badge with words.
+ * and no order, which is why it is a mark rather than a badge with words. The
+ * same glyph and the same red as the catalogue tile, so one mark means one
+ * thing everywhere.
  */
 function savedMark(piece) {
   if (!piece || !piece.fav) return '';
-  return html`<span class="savedmark" aria-label="Saved to your kit">${icon('bookmarkOn')}</span>`;
+  return html`<span class="savedmark" role="img" aria-label="Saved to your kit">${icon('heart')}</span>`;
 }
 
 function seedFrom(setup) {

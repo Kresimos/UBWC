@@ -33,7 +33,13 @@
   --ok-tint: #EAF4EF;
   --ok-line: #CBE4D6;
   --star: #E8A63D;
+  --star-off: #DCE1E1;
+  --heart: #E5484D;
   --shot: linear-gradient(160deg, #F5F8F8, #E7EFEF);
+  /* The screen gutter. One value because Catalogue and Build draw the same
+     shelf of kit: if the two ever differ, the tiles are different widths and
+     the same board is a different size on the two screens. */
+  --gutter: 18px;
 }
 
 * { box-sizing: border-box; }
@@ -109,7 +115,13 @@ button:active, [role="button"]:active {
    down so the logo and the item-page buttons clear the notch. On a laptop, or
    on a phone with no notch, env(safe-area-inset-top) is 0 and none of this
    shows. The white also overrides the pale backdrop iOS would otherwise paint
-   the reserved status-bar area with. */
+   the reserved status-bar area with.
+
+   The item screen opts out: its hero photo already starts at the very top of
+   the screen, so painting white over the inset just clips a strip off it. The
+   hero's own colour is meant to run up under the notch instead — only the
+   back/save/edit buttons need clearing, and hero-nav's own inset padding
+   already does that. */
 @media (max-width: 619px) {
   .screen::before {
     content: "";
@@ -122,6 +134,9 @@ button:active, [role="button"]:active {
     z-index: 32;
     pointer-events: none;
   }
+  /* data-screen lives on #app (a child of .screen), not on .screen itself,
+     so the item-screen exception needs :has() to reach up from there. */
+  .screen:has(> .app[data-screen="item"])::before { background: transparent; }
 
   .appbar { padding-top: calc(2px + env(safe-area-inset-top, 0px)); }
   [data-screen="item"] .hero-nav { top: calc(14px + env(safe-area-inset-top, 0px)); }
@@ -200,6 +215,19 @@ button:active, [role="button"]:active {
     transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px;
     background: #0B0F0F; opacity: .22;
   }
+
+  /* The item screen's hero is a full-bleed photo panel: on the phone mock-up
+     it runs solid to the very top, with nothing drawn over it — so the fake
+     status row (clock/battery, decorative only, drawn by this stylesheet for
+     the desktop preview) is dropped rather than floated on top of it. A real
+     phone's actual status bar is owned by the OS, not this page, and no CSS
+     here could cover that one; this only affects the in-browser mock-up. */
+  .screen:has(> .app[data-screen="item"]) .statusbar {
+    display: none;
+  }
+  /* hero-nav's own top offset for this breakpoint lives in screens.css, next
+     to the base rule it overrides — same specificity, so it has to come
+     later in the cascade to win, and this stylesheet loads before that one. */
 }
 
 /* A screen owns its own header and footer, so the router swaps the whole
@@ -397,23 +425,167 @@ button:active, [role="button"]:active {
 }
 .viewtoggle svg { width: 16px; height: 16px; }
 
-/* The fault flag over a product shot, wherever that shot is drawn. In the
-   Catalogue it labels the tile; in Build it is a button that says what is
-   actually wrong, so the reset covers both. */
+/* The fault flag over a product shot, wherever that shot is drawn — always a
+   button, so a member choosing between two pieces can read what is actually
+   wrong without leaving the list. */
 .flagchip {
   position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center;
   gap: 3px; padding: 4px 7px; border-radius: 4px; font: inherit; font-size: 10.5px;
-  font-weight: 700; border: 0; cursor: pointer;
+  font-weight: 700; line-height: 1; border: 0; cursor: pointer;
   background: var(--warn-tint); color: var(--warn-ink);
   box-shadow: 0 2px 6px rgba(10, 40, 45, .12);
 }
 .flagchip.oos { background: var(--crit-tint); color: var(--crit-ink); }
-.flagchip svg { width: 11px; height: 11px; }
+.flagchip svg { width: 11px; height: 11px; flex: none; }
+/* List view: the same tinted box, set in the line of facts rather than floated
+   over a shot that, laid flat, isn't there. The box is drawn a little tighter
+   and the shadow a little shallower, since here it sits on white next to the
+   size rather than over a photograph it has to lift off. */
+.flagchip.mini {
+  position: static; padding: 3px 5px; gap: 2.5px; font-size: 10px;
+  box-shadow: 0 1px 2px rgba(10, 40, 45, .1);
+}
+.flagchip.mini svg { width: 10px; height: 10px; }
+.flagchip.mini:active { transform: scale(.95); }
 
-.starrow { position: relative; display: inline-block; line-height: 1; letter-spacing: 2px; white-space: nowrap; }
-.starrow .base { color: #D8DEDE; }
+/* Five stars as one drawn row (see js/ui/bits.js), sized by --star-size, which
+   is the same number a single star would be given. The coloured row sits over
+   the grey one and is masked at --cut, so a fraction is a real fraction rather
+   than a percentage of a box that also contained the gaps. line-height: 0 keeps
+   the wrapper the height of the artwork and nothing else. */
+.starrow { position: relative; display: inline-block; line-height: 0; --star-size: 12px; }
+.starrow svg { display: block; height: var(--star-size); width: auto; }
 .starrow .fill {
-  position: absolute; top: 0; left: 0; overflow: hidden; color: var(--star); white-space: nowrap;
+  position: absolute; top: 0; left: 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 var(--cut), transparent var(--cut));
+  mask-image: linear-gradient(90deg, #000 var(--cut), transparent var(--cut));
+}
+
+/* The rest of the rating line that goes with those stars (js/ui/bits.js). The
+   average and the vote count are wrapped in .rtext rather than sitting beside
+   the stars as two more flex items: they are different sizes, and as separate
+   items each is centred on its own line box, which leaves their baselines a
+   fraction apart. The wrapper also carries the average's own font size, because
+   a flex item is blockified and would otherwise inherit a larger strut and
+   inflate the line box. */
+.rtext { flex: none; display: inline-block; font-size: 13px; line-height: 1.2; }
+.ravg { font-weight: 800; font-variant-numeric: tabular-nums; }
+.rcount { font-size: 11.5px; color: var(--app-muted); white-space: nowrap; }
+.rtext .rcount { margin-left: 6px; }
+
+/* The saved mark. One glyph, one colour, wherever a piece can be saved; the
+   three places it appears differ only in how they sit - floated over a tile's
+   shot, inline after a name, or at the end of a profile row - so only that
+   belongs in the scoped rules below. */
+.savedmark { color: var(--heart); line-height: 0; }
+.savedmark svg { display: block; }
+
+/* --------------------------------------------------------------- the item tile
+   Catalogue and Build both show one piece of kit through this component (see
+   js/ui/itemTile.js), scoped under .itemgrid/.itemlist rather than bare class
+   names — .card, .meta, .size and friends are exactly the kind of short name
+   other screens reuse for something unrelated, so the parent is what keeps
+   this from leaking into them. */
+/* The gutter lives here rather than on each screen: the column width, and so
+   the tile size, is set by it. The list subtracts the 2px the row itself adds
+   below, so thumbs line up with the grid's shots and only the hairlines sit
+   inboard of them. */
+.itemgrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 22px 14px;
+  padding: 2px var(--gutter) 24px;
+}
+.itemlist {
+  display: flex; flex-direction: column;
+  padding: 0 calc(var(--gutter) - 2px) 24px;
+}
+
+.itemgrid .card, .itemlist .card {
+  background: transparent; border: 0; padding: 0; width: 100%; text-align: left;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.itemgrid .card { display: flex; flex-direction: column; transition: transform .12s ease; }
+.itemgrid .card:active { transform: scale(.985); }
+
+.itemgrid .shot {
+  position: relative; aspect-ratio: 1 / 1.14; background: var(--shot);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.itemgrid .shot svg.art { width: 66%; height: 66%; }
+.itemgrid .shot img { width: 100%; height: 100%; object-fit: cover; }
+.itemgrid .card.picked .shot { outline: 3px solid var(--teal); outline-offset: -3px; }
+/* Kit a member saved on its item page, surfaced on the tile so it's
+   recognisable in a shelf of sizes that otherwise look alike. No filter, no
+   ordering, just a mark. Here it floats over the shot as a white badge; the
+   glyph and its colour come from the shared .savedmark above. */
+.itemgrid .savedmark {
+  position: absolute; top: 7px; left: 7px; display: inline-flex; align-items: center;
+  justify-content: center; background: #fff; border-radius: 4px; padding: 4px 7px;
+  box-shadow: 0 2px 6px rgba(10, 40, 45, .14);
+}
+.itemgrid .savedmark svg { width: 11px; height: 11px; }
+
+.itemgrid .meta { padding: 10px 1px 0; display: flex; flex-direction: column; gap: 3px; }
+.itemgrid .size {
+  font-size: 19px; font-weight: 750; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.itemgrid .size small { font-size: 11px; font-weight: 600; color: var(--app-faint); margin-left: 1px; }
+.itemgrid .nm { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
+.itemgrid .rating {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+  color: var(--app-faint);
+}
+.itemgrid .rating .starrow { --star-size: 11px; }
+
+/* List: the same facts laid flat, a hairline instead of a grid gap. Rows are
+   kept tight because the list is the view a member switches to when they want
+   to scan a lot of kit at once; if they wanted the shot big they would be in
+   the grid. */
+.itemlist .card {
+  display: flex; align-items: center; gap: 11px; padding: 9px 2px;
+  border-bottom: 1px solid var(--app-line);
+}
+.itemlist .card:last-child { border-bottom: 0; }
+/* Divider-glued row: tint, not shrink. A row that scales away from the
+   divider it shares with the row below reads as the list coming apart. */
+.itemlist .card:active { background: var(--app-bg2); transform: none; }
+.itemlist .card.picked { background: var(--teal-tint); }
+.itemlist .thumb {
+  flex: none; width: 42px; height: 42px; border-radius: 7px; background: var(--shot);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.itemlist .thumb svg { max-width: 64%; max-height: 68%; }
+.itemlist .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.itemlist .selbox {
+  flex: none; width: 22px; height: 22px; border-radius: 7px; border: 1.8px solid #C7D2D2;
+  display: flex; align-items: center; justify-content: center; color: transparent;
+}
+.itemlist .card.picked .selbox { background: var(--teal); border-color: var(--teal); color: #fff; }
+.itemlist .selbox svg { width: 14px; height: 14px; }
+.itemlist .lm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.itemlist .lm .t { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.itemlist .lm .s {
+  font-size: 11.5px; color: var(--app-faint); display: flex; align-items: center;
+  gap: 6px; flex-wrap: wrap;
+}
+.itemlist .lm .s .rt { display: inline-flex; align-items: center; gap: 4px; }
+/* The star and the heart swap into this one slot, so they are set the same way
+   on purpose: an inline-flex box with no line box of its own and a block-level
+   glyph inside. When the star was a text character it carried a font-size and
+   a line-height instead, and the two marks sat at different heights from row
+   to row. */
+.itemlist .lm .s .rt-star,
+.itemlist .lm .s .rt-heart { display: inline-flex; line-height: 0; }
+.itemlist .lm .s .rt-star { color: var(--star); }
+.itemlist .lm .s .rt-heart { color: var(--heart); }
+.itemlist .lm .s .rt-star svg,
+.itemlist .lm .s .rt-heart svg { display: block; width: 10px; height: 10px; }
+/* One line, not a stack: a stacked flag pushed the size up, so the number a
+   member is actually scanning for sat at a different height on every row. */
+.itemlist .lr { display: flex; align-items: center; gap: 8px; flex: none; }
+.itemlist .lr .sz { font-size: 15px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.itemlist .lr .sz u {
+  font-size: 10.5px; font-weight: 600; color: var(--app-faint); text-decoration: none; margin-left: 2px;
 }
 
 .spinner {
@@ -494,9 +666,9 @@ button:active, [role="button"]:active {
 .sheetrow:hover { background: var(--app-bg2); }
 .sheetrow:active { background: var(--app-bg2); }
 .sheetrow.on { background: var(--teal-tint); }
-.sheetrow .rn { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.sheetrow .rn b { font-size: 14.5px; font-weight: 700; }
-.sheetrow .rn span { font-size: 11.5px; color: var(--app-faint); }
+.sheetrow .rowlabel { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.sheetrow .rowlabel b { font-size: 14.5px; font-weight: 700; }
+.sheetrow .rowlabel span { font-size: 11.5px; color: var(--app-faint); }
 .sheetrow .av {
   width: 32px; height: 32px; border-radius: 50%; background: var(--teal-tint);
   color: var(--teal-ink); font-size: 13px; font-weight: 750; flex: none;

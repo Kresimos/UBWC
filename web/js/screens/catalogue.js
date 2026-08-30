@@ -1,19 +1,22 @@
 /**
  * Catalogue — browse the kit like a windsurf shop.
  *
- * The tile is deliberately quiet: a product shot, the size, the name, the
- * condition and the derived star score. Everything else a member might want
- * lives one tap away on the item page, so a screenful of kit stays scannable.
+ * The tile is deliberately quiet: a product shot, the size, the name and the
+ * derived star score. Everything else a member might want lives one tap away
+ * on the item page, so a screenful of kit stays scannable. It's the same
+ * tile Build picks from (js/ui/itemTile.js) — a scuffed board should read
+ * the same wherever a member is choosing from a shelf of them.
  *
  * Out-of-action kit is not hidden here — this is the inventory, and knowing a
  * board is broken is the point — but it sorts to the bottom and carries a red
  * flag. Hiding is the rig picker's job, not the catalogue's.
  */
-import { html, mount, num, numFixed, onClick } from '../dom.js';
+import { html, mount, num, numFixed, onClick, on } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe } from '../store.js';
-import { conditionClass, worstFault, sitePill, wireWhoPill } from '../ui/bits.js';
+import { worstFault, fullName, sitePill, wireWhoPill } from '../ui/bits.js';
+import { itemTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite, needCommittee, openIdentity } from '../ui/chrome.js';
 import { chooser, formSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
@@ -82,10 +85,10 @@ export async function render(root) {
       mount(listNode, html`<div class="spinner"></div>`);
     } else if (!shown.length) {
       mount(listNode, emptyState());
-    } else if (state.view === 'grid') {
-      mount(listNode, html`<div class="grid">${shown.map(tile)}</div>`);
     } else {
-      mount(listNode, html`<div class="rows">${shown.map(row)}</div>`);
+      const grid = state.view === 'grid';
+      mount(listNode, html`
+        <div class="${grid ? 'itemgrid' : 'itemlist'}">${shown.map((item) => tile(item, grid))}</div>`);
     }
     paintMoveBar();
   }
@@ -197,8 +200,28 @@ export async function render(root) {
     state.selected.clear();
     paint();
   });
-  onClick(root, 'data-item', (value) => {
-    const id = Number(value);
+  /**
+   * The fault flag is readable where it is flagged, the same as Build's: a
+   * member weighing up two boards should not have to leave the list to find
+   * out what "Fault" means.
+   */
+  // `data-flag`, not `data-fault`: the subbar's fault filter already owns that
+  // name on this same root, and a delegated handler cannot tell a chip on a
+  // tile from a button in the subbar once they share an attribute.
+  onClick(root, 'data-flag', (value, _node, event) => {
+    // Both handlers are delegated from the same root, so stopPropagation is
+    // not enough - see onFlag below for why a fault tap must not also open
+    // the item it is a fault on.
+    event.stopImmediatePropagation();
+    const item = items.find((i) => i.id === Number(value));
+    faultPopup(item ? item.faults : []);
+  });
+
+  // The fault chip lives inside the tile, so anything aimed at it is a
+  // question about the item rather than a tap on the item itself.
+  const onFlag = (event) => Boolean(event.target.closest('[data-flag]'));
+
+  function openItem(id) {
     if (state.selecting) {
       if (state.selected.has(id)) state.selected.delete(id);
       else state.selected.add(id);
@@ -206,6 +229,15 @@ export async function render(root) {
       return;
     }
     go(`/item/${id}`);
+  }
+  onClick(root, 'data-item', (value, _node, event) => {
+    if (!onFlag(event)) openItem(Number(value));
+  });
+  on(root, 'keydown', '[data-item]', (event, node) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (onFlag(event)) return;
+    event.preventDefault();
+    openItem(Number(node.getAttribute('data-item')));
   });
 
   const unsubscribe = subscribe(() => {
@@ -286,60 +318,25 @@ function emptyState() {
     </div>`;
 }
 
-function tile(item) {
-  const fault = worstFault(item.faults);
-  const picked = state.selected.has(item.id);
-  return html`
-    <button class="card ${picked ? 'picked' : ''}" data-item="${item.id}">
-      <span class="shot">
-        ${item.image_path
-          ? html`<img src="${item.image_path}" alt="">`
-          : artFor(item.rig_kind || item.component_type)}
-        ${item.rating.n
-          ? html`<span class="ratechip">${icon('star')}${num(item.rating.stars)}
-              <span class="n">· ${item.rating.n}</span></span>`
-          : ''}
-        ${fault
-          ? html`<span class="flagchip ${fault.severity === 'out_of_action' ? 'oos' : ''}">
-              ${icon('warning')}${fault.severity === 'out_of_action' ? 'Out' : 'Fault'}</span>`
-          : ''}
-      </span>
-      <span class="meta">
-        <span class="size">${item.size_value != null
-          ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
-          : item.size_label || '—'}
-          ${item.size_unit ? html`<small>${item.size_unit}</small>` : ''}</span>
-        <span class="nm">${item.manufacturer} · ${item.model}</span>
-        <span class="cond ${conditionClass(item.condition)}">${item.condition || 'Condition unknown'}</span>
-        ${store.site === 'all' && item.site ? html`<span class="spot">${item.site}</span>` : ''}
-      </span>
-    </button>`;
-}
-
-function row(item) {
-  const fault = worstFault(item.faults);
-  const picked = state.selected.has(item.id);
-  return html`
-    <button class="lrow ${picked ? 'picked' : ''}" data-item="${item.id}">
-      ${state.selecting
-        ? html`<span class="selbox">${icon('tick')}</span>`
-        : html`<span class="thumb">${item.image_path
-            ? html`<img src="${item.image_path}" alt="">`
-            : artFor(item.rig_kind || item.component_type)}</span>`}
-      <span class="lm">
-        <span class="t">${item.manufacturer} ${item.model}</span>
-        <span class="s">${[item.type, item.spot || item.site,
-          fault ? (fault.severity === 'out_of_action' ? 'out of action' : 'has a fault') : null]
-          .filter(Boolean).join(' · ')}</span>
-      </span>
-      <span class="lr">
-        <span class="sz">${item.size_value != null
-          ? (item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value))
-          : item.size_label || ''}
-          ${item.size_unit ? html`<u>${item.size_unit}</u>` : ''}</span>
-        <span class="rt">${item.rating.n
-          ? html`${icon('star')}${num(item.rating.stars)} · ${item.rating.n}`
-          : 'Not yet rated'}</span>
-      </span>
-    </button>`;
+function tile(item, grid) {
+  return itemTile({
+    grid,
+    pickAttr: 'item',
+    id: item.id,
+    art: item.image_path
+      ? html`<img src="${item.image_path}" alt="">`
+      : artFor(item.rig_kind || item.component_type),
+    size: item.size_value != null
+      ? { value: item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value),
+          unit: item.size_unit }
+      : { label: item.size_label },
+    name: fullName(item),
+    type: item.type,
+    rating: item.rating.n ? { stars: item.rating.stars, n: item.rating.n } : null,
+    fault: worstFault(item.faults),
+    saved: item.favourite,
+    faultNoun: item.type,
+    picked: state.selected.has(item.id),
+    selecting: state.selecting,
+  });
 }

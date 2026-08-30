@@ -24,14 +24,15 @@ import { html, mount, on, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe } from '../store.js';
-import { conditionClass, worstFault } from '../ui/bits.js';
+import { worstFault } from '../ui/bits.js';
+import { itemTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite } from '../ui/chrome.js';
-import { lightbox, toast } from '../ui/overlay.js';
+import { toast } from '../ui/overlay.js';
 import { haptic, TICK, PICK } from '../ui/haptics.js';
 import { go } from '../router.js';
 import { building } from '../rig/session.js';
 import {
-  TARGETS, TARGET_KEYS, SLOTS, matches, matchChip, tagsFor, nearestStocked, clampTarget,
+  TARGETS, TARGET_KEYS, SLOTS, matches, tagsFor, nearestStocked, clampTarget,
   sizeBits, modelShort,
 } from '../rig/engine.js';
 
@@ -162,7 +163,7 @@ export async function render(root, params) {
     });
 
     mount(resultsNode, found.length
-      ? html`<div class="${state.view === 'grid' ? 'grid' : 'list'}">
+      ? html`<div class="${state.view === 'grid' ? 'itemgrid' : 'itemlist'}">
           ${found.map((piece) => tile(key, piece))}</div>`
       : emptyState(key, active));
 
@@ -198,34 +199,19 @@ export async function render(root, params) {
   function tile(key, piece) {
     const config = TARGETS[key];
     const size = sizeBits(config.kind, piece);
-    const fault = worstFault((piece.faults || []).map((f) => ({ severity: f.s, title: f.t })));
-    // The size-match badge sits over the shot in the grid, the way the
-    // Catalogue's rating chip does; laid flat there is no shot to sit on, so it
-    // joins the line of facts instead.
-    const chip = html`<span class="matchchip">${matchChip(key, piece, state.target[key])}</span>`;
-    const flag = fault
-      ? html`<button class="flagchip" data-fault="${piece.id}"
-              aria-label="What is wrong with this ${config.noun}">${icon('warning')}Fault</button>`
-      : '';
-    // Kit this member bookmarked on its item page. No filter, no ordering: a
-    // mark on the tile, so a piece they already know they like is recognisable
-    // in a list of sizes that all look alike.
-    const saved = piece.fav
-      ? html`<span class="savedmark" aria-label="Saved to your kit">${icon('bookmarkOn')}</span>`
-      : '';
-    const grid = state.view === 'grid';
-    // A div rather than a button: the fault chip inside it is itself a button,
-    // and a button inside a button is not a thing a browser will honour.
-    return html`
-      <div class="card" role="button" tabindex="0" data-pick="${piece.id}">
-        <span class="shot">${artFor(config.kind)}${saved}${grid ? html`${chip}${flag}` : ''}</span>
-        <span class="meta">
-          <span class="size">${size ? size.v : '—'}${size ? html`<small>${size.u}</small>` : ''}</span>
-          <span class="nm">${piece.mfr} · ${modelShort(piece)}</span>
-          <span class="cond ${conditionClass(piece.cond)}">${piece.cond || 'Condition unknown'}</span>
-          ${grid ? '' : html`${chip}${flag}`}
-        </span>
-      </div>`;
+    return itemTile({
+      grid: state.view === 'grid',
+      pickAttr: 'pick',
+      id: piece.id,
+      art: artFor(config.kind),
+      size: size ? { value: size.v, unit: size.u } : { label: '—' },
+      name: `${piece.mfr} ${modelShort(piece)}`,
+      type: piece.type,
+      rating: piece.rate ? { stars: piece.rate.avg, n: piece.rate.n } : null,
+      fault: worstFault((piece.faults || []).map((f) => ({ severity: f.s, title: f.t }))),
+      saved: Boolean(piece.fav),
+      faultNoun: config.noun,
+    });
   }
 
   function countLabel(count, key, active) {
@@ -381,23 +367,15 @@ export async function render(root, params) {
    * panel, and sending them to the item page to find out costs them their
    * place in the list.
    */
-  onClick(root, 'data-fault', (value, _node, event) => {
+  onClick(root, 'data-flag', (value, _node, event) => {
     // Both handlers are delegated from the same root, so stopPropagation is not
     // enough: it stops the event climbing, not the next listener on this node.
     // Without this, reading a fault also picked the piece it is a fault on.
     event.stopImmediatePropagation();
     const piece = kit.find((item) => item.id === Number(value));
-    const faults = (piece && piece.faults) || [];
-    if (!faults.length) return;
-    lightbox({
-      glyph: 'warning',
-      title: faults.length === 1 ? faults[0].t : `${faults.length} reported faults`,
-      sub: faults.map((fault) => {
-        const body = fault.d || 'No description was recorded with this one.';
-        const label = faults.length > 1 ? `${fault.t} — ` : '';
-        return `${label}${body}${fault.s === 'out_of_action' ? ' (out of action)' : ''}`;
-      }).join('\n\n'),
-    });
+    const faults = ((piece && piece.faults) || [])
+      .map((f) => ({ title: f.t, description: f.d, severity: f.s }));
+    faultPopup(faults);
   });
 
   function choose(value) {
@@ -419,7 +397,7 @@ export async function render(root, params) {
 
   // The fault chip lives inside the tile, so anything aimed at it is a question
   // about the piece rather than a decision to take it.
-  const onFlag = (event) => Boolean(event.target.closest('[data-fault]'));
+  const onFlag = (event) => Boolean(event.target.closest('[data-flag]'));
 
   onClick(root, 'data-pick', (value, _node, event) => { if (!onFlag(event)) choose(value); });
   on(root, 'keydown', '[data-pick]', (event, node) => {

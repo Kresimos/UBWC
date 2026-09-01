@@ -262,7 +262,7 @@ export function buildModel(sails, kit, pins = []) {
   // The deepest group each sail could ever be part of, if the trailer carried
   // everything on site. This is the bar the packing list is measured against,
   // so a sail the club simply cannot serve is never held against the list.
-  model.possible = rows.map((_, i) => reach(model, cap, i));
+  model.possible = reachVector(model, cap);
 
   return model;
 }

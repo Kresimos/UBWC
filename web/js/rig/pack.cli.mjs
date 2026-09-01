@@ -11,7 +11,7 @@
  *   --sails a,b,c   sail sizes to take, from the fixture rack (default: all)
  *   --min N         every sail must rig in a group of at least N (default 3)
  *   --pin id,id     item ids that must be on the trailer whatever the score says
- *   --w-depth N     reward for reaching past the promise  (default 100)
+ *   --w-spare N     reward for spare kit beyond the promise (default 45)
  *   --w-short N     penalty per sail-slot short of it     (default 25)
  *   --w-match N     weight on kit matching                (default 30)
  *   --w-light N     charge per piece of kit               (default 2)
@@ -23,7 +23,7 @@
 
 import {
   buildModel, chooseTrailer, exhaustive, packingList, rigSheet,
-  shortfalls, DEFAULT_WEIGHTS,
+  shortfalls, fragileKinds, DEFAULT_WEIGHTS,
 } from './pack.mjs';
 import { SAILS, KIT, sailsBySize } from './pack.fixtures.mjs';
 
@@ -91,7 +91,7 @@ const sails = args.opt.sails ? sailsBySize(list('sails').map(Number)) : SAILS;
 const pins = list('pin');
 const minRigs = num('min', 3);
 const weights = {
-  depth: num('w-depth', DEFAULT_WEIGHTS.depth),
+  spare: num('w-spare', DEFAULT_WEIGHTS.spare),
   short: num('w-short', DEFAULT_WEIGHTS.short),
   match: num('w-match', DEFAULT_WEIGHTS.match),
   light: num('w-light', DEFAULT_WEIGHTS.light),
@@ -110,7 +110,7 @@ const model = buildModel(sails, KIT, pins);
 console.log();
 console.log(`Sails      ${sails.map((s) => `${s.m2}`).join(', ')}  (${sails.length})`);
 console.log(`Promise    every sail rigs, in a group of at least ${minRigs}`);
-console.log(`Weights    depth ${weights.depth}, short ${weights.short}, `
+console.log(`Weights    spare ${weights.spare}, short ${weights.short}, `
   + `match ${weights.match}, ${weights.light} per piece`);
 if (pins.length) console.log(`Pinned     ${pins.join(', ')}`);
 
@@ -198,9 +198,10 @@ table([['sail', 'rigs in a group of', 'best possible', '', 'verdict'],
 
 head('The score');
 const t = best.terms;
+const s = best.slack;
 table([
-  ['depth', `each sail averages ${Math.round(best.depth * 100)}% of the deepest group it could reach`,
-   `${n2(best.depth)} x ${weights.depth}`, `= ${n1(t.depth)}`],
+  ['spare kit', `${s.mast} mast, ${s.ext} extension, ${s.boom} boom spare, beyond the group of ${best.datum}`,
+   `${n2(best.spare)} x ${weights.spare}`, `= ${n1(t.spare)}`],
   ['promise', best.shortBy === 0
     ? 'every sail rigs in a group of ' + minRigs
     : `${best.shortBy} sail-slots short of a group of ${minRigs}`,
@@ -220,13 +221,23 @@ if (best.impossible.length) {
     + 'so it is left out of the scoring entirely.'));
 }
 
+if (best.keptPromise) {
+  const fragile = fragileKinds(model, best.counts, opts);
+  console.log();
+  console.log(fragile.length
+    ? `One breakage from a broken promise: ${fragile.join(', ')}. Losing a single `
+      + `${fragile[0]} drops a sail below its group of ${minRigs}.`
+    : 'The promise survives losing any single piece on the trailer.');
+}
+
 if (args.flags.has('explain')) {
   head('What the promise means');
   console.log(`Each sail is promised two things: that it rigs at all, and that it rigs`);
   console.log(`while at least ${minRigs - 1} other sails are also up. Reach is the biggest group`);
   console.log('a sail can be part of, so the promise is kept when every reach is at');
-  console.log(`least ${minRigs}, and depth rewards going past it, which is what leaves the`);
-  console.log('trailer still working when somebody snaps a mast on the first day.');
+  console.log(`least ${minRigs}. Spare kit rewards carrying more than that bare group needs,`);
+  console.log('which is what leaves the trailer working when somebody snaps a mast on');
+  console.log('the first day, and gives a real choice of rig at the trailer.');
   console.log();
   console.log('A sail is never charged for a group the club could not give it: the');
   console.log('"best possible" column is what the whole rack can do, and the promise');

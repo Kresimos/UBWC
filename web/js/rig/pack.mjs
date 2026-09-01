@@ -257,7 +257,7 @@ export function buildModel(sails, kit, pins = []) {
   });
   const cap = classes.map((c, i) => Math.max(floor[i], Math.min(c.items.length, useful[i])));
 
-  const model = { classes, rows, sails, floor, cap, ceiling };
+  const model = { classes, rows, sails, floor, cap, ceiling, useful };
 
   // The deepest group each sail could ever be part of, if the trailer carried
   // everything on site. This is the bar the packing list is measured against,
@@ -313,10 +313,24 @@ export function solve(model, counts, options = {}) {
   // since there is no real item to have an opinion about.
   const partOf = (c, j) => unit[c][j] ?? 0;
 
+  // Pinned items sit at the front of their class, so consuming index `j < floor`
+  // means a rig is being built through a piece somebody asked for. A flat nudge,
+  // well under BIG so it never trades away a rigged sail, steers `solve` towards
+  // the arrangement that actually uses the requested kit rather than packing it
+  // as a spare beside the rigs.
+  const PIN_BONUS = 100;
+  const pinOf = (c, j) => (j < model.floor[c] ? PIN_BONUS : 0);
+
   const gainOf = (t) => BIG + t.part
-    + partOf(t.m, counts[t.m] - caps[t.m])
-    + partOf(t.e, counts[t.e] - caps[t.e])
-    + partOf(t.b, counts[t.b] - caps[t.b]);
+    + partOf(t.m, counts[t.m] - caps[t.m]) + pinOf(t.m, counts[t.m] - caps[t.m])
+    + partOf(t.e, counts[t.e] - caps[t.e]) + pinOf(t.e, counts[t.e] - caps[t.e])
+    + partOf(t.b, counts[t.b] - caps[t.b]) + pinOf(t.b, counts[t.b] - caps[t.b]);
+
+  // The pin nudge, on the three items a triple is about to consume. Peeled back
+  // out of the plan's recorded gain so match quality stays a pure kit score.
+  const pinPart = (t) => pinOf(t.m, counts[t.m] - caps[t.m])
+    + pinOf(t.e, counts[t.e] - caps[t.e])
+    + pinOf(t.b, counts[t.b] - caps[t.b]);
 
   function value(k) {
     if (k === idxs.length) return 0;
@@ -349,21 +363,23 @@ export function solve(model, counts, options = {}) {
   // Replay the decisions to recover the assignment itself. Every memo entry is
   // already warm, so this walk is free.
   const plan = [];
+  let pinTotal = 0;
   for (let k = 0; k < idxs.length; k++) {
     const target = value(k);
     let took = null;
     for (const t of rows[idxs[k]].triples) {
       if (caps[t.m] <= 0 || caps[t.e] <= 0 || caps[t.b] <= 0) continue;
       const gain = gainOf(t);
+      const bonus = pinPart(t);
       const units = { m: counts[t.m] - caps[t.m], e: counts[t.e] - caps[t.e], b: counts[t.b] - caps[t.b] };
       caps[t.m]--; caps[t.e]--; caps[t.b]--;
-      if (Math.abs(gain + value(k + 1) - target) < 1e-6) { took = { t, units, gain: gain - BIG }; break; }
+      if (Math.abs(gain + value(k + 1) - target) < 1e-6) { took = { t, units, gain: gain - BIG - bonus }; pinTotal += bonus; break; }
       caps[t.m]++; caps[t.e]++; caps[t.b]++;
     }
     if (took) plan.push({ sailIdx: idxs[k], ...took });
   }
 
-  return { rigs: plan.length, part: total - plan.length * BIG, plan, exact: !overflow };
+  return { rigs: plan.length, part: total - plan.length * BIG - pinTotal, plan, exact: !overflow };
 }
 
 /**
@@ -412,9 +428,11 @@ export function allRiggable(model, counts, mask) {
 /* ======================================================== 5. scoring a P */
 
 export const DEFAULT_WEIGHTS = {
-  // The reward, on a 0..1 scale: how deep each sail gets, against the deepest
-  // the club's whole rack could ever get it.
-  depth: 100,
+  // The reward, on a 0..1 scale: spare kit the promise does not strictly need,
+  // so a broken piece still leaves a qualifying group and there is a wider
+  // choice at the trailer. Measured per kind and run through a sharply concave
+  // curve, so the first spare is worth far more than the fifth.
+  spare: 45,
   // The penalty, charged per sail-slot short of the promise. At 25 a piece of
   // kit (2) is obviously worth taking to close a gap, and closing a gap always
   // beats improving anybody's brand match (30 across every sail at once).
@@ -538,10 +556,37 @@ function maxRigsWith(model, counts, require, ceiling = Infinity, budget = 400000
 
 
 /**
+ * The concave value of `s` spare pieces of one kind. The first spare is worth
+ * 0.5, the second another 0.25, and so on: room to lose a piece matters a lot,
+ * a deep bench much less. Zero below one spare so the promise's own kit earns
+ * nothing here.
+ */
+const spareCurve = (s) => (s <= 0 ? 0 : 1 - Math.pow(0.5, s));
+
+/**
+ * Spare kit, counted per kind: pieces of each kind that fit some sail on the
+ * trip, beyond the `datum` a single qualifying group needs. Only classes that
+ * can serve a sail count, so a boom nothing on this trip can use is not spare,
+ * it is dead weight. Monotone in the packing list (supply only rises, the datum
+ * is fixed), which is what keeps `exhaustive`'s bound sound.
+ */
+export function spareByKind(model, counts, datum) {
+  const fit = { mast: 0, ext: 0, boom: 0 };
+  model.classes.forEach((c, i) => {
+    if (counts[i] > 0 && model.useful[i] > 0) fit[c.kind] += counts[i];
+  });
+  return {
+    mast: Math.max(0, fit.mast - datum),
+    ext: Math.max(0, fit.ext - datum),
+    boom: Math.max(0, fit.boom - datum),
+  };
+}
+
+/**
  * How good a packing list is, as four terms in their own units plus the
  * weighted sum the search actually maximises.
  *
- *   score(P) = w_depth * (mean over sails of reach / the best reach possible)
+ *   score(P) = w_spare * (mean over the three kinds of a concave count of spares)
  *            - w_short * (sail-slots short of the promised group size)
  *            + w_match * (mean kit-match quality over the rigged sails)
  *            - w_light * (pieces on the trailer)
@@ -550,9 +595,9 @@ function maxRigsWith(model, counts, require, ceiling = Infinity, budget = 400000
  * made to each sail separately: every sail on the list rigs, and every sail on
  * the list rigs in a group of at least `minRigs`. `short` counts, in sails, how
  * far off that promise the trailer is, so 0 means it is kept for everybody.
- * `depth` is the reward for going further, which is what makes a trailer that
- * still works when somebody snaps a mast score better than one that only just
- * clears the bar.
+ * `spare` is the reward for going further: kit beyond the bare qualifying group,
+ * so a snapped mast on day one still leaves one, and so there is a real choice
+ * of rig at the trailer rather than exactly one arrangement that works.
  *
  * A sail the club's whole rack cannot rig, or cannot get to `minRigs` however
  * the trailer is packed, is an inventory problem rather than a packing one. It
@@ -586,6 +631,15 @@ export function scoreP(model, counts, opts = {}) {
 
   const depth = counted ? depthSum / counted : 0;
 
+  // The kit one qualifying group needs: `minRigs` of each kind, but never more
+  // than the biggest group the whole rack can actually stand up (a trip with
+  // three riggable sails and five the club cannot serve needs three of each
+  // kind for its group, not eight). A constant given the trip and the rack, so
+  // `spare` stays monotone in the packing list.
+  const datum = Math.min(minRigs, Math.max(0, ...model.possible));
+  const slack = spareByKind(model, counts, datum);
+  const spare = (spareCurve(slack.mast) + spareCurve(slack.ext) + spareCurve(slack.boom)) / 3;
+
   let match = 0;
   for (const row of full.plan) {
     const ceil = model.ceiling[row.sailIdx];
@@ -594,7 +648,7 @@ export function scoreP(model, counts, opts = {}) {
   match = full.plan.length ? match / full.plan.length : 0;
 
   const terms = {
-    depth: weights.depth * depth,
+    spare: weights.spare * spare,
     short: -weights.short * shortBy,
     match: weights.match * match,
     light: -weights.light * pieces,
@@ -606,9 +660,37 @@ export function scoreP(model, counts, opts = {}) {
     reaches, possible: model.possible, minRigs,
     depth, shortBy, stranded, impossible, keptPromise: shortBy === 0,
     minReach: counted ? Math.min(...reaches.filter((_, i) => model.possible[i] > 0)) : 0,
+    spare, slack, datum,
     match, pieces, weights, terms,
-    total: terms.depth + terms.short + terms.match + terms.light,
+    total: terms.spare + terms.short + terms.match + terms.light,
   };
+}
+
+/**
+ * Where the trailer is one breakage away from a broken promise. For each kind,
+ * drop each packed class of it by one piece and check the promise still holds
+ * for every sail; a kind that fails any of those drops is fragile. Three-ish
+ * searches per packed class, so only worth running on the final list, not on
+ * every candidate the search touches.
+ */
+export function fragileKinds(model, counts, opts = {}) {
+  const minRigs = opts.minRigs ?? 1;
+  const held = (probe) => reachVector(model, probe).every((got, s) =>
+    model.possible[s] === 0 || got >= Math.min(minRigs, model.possible[s]));
+
+  const out = [];
+  for (const kind of ['mast', 'ext', 'boom']) {
+    const idxs = model.classes
+      .map((_, i) => i)
+      .filter((i) => model.classes[i].kind === kind && counts[i] > 0);
+    if (!idxs.length) continue;
+    for (const i of idxs) {
+      const probe = counts.slice();
+      probe[i]--;
+      if (!held(probe)) { out.push(kind); break; }
+    }
+  }
+  return out;
 }
 
 /* ==================================================== 6. choosing the P */
@@ -751,11 +833,12 @@ export function chooseTrailer(model, opts = {}) {
   // none does. Two kinds of addition, because a piece and a rig are both real
   // moves and neither implies the other:
   //
-  //  - one more piece, which is what deepens a group that is nearly there;
-  //  - a whole rig for a sail that has none, which is the only way the number
-  //    of sails standing up at once ever goes up. A trailer can keep its
-  //    promise and still leave half the fleet on the bank, and no single piece
-  //    fixes that, so without this move the depth reward has nothing to climb.
+  //  - one more piece, which is what widens the choice for a group already there;
+  //  - a whole rig for a sail that has none, which brings another sail onto the
+  //    packing list. A single piece cannot do that, because a rig is three
+  //    pieces and two of them rig nothing on their own, so without this move the
+  //    match reward and the spare capacity of a fuller list have nothing to
+  //    climb from.
   for (;;) {
     let best = cur;
     let move = null;
@@ -849,11 +932,10 @@ export function chooseTrailer(model, opts = {}) {
 
 /**
  * The whole lattice, with a bound. Only for checking the search above on small
- * instances, but that check is the point: the bound is sound because
- * flexibility and match quality can only go up as kit is added, while weight
- * only goes up too. So the best a branch could do is the flexibility and match
- * of taking everything still on the table, paying only for what it has already
- * committed to.
+ * instances, but that check is the point: the bound is sound because spare kit
+ * and match quality can only go up as kit is added, while weight only goes up
+ * too. So the best a branch could do is the spare and match of taking everything
+ * still on the table, paying only for what it has already committed to.
  */
 export function exhaustive(model, opts = {}) {
   const { floor, cap } = model;
@@ -876,11 +958,11 @@ export function exhaustive(model, opts = {}) {
     const ceilCounts = counts.slice();
     for (let j = i; j < n; j++) ceilCounts[j] = cap[j];
     const top = scoreP(model, ceilCounts, opts);
-    // Depth and match only rise as kit is added and the shortfall only falls,
+    // Spare and match only rise as kit is added and the shortfall only falls,
     // so taking everything still on the table gives the best any completion of
     // this branch could reach on those three. Weight is the one term that can
     // only get worse, so it is charged on what the branch has already committed.
-    const bound = top.terms.depth + top.terms.match + top.terms.short
+    const bound = top.terms.spare + top.terms.match + top.terms.short
       - weights.light * (committed + tailFloor[i]);
     if (best && bound <= best.total + EPS) return;
 

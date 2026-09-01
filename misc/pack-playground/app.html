@@ -401,12 +401,13 @@ details[open] summary { margin-bottom: 12px; }
 
       <div class="field">
         <div class="top">
-          <label for="w-depth">Going further</label>
-          <output id="w-depth-out"></output>
+          <label for="w-spare">Spare kit</label>
+          <output id="w-spare-out"></output>
         </div>
-        <input type="range" id="w-depth" min="0" max="200" step="5">
-        <p class="why">Reward for reaching past the promise, which is what still works
-          when a mast snaps on day one.</p>
+        <input type="range" id="w-spare" min="0" max="120" step="5">
+        <p class="why">Reward for kit beyond the one group the promise needs: a
+          snapped mast still leaves a rig, and there is a real choice at the
+          trailer. Sharply diminishing, so the first spare of a kind counts most.</p>
       </div>
 
       <div class="field">
@@ -423,7 +424,7 @@ details[open] summary { margin-bottom: 12px; }
           <output id="w-light-out"></output>
         </div>
         <input type="range" id="w-light" min="0" max="40" step="0.5">
-        <p class="why">How much flexibility a piece has to buy before it earns a place on the trailer.</p>
+        <p class="why">What a piece has to buy, in promise or spare, before it earns a place on the trailer.</p>
       </div>
     </section>
 
@@ -493,7 +494,7 @@ details[open] summary { margin-bottom: 12px; }
     pinned: [],
     out: [],
     minRigs: 3,
-    weights: { depth: 100, short: 25, match: 30, light: 2 },
+    weights: { spare: 45, short: 25, match: 30, light: 2 },
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -535,8 +536,8 @@ details[open] summary { margin-bottom: 12px; }
     slider.value = String(state.minRigs);
     $('min-rigs-out').textContent = state.minRigs + ' or more';
 
-    $('w-depth').value = String(state.weights.depth);
-    $('w-depth-out').textContent = state.weights.depth;
+    $('w-spare').value = String(state.weights.spare);
+    $('w-spare-out').textContent = state.weights.spare;
     $('w-short').value = String(state.weights.short);
     $('w-short-out').textContent = state.weights.short;
     $('w-match').value = String(state.weights.match);
@@ -663,8 +664,9 @@ details[open] summary { margin-bottom: 12px; }
       '<div class="stat ' + (kept ? 'is-full' : 'is-short') + '"><div class="k">The promise</div>' +
         '<div class="v">' + (kept ? 'kept' : result.shortBy + '<small> short</small>') +
         '</div></div>',
-      '<div class="stat"><div class="k">Depth</div><div class="v">' +
-        Math.round(result.depth * 100) + '<small>%</small></div></div>',
+      '<div class="stat"><div class="k">Spare kit</div><div class="v">' +
+        result.slack.mast + '·' + result.slack.ext + '·' + result.slack.boom +
+        '<small> m·e·b</small></div></div>',
       '<div class="stat"><div class="k">Pieces packed</div><div class="v">' + result.pieces + '</div></div>',
       '<div class="stat"><div class="k">Kit matching</div><div class="v">' +
         Math.round(result.match * 100) + '<small>%</small></div></div>',
@@ -716,12 +718,13 @@ details[open] summary { margin-bottom: 12px; }
       ? 'every extension setting is the head kept shut' : '';
   }
 
-  function drawScore(result) {
+  function drawScore(result, fragile) {
     const w = result.weights, t = result.terms;
     const rows = [
-      ['Going further', 'each sail averages ' + Math.round(result.depth * 100) +
-        '% of the deepest group it could ever reach',
-       n2(result.depth) + ' \u00d7 ' + w.depth, n1(t.depth)],
+      ['Spare kit', result.slack.mast + ' mast, ' + result.slack.ext +
+        ' extension, ' + result.slack.boom + ' boom beyond the group of ' +
+        result.datum + ', on a diminishing curve',
+       n2(result.spare) + ' \u00d7 ' + w.spare, n1(t.spare)],
       ['The promise', result.shortBy === 0
         ? 'every sail rigs, in a group of at least ' + state.minRigs
         : result.shortBy + ' group ' + (result.shortBy === 1 ? 'place' : 'places') +
@@ -740,7 +743,19 @@ details[open] summary { margin-bottom: 12px; }
       }).join('') +
       '<tr class="total"><td class="term">Score</td><td class="detail"></td>' +
         '<td class="calc"></td><td class="out">' + n1(result.total) + '</td></tr>' +
-    '</tbody></table>';
+    '</tbody></table>' +
+    (result.keptPromise
+      ? '<p class="hint" style="margin-top:12px">' + (fragile && fragile.length
+          ? 'One breakage from a broken promise: losing a single <b>' +
+            fragile.map(function (k) {
+              return k === 'ext' ? 'extension' : k;
+            }).join('</b> or <b>') +
+            '</b> would drop a sail below its group of ' + result.datum +
+            '. Spare of a kind by count is not the same as a spare of the exact ' +
+            'length or diameter a stranded sail needs.'
+          : 'The promise survives the loss of any single piece on the trailer.') +
+        '</p>'
+      : '');
   }
 
 
@@ -831,6 +846,10 @@ details[open] summary { margin-bottom: 12px; }
     var result = chooseTrailer(model, { minRigs: state.minRigs, weights: state.weights });
     var ms = performance.now() - t0;
 
+    var fragile = result.keptPromise
+      ? fragileKinds(model, result.counts, { minRigs: state.minRigs })
+      : [];
+
     var packed = {};
     packingList(model, result.counts).forEach(function (p) { packed[p.id] = true; });
 
@@ -838,15 +857,16 @@ details[open] summary { margin-bottom: 12px; }
     drawSummary(result, sails);
     drawChart(model, result, sails);
     drawRigs(model, result, result.counts);
-    drawScore(result);
+    drawScore(result, fragile);
     drawReach(result, sails);
     drawTrace(result);
 
     $('footnote').innerHTML = 'Solved in <code>' + Math.round(ms) + 'ms</code>, scoring <code>' +
       result.evaluated + '</code> candidate trailers. Each one is an exact assignment plus a full ' +
-      'count of riggable groups, and the count is the expensive half: it grows as 2ⁿ in the ' +
-      'number of sails, because the measure is literally how many groups work. That is why eight ' +
-      'sails is comfortable here and fifteen would not be.';
+      'count of riggable groups. Spare kit is a concave count of the pieces a kind carries beyond ' +
+      'the one group the promise needs, so the first spare of a kind is worth far more than the ' +
+      'fifth; the line above it is the honest check, three probes on the final list rather than ' +
+      'on every candidate.';
   }
 
   /* ----------------------------------------------------------- events */
@@ -869,12 +889,12 @@ details[open] summary { margin-bottom: 12px; }
       state.pinned = [];
       state.out = [];
       state.minRigs = 3;
-      state.weights = { depth: 100, short: 25, match: 30, light: 2 };
+      state.weights = { spare: 45, short: 25, match: 30, light: 2 };
       schedule();
     }
   });
 
-  [['min-rigs', 'minRigs'], ['w-depth', 'depth'], ['w-short', 'short'],
+  [['min-rigs', 'minRigs'], ['w-spare', 'spare'], ['w-short', 'short'],
    ['w-match', 'match'], ['w-light', 'light']]
     .forEach(function (pair) {
       $(pair[0]).addEventListener('input', function (e) {

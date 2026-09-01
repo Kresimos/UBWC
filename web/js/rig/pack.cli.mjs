@@ -24,7 +24,7 @@
 
 import {
   buildModel, chooseTrailer, exhaustive, packingList, rigSheet, arrangements,
-  shortfalls, fragileKinds, DEFAULT_WEIGHTS,
+  coverage, fragileKinds, DEFAULT_WEIGHTS,
 } from './pack.mjs';
 import { SAILS, KIT, sailsBySize } from './pack.fixtures.mjs';
 
@@ -148,33 +148,26 @@ table([['sail', 'mast', 'extension', 'boom', 'match'],
          `${Math.round(100 * r.quality)}%`,
        ])], ['l', 'l', 'l', 'l', 'r']);
 
-// A sail missing from the biggest single session is not necessarily a failure:
-// the promise is that it rigs in a group of `minRigs`, not that it is in this
-// one. So a sail waiting its turn is listed apart from one that is genuinely short.
-const short = shortfalls(model, best, best.counts);
-if (short.length) {
-  const tell = (s) => {
-    const i = sails.indexOf(s.sail);
-    const got = best.reaches[i];
-    const can = best.possible[i];
-    const kept = can > 0 && got >= Math.min(minRigs, can);
-    return { s, kept, got };
-  };
-  const lines = short.map(tell);
-  const broken = lines.filter((l) => !l.kept);
-  const waiting = lines.filter((l) => l.kept);
+// One maximal session rarely holds every sail. The coverage matrix is the
+// proof that each of them still stands up in a group of at least the promise:
+// a row per session, a column per sail, a tick where that sail is up.
+const cov = coverage(model, best, best.counts, opts);
+if (cov.sessions.length > 1 || cov.short.length || cov.unreachable.length) {
+  head('Every sail stands up in one of these sessions');
+  const cols = sails.map((_, i) => i).sort((a, b) => sails[a].m2 - sails[b].m2);
+  const flag = (i) => (cov.unreachable.includes(i) ? '!' : cov.short.includes(i) ? '?' : '');
+  table([
+    ['', ...cols.map((i) => `${sails[i].m2}${sails[i].cams ? 'c' : ''}${flag(i)}`)],
+    ...cov.sessions.map((s, n) => {
+      const up = new Set(s.sheet.map((r) => r.sailIdx));
+      return [`S${n + 1} (${s.sheet.length})`, ...cols.map((i) => (up.has(i) ? 'x' : '.'))];
+    }),
+  ], ['l', ...cols.map(() => 'r')]);
 
-  if (broken.length) {
-    console.log();
-    console.log('Short:');
-    broken.forEach(({ s }) => console.log(`  ${s.sail.m2}m2 ${s.sail.mfr} ${s.sail.model}: ${s.why}`));
-  }
-  if (waiting.length) {
-    console.log();
-    console.log('Waiting a turn (the promise still holds for these):');
-    waiting.forEach(({ s, got }) => console.log(
-      `  ${s.sail.m2}m2 ${s.sail.mfr} ${s.sail.model}: rigs in a group of ${got}, just not in this one`));
-  }
+  const named = (i) => `${sails[i].m2}m2 ${sails[i].mfr} ${sails[i].model}`;
+  cov.unreachable.forEach((i) => console.log(`  ! ${named(i)}: nothing in the club rigs it`));
+  cov.short.forEach((i) => console.log(
+    `  ? ${named(i)}: rigs at most ${best.reaches[i]} at once, never a group of ${minRigs}`));
 }
 
 /* --------------------------------------------------------- the ways */

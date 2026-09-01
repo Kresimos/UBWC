@@ -456,6 +456,16 @@ export function reach(model, counts, sailIdx) {
 }
 
 /**
+ * The actual sails in the biggest group this one can be part of, as a list of
+ * sail indices. `reach` is its size; this is the group itself, which `coverage`
+ * needs to show a doubting sail the session it stands up in.
+ */
+export function reachGroup(model, counts, sailIdx) {
+  const set = maxRigsWith(model, counts, 1 << sailIdx).set;
+  return model.rows.map((_, i) => i).filter((i) => (set >> i) & 1);
+}
+
+/**
  * Every sail's reach at once, in far fewer searches than one per sail.
  *
  * One unconstrained search returns the biggest group there is, and that group
@@ -1146,6 +1156,76 @@ export function arrangements(model, result, counts, opts = {}) {
     count: scored.length,
     capped,
   };
+}
+
+/**
+ * Proof that every sail on the trip stands up in a group of at least the
+ * promised size. One maximal simultaneous rig rarely holds every sail — seven
+ * extensions cap the eighth sail whichever seven you pick — so this returns a
+ * short list of **sessions**, each a set of sails that all rig at once, whose
+ * union is every sail the club can actually serve.
+ *
+ * The canonical arrangement (`result.plan`) leads; then, for each sail still in
+ * no session, the biggest group that rigs it is added, most-constrained sail
+ * first, until they are all covered or `opts.limit` (6) sessions is reached.
+ *
+ * Returns `{ sessions, unreachable, short, capped }`:
+ *  - `sessions[i]` is `{ sails, waiting, sheet }` — `sheet` is `rigSheet`'s rows
+ *    for the sails up, `waiting` the sail indices sitting that one out.
+ *  - `unreachable` — sail indices nothing in the club rigs at all.
+ *  - `short` — sail indices that rig, but never in a group of `minRigs`, however
+ *    the trailer is packed. These are the ones the proof cannot make.
+ */
+export function coverage(model, result, counts, opts = {}) {
+  const minRigs = opts.minRigs ?? 1;
+  const limit = opts.limit ?? 6;
+  const all = model.rows.map((_, i) => i);
+  const bit = (i) => 1 << i;
+
+  const unreachable = all.filter((i) => result.possible[i] === 0);
+  const servable = all.filter((i) => result.possible[i] > 0);
+  const short = servable.filter((i) =>
+    result.reaches[i] < Math.min(minRigs, result.possible[i]));
+
+  const listOf = (mask) => all.filter((i) => mask & bit(i));
+  const canon = result.plan.reduce((m, p) => m | bit(p.sailIdx), 0);
+  const masks = canon ? [canon] : [];
+  let covered = canon;
+  let capped = false;
+
+  // Most-constrained sail first: pick its (smaller) group before a roomier sail
+  // claims the slot it needed.
+  const todo = servable.slice().sort((a, b) => result.reaches[a] - result.reaches[b]);
+  for (const i of todo) {
+    if (covered & bit(i)) continue;
+    if (masks.length >= limit) { capped = true; break; }
+
+    // The biggest group that rigs this sail, then trade its already-covered
+    // members for sails still needing a session, while it stays riggable. Fewer,
+    // fuller sessions instead of one near-copy per stranded sail.
+    let mask = reachGroup(model, counts, i).reduce((m, s) => m | bit(s), 0);
+    for (let improved = true; improved;) {
+      improved = false;
+      for (const c of listOf(mask & covered)) {
+        for (const u of servable) {
+          if (mask & bit(u) || covered & bit(u)) continue;
+          const trial = (mask & ~bit(c)) | bit(u);
+          if (allRiggable(model, counts, trial)) { mask = trial; improved = true; break; }
+        }
+        if (improved) break;
+      }
+    }
+
+    masks.push(mask);
+    covered |= mask;
+  }
+  const sessions = masks.map((mask) => ({
+    sails: listOf(mask),
+    waiting: servable.filter((i) => !(mask & bit(i))),
+    sheet: rigSheet(model, solve(model, counts, { mask })),
+  }));
+
+  return { sessions, unreachable, short, capped, covered: listOf(covered) };
 }
 
 /**

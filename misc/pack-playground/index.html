@@ -302,26 +302,29 @@ td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabu
 .minibar { height: 5px; background: var(--sunk); border-radius: 2px; overflow: hidden; }
 .minibar i { display: block; height: 100%; background: var(--accent); }
 
-/* --------------------------------------------------------- arrangements */
+/* ---------------------------------------------------- the coverage matrix */
 
-.arr { margin-bottom: 20px; }
-.arr:last-child { margin-bottom: 0; }
-.arr-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  gap: 8px 14px; flex-wrap: wrap; margin: 0 0 7px;
-  font-family: var(--f-display); font-weight: 700; font-size: 10.5px;
-  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+/* A row per session, a column per sail, a tick where that sail is up in that
+   session. Every row carries at least the promised group size; every sail the
+   club can rig has a tick somewhere. A sail nothing rigs gets an empty,
+   red-headed column. */
+.cov { min-width: 0; width: auto; }
+.cov td, .cov th { padding-top: 6px; padding-bottom: 6px; }
+.cov th.num, .cov td.num {
+  text-align: center; padding-left: 11px; padding-right: 11px;
+  font-family: var(--f-mono); font-variant-numeric: tabular-nums;
 }
-.arr-head .arr-q {
-  font-family: var(--f-mono); font-weight: 400; letter-spacing: 0;
-  text-transform: none; font-size: 11.5px;
-}
-/* The value that differs from the first arrangement, so a wall of near-identical
-   sheets reads as "the 6.5 and the 5.5 trade masts" at a glance. */
-.vary { color: var(--accent); font-weight: 600; }
-.arr-more { margin-top: 16px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
-.arr-more[open] { padding-bottom: 4px; }
-.arr-more > .arr:first-of-type { margin-top: 14px; }
+.cov th.num { color: var(--ink); font-weight: 500; font-size: 11.5px; }
+.cov td:first-child, .cov th:first-child { padding-right: 18px; white-space: nowrap; }
+.cov .tick { color: var(--accent); font-weight: 600; }
+.cov th.cov-none { color: var(--short); }
+.cov th.cov-short { color: var(--warn); }
+
+/* Each session's full rig sheet, folded, first one open. */
+.arr-more { border-top: 1px solid var(--line-soft); }
+.arr-more + .arr-more { margin-top: 0; }
+.arr-more[open] { padding-bottom: 10px; }
+.arr-more table { margin-top: 4px; }
 
 /* ------------------------------------------------------------ shortfall */
 
@@ -1041,6 +1044,16 @@ function reach(model, counts, sailIdx) {
 }
 
 /**
+ * The actual sails in the biggest group this one can be part of, as a list of
+ * sail indices. `reach` is its size; this is the group itself, which `coverage`
+ * needs to show a doubting sail the session it stands up in.
+ */
+function reachGroup(model, counts, sailIdx) {
+  const set = maxRigsWith(model, counts, 1 << sailIdx).set;
+  return model.rows.map((_, i) => i).filter((i) => (set >> i) & 1);
+}
+
+/**
  * Every sail's reach at once, in far fewer searches than one per sail.
  *
  * One unconstrained search returns the biggest group there is, and that group
@@ -1734,6 +1747,76 @@ function arrangements(model, result, counts, opts = {}) {
 }
 
 /**
+ * Proof that every sail on the trip stands up in a group of at least the
+ * promised size. One maximal simultaneous rig rarely holds every sail — seven
+ * extensions cap the eighth sail whichever seven you pick — so this returns a
+ * short list of **sessions**, each a set of sails that all rig at once, whose
+ * union is every sail the club can actually serve.
+ *
+ * The canonical arrangement (`result.plan`) leads; then, for each sail still in
+ * no session, the biggest group that rigs it is added, most-constrained sail
+ * first, until they are all covered or `opts.limit` (6) sessions is reached.
+ *
+ * Returns `{ sessions, unreachable, short, capped }`:
+ *  - `sessions[i]` is `{ sails, waiting, sheet }` — `sheet` is `rigSheet`'s rows
+ *    for the sails up, `waiting` the sail indices sitting that one out.
+ *  - `unreachable` — sail indices nothing in the club rigs at all.
+ *  - `short` — sail indices that rig, but never in a group of `minRigs`, however
+ *    the trailer is packed. These are the ones the proof cannot make.
+ */
+function coverage(model, result, counts, opts = {}) {
+  const minRigs = opts.minRigs ?? 1;
+  const limit = opts.limit ?? 6;
+  const all = model.rows.map((_, i) => i);
+  const bit = (i) => 1 << i;
+
+  const unreachable = all.filter((i) => result.possible[i] === 0);
+  const servable = all.filter((i) => result.possible[i] > 0);
+  const short = servable.filter((i) =>
+    result.reaches[i] < Math.min(minRigs, result.possible[i]));
+
+  const listOf = (mask) => all.filter((i) => mask & bit(i));
+  const canon = result.plan.reduce((m, p) => m | bit(p.sailIdx), 0);
+  const masks = canon ? [canon] : [];
+  let covered = canon;
+  let capped = false;
+
+  // Most-constrained sail first: pick its (smaller) group before a roomier sail
+  // claims the slot it needed.
+  const todo = servable.slice().sort((a, b) => result.reaches[a] - result.reaches[b]);
+  for (const i of todo) {
+    if (covered & bit(i)) continue;
+    if (masks.length >= limit) { capped = true; break; }
+
+    // The biggest group that rigs this sail, then trade its already-covered
+    // members for sails still needing a session, while it stays riggable. Fewer,
+    // fuller sessions instead of one near-copy per stranded sail.
+    let mask = reachGroup(model, counts, i).reduce((m, s) => m | bit(s), 0);
+    for (let improved = true; improved;) {
+      improved = false;
+      for (const c of listOf(mask & covered)) {
+        for (const u of servable) {
+          if (mask & bit(u) || covered & bit(u)) continue;
+          const trial = (mask & ~bit(c)) | bit(u);
+          if (allRiggable(model, counts, trial)) { mask = trial; improved = true; break; }
+        }
+        if (improved) break;
+      }
+    }
+
+    masks.push(mask);
+    covered |= mask;
+  }
+  const sessions = masks.map((mask) => ({
+    sails: listOf(mask),
+    waiting: servable.filter((i) => !(mask & bit(i))),
+    sheet: rigSheet(model, solve(model, counts, { mask })),
+  }));
+
+  return { sessions, unreachable, short, capped, covered: listOf(covered) };
+}
+
+/**
  * The sails that did not get a rig, and which slot ran out.
  *
  * "Kit all taken" is not much use at seven in the morning at a trailer. What
@@ -1979,100 +2062,110 @@ function shortfalls(model, result, counts) {
     ].join('');
   }
 
+  function sheetTable(sheet) {
+    return '<table><thead><tr><th>Sail</th><th>Mast</th><th>Extension</th><th>Boom</th>' +
+      '<th colspan="2" class="num">Kit match</th></tr></thead><tbody>' +
+      sheet.map(function (r) {
+        return '<tr>' +
+          '<td class="mono">' + r.sail.m2.toFixed(1) + '<span class="dim">m²</span> ' +
+            '<span class="dim">' + esc(r.sail.mfr) + '</span></td>' +
+          '<td class="mono">' + r.mast.len + ' ' + esc(r.mast.diam) +
+            ' <span class="dim">' + esc(r.mast.id) + '</span></td>' +
+          '<td class="mono">set to +' + r.setting + '<span class="dim">cm</span> ' +
+            '<span class="dim">' + esc(r.ext.id) + '</span></td>' +
+          '<td class="mono">' + r.boom.min + '-' + r.boom.max +
+            ' <span class="dim">' + esc(r.boom.id) + '</span></td>' +
+          '<td class="bar-cell"><div class="minibar"><i style="width:' +
+            (r.quality * 100).toFixed(0) + '%"></i></div></td>' +
+          '<td class="num mono">' + Math.round(r.quality * 100) + '%</td>' +
+        '</tr>';
+      }).join('') + '</tbody></table>';
+  }
+
   function drawRigs(model, result, counts) {
-    var ways = arrangements(model, result, counts, { limit: 16 });
-    var sheets = ways.list;
+    var cov = coverage(model, result, counts, { minRigs: state.minRigs });
+    var sessions = cov.sessions;
+    var sails = model.sails;
 
-    var rowHtml = function (r, base) {
-      var b = base && base[r.sailIdx];
-      // Highlight whichever part of a rig differs from the first arrangement: the
-      // spec when a length or setting moved, the item id when the club swapped
-      // one piece of a class for another.
-      var vary = function (v, on) { return on ? '<span class="vary">' + v + '</span>' : v; };
-      var mastSpec = b && (b.mast.len !== r.mast.len || b.mast.diam !== r.mast.diam);
-      var mastItem = b && !mastSpec && b.mast.id !== r.mast.id;
-      var extSet = b && b.setting !== r.setting;
-      var extItem = b && !extSet && b.ext.id !== r.ext.id;
-      var boomSpec = b && (b.boom.min !== r.boom.min || b.boom.max !== r.boom.max);
-      var boomItem = b && !boomSpec && b.boom.id !== r.boom.id;
-      return '<tr>' +
-        '<td class="mono">' + r.sail.m2.toFixed(1) + '<span class="dim">m²</span> ' +
-          '<span class="dim">' + esc(r.sail.mfr) + '</span></td>' +
-        '<td class="mono">' + vary(r.mast.len + ' ' + esc(r.mast.diam), mastSpec) +
-          ' <span class="dim">' + vary(esc(r.mast.id), mastItem) + '</span></td>' +
-        '<td class="mono">' + vary('set to +' + r.setting, extSet) + '<span class="dim">cm</span> ' +
-          '<span class="dim">' + vary(esc(r.ext.id), extItem) + '</span></td>' +
-        '<td class="mono">' + vary(r.boom.min + '-' + r.boom.max, boomSpec) +
-          ' <span class="dim">' + vary(esc(r.boom.id), boomItem) + '</span></td>' +
-        '<td class="bar-cell"><div class="minibar"><i style="width:' +
-          (r.quality * 100).toFixed(0) + '%"></i></div></td>' +
-        '<td class="num mono">' + Math.round(r.quality * 100) + '%</td>' +
-      '</tr>';
-    };
-
-    var tableFor = function (sheet, base) {
-      var by = base ? base.reduce(function (m, r) { m[r.sailIdx] = r; return m; }, {}) : null;
-      return '<table><thead><tr><th>Sail</th><th>Mast</th><th>Extension</th><th>Boom</th>' +
-        '<th colspan="2" class="num">Kit match</th></tr></thead><tbody>' +
-        sheet.map(function (r) { return rowHtml(r, by); }).join('') + '</tbody></table>';
-    };
-
-    var meanQ = function (sheet) {
-      return sheet.reduce(function (a, r) { return a + r.quality; }, 0) / sheet.length;
-    };
-    var block = function (sheet, n, base) {
-      return '<div class="arr"><div class="arr-head">' +
-        '<span>Arrangement ' + n + (n === 1 ? ' · as scored above' : '') + '</span>' +
-        '<span class="arr-q">' + Math.round(meanQ(sheet) * 100) + '% mean match</span>' +
-        '</div>' + tableFor(sheet, base) + '</div>';
-    };
-
-    var table;
-    if (!sheets.length) {
-      table = '<p class="hint" style="margin:0">Nothing rigs. Bring some kit back on site, or pick fewer sails.</p>';
-    } else if (sheets.length === 1) {
-      table = tableFor(sheets[0], null);
-    } else {
-      var base = sheets[0];
-      var shown = [block(sheets[0], 1, null), block(sheets[1], 2, base)];
-      var rest = sheets.slice(2).map(function (s, i) { return block(s, i + 3, base); });
-      table = shown.join('') + (rest.length
-        ? '<details class="arr-more"><summary>' + rest.length +
-          ' more ' + (rest.length === 1 ? 'arrangement' : 'arrangements') + '</summary>' +
-          rest.join('') + '</details>'
-        : '');
+    if (!sessions.length) {
+      $('rigs').innerHTML = '<p class="hint" style="margin:0">Nothing rigs. ' +
+        'Bring some kit back on site, or pick fewer sails.</p>';
+      $('rig-note').textContent = '';
+      return;
     }
-    var sheet = sheets[0] || [];
 
-    // A sail missing from the biggest single session is not necessarily a
-    // failure. The promise is that it rigs in a group of `minRigs`, not that it
-    // is in this particular group, so a sail waiting its turn must not be
-    // dressed as a shortfall.
-    var short = shortfalls(model, result, counts).map(function (s) {
-      var i = model.sails.indexOf(s.sail);
-      var got = result.reaches[i];
-      var can = result.possible[i];
-      var kept = can > 0 && got >= Math.min(state.minRigs, can);
-      return '<div class="' + (kept ? 'waiting' : 'shortfall') + '"><b>' +
-        s.sail.m2.toFixed(1) + 'm² ' + esc(s.sail.mfr) + ' ' + esc(s.sail.model) +
-        '</b> <span>' + (kept
-          ? 'rigs in a group of ' + got + ', just not in this one'
-          : esc(s.why)) + '</span></div>';
+    // One session that holds every sail, nothing sitting out: the plain sheet.
+    var oneShot = sessions.length === 1 && !sessions[0].waiting.length
+      && !cov.short.length && !cov.unreachable.length;
+    if (oneShot) {
+      $('rigs').innerHTML = sheetTable(sessions[0].sheet);
+      $('rig-note').textContent = 'every sail up at once · extension settings are the head kept shut';
+      return;
+    }
+
+    // The coverage matrix: a row per session, a column per sail, a tick where
+    // that sail is up in that session. Every row carries at least the promised
+    // group size; every sail the club can rig has a tick in some row.
+    var order = sails.map(function (_, i) { return i; })
+      .sort(function (a, b) { return sails[a].m2 - sails[b].m2; });
+    var inSession = sessions.map(function (s) {
+      var set = {};
+      s.sheet.forEach(function (r) { set[r.sailIdx] = true; });
+      return set;
+    });
+
+    var head = '<tr><th></th>' + order.map(function (i) {
+      var un = cov.unreachable.indexOf(i) !== -1;
+      var sh = cov.short.indexOf(i) !== -1;
+      return '<th class="num' + (un ? ' cov-none' : sh ? ' cov-short' : '') + '">' +
+        sails[i].m2.toFixed(1) + (sails[i].cams ? '◆' : '') + '</th>';
+    }).join('') + '</tr>';
+
+    var body = sessions.map(function (s, n) {
+      var cells = order.map(function (i) {
+        return '<td class="num">' + (inSession[n][i] ? '<span class="tick">✓</span>' : '') + '</td>';
+      }).join('');
+      return '<tr><td class="mono dim">S' + (n + 1) + '<span class="dim"> · ' +
+        s.sheet.length + ' up</span></td>' + cells + '</tr>';
     }).join('');
 
-    $('rigs').innerHTML = table + (short ? '<div style="margin-top:14px">' + short + '</div>' : '');
+    var matrix = '<div class="chart-wrap"><table class="cov"><thead>' + head +
+      '</thead><tbody>' + body + '</tbody></table></div>';
 
-    if (!sheet.length) {
-      $('rig-note').textContent = '';
-    } else if (sheets.length === 1) {
-      $('rig-note').textContent = 'the only way to rig these ' + sheet.length +
-        ' · every extension setting is the head kept shut';
-    } else {
-      $('rig-note').textContent = (ways.capped ? ways.count + '+' : ways.count) +
-        ' ways to rig these ' + sheet.length +
-        (ways.count > sheets.length ? ' · best ' + sheets.length + ' shown' : '') +
-        ' · accent marks what changed from the first';
-    }
+    var m2s = function (list) {
+      return list.map(function (i) { return sails[i].m2.toFixed(1); }).join(', ') + 'm²';
+    };
+    var details = sessions.map(function (s, n) {
+      var up = s.sheet.map(function (r) { return r.sailIdx; });
+      // Name the shorter side: who is up in a small session, who sits out of a big one.
+      var cap = 'Session ' + (n + 1) + ' — ' +
+        (!s.waiting.length ? 'all ' + up.length + ' up'
+          : s.waiting.length <= up.length ? m2s(s.waiting) + ' sit' +
+            (s.waiting.length === 1 ? 's' : '') + ' out'
+          : m2s(up) + ' up');
+      return '<details class="arr-more"' + (n === 0 ? ' open' : '') + '><summary>' +
+        esc(cap) + '</summary>' + sheetTable(s.sheet) + '</details>';
+    }).join('');
+
+    var problems = cov.unreachable.map(function (i) {
+      return { s: sails[i], why: 'nothing in the club rigs it' };
+    }).concat(cov.short.map(function (i) {
+      return { s: sails[i], why: 'rigs at most ' + result.reaches[i] +
+        ' at once, never a group of ' + state.minRigs };
+    })).map(function (p) {
+      return '<div class="shortfall"><b>' + p.s.m2.toFixed(1) + 'm² ' +
+        esc(p.s.mfr) + ' ' + esc(p.s.model) + '</b> <span>' + esc(p.why) + '</span></div>';
+    }).join('');
+
+    $('rigs').innerHTML = matrix +
+      '<div style="margin-top:16px">' + details + '</div>' +
+      (problems ? '<div style="margin-top:14px">' + problems + '</div>' : '');
+
+    var missing = cov.short.length + cov.unreachable.length;
+    $('rig-note').textContent = missing
+      ? missing + ' sail' + (missing === 1 ? '' : 's') + ' never reach a group of ' + state.minRigs
+      : 'every sail stands up in one of these ' + sessions.length + ' sessions' +
+        (cov.capped ? ' (and more)' : '');
   }
 
   function drawScore(result, fragile) {

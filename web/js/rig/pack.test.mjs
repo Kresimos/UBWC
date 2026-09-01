@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import {
   buildModel, solve, allRiggable, chooseTrailer, exhaustive, scoreP,
-  packingList, rigSheet, arrangements, coverage, reachGroup,
+  packingList, rigSheet, arrangements, spanReport, checkGroup, reachGroup,
   shortfalls, itemPart, reachVector,
   mastFits, extFits, boomFits, extSetting,
 } from './pack.mjs';
@@ -270,41 +270,82 @@ const full = (model) => model.cap.slice();
   eq(arrangements(model, r, counts).count, 1, 'so there is a single arrangement');
 }
 
-// The coverage sessions between them stand up every sail the club can serve,
-// each in a group of at least the promised size.
+// spanReport only ever asks about size-contiguous bands, and reads the grid right.
 {
-  // Three 430-luff sails, kit for two rigs. Any two rig at once, never all three.
-  const sails = [sail('a', 430, 180), sail('b', 430, 180), sail('c', 430, 180)];
-  const kit = [mast('m1', 430), mast('m2', 430), ext('e1', 0, 50), ext('e2', 0, 50),
-               boom('b1', 140, 200), boom('b2', 140, 200)];
+  // Five sails on a 30cm ladder; kit for three rigs at a time. So a run of three
+  // neighbours rigs, a run of four does not.
+  const sails = [sail('s1', 400, 150), sail('s2', 415, 158), sail('s3', 430, 166),
+                 sail('s4', 445, 175), sail('s5', 460, 183)];
+  const kit = [mast('m1', 400), mast('m2', 430), mast('m3', 460),
+               ext('e1', 0, 50), ext('e2', 0, 50), ext('e3', 0, 50),
+               boom('b1', 140, 200), boom('b2', 140, 200), boom('b3', 150, 210)];
   const model = buildModel(sails, kit);
-  const best = chooseTrailer(model, { minRigs: 2 });
-  const cov = coverage(model, best, best.counts, { minRigs: 2 });
+  const counts = full(model);
+  const rep = spanReport(model, counts, { minRigs: 3 });
 
-  eq(cov.unreachable.length, 0, 'every sail rigs on something');
-  eq(cov.short.length, 0, 'and every sail reaches a group of two');
-  eq(cov.covered.length, 3, 'the sessions cover all three sails');
-  cov.sessions.forEach((s, n) => {
-    ok(s.sheet.length >= 2, `session ${n} stands up at least the promised two`);
-    const ids = s.sheet.flatMap((r) => [r.mast.id, r.ext.id, r.boom.id]);
-    eq(new Set(ids).size, ids.length, `session ${n} shares no piece`);
-    s.sheet.forEach((r) => ok(mastFits(r.sail, r.mast), `session ${n}: legal mast`));
-  });
-  // Union of every session's sails is all three.
-  const seen = new Set(cov.sessions.flatMap((s) => s.sheet.map((r) => r.sailIdx)));
-  eq(seen.size, 3, 'no sail is left out of every session');
+  eq(rep.ord.length, 5, 'every sail is placed on the size ladder');
+  for (let a = 0; a < 5; a++) {
+    ok(rep.grid[a][a], `sail ${a} rigs on its own`);
+    eq(rep.grid[a].slice(0, a).every((x) => x === false), true, 'grid is upper-triangular');
+  }
+  // The grid agrees with allRiggable on the contiguous bands it covers.
+  for (let a = 0; a < 5; a++) {
+    for (let b = a; b < 5; b++) {
+      let mask = 0;
+      for (let k = a; k <= b; k++) mask |= 1 << rep.ord[k];
+      eq(rep.grid[a][b], allRiggable(model, counts, mask), `grid[${a}][${b}] matches allRiggable`);
+    }
+  }
+  ok(rep.widest.len >= 3 && rep.widest.len < 5, `widest band is a run of three or four (got ${rep.widest.len})`);
+  ok(rep.band.every((x, p) => x.a <= p && p <= x.b), 'each sail sits inside its own band');
+  eq(rep.dead.length, 0, 'nothing is dead here');
 }
 
-// A sail nothing rigs is called out, not covered.
+// A sail nothing rigs shows up in `dead`, not `short`.
 {
-  const sails = [sail('ok', 430, 180), sail('ok2', 430, 180), sail('nope', 650, 300)];
-  const kit = [mast('m1', 430), mast('m2', 430), ext('e1', 0, 50), ext('e2', 0, 50),
-               boom('b1', 140, 200), boom('b2', 140, 200)];
+  const sails = [sail('ok', 430, 180), sail('ok2', 445, 185), sail('nope', 650, 300)];
+  const kit = [mast('m1', 430), mast('m2', 460), ext('e1', 0, 50), ext('e2', 0, 50),
+               boom('b1', 140, 210), boom('b2', 140, 210)];
   const model = buildModel(sails, kit);
-  const best = chooseTrailer(model, { minRigs: 2 });
-  const cov = coverage(model, best, best.counts, { minRigs: 2 });
-  eq(cov.unreachable.length, 1, 'the 650-luff sail is unreachable');
-  eq(cov.unreachable[0], 2, 'and it is the third one');
+  const rep = spanReport(model, buildModel(sails, kit).cap, { minRigs: 2 });
+  const nopePos = rep.ord.indexOf(2);
+  ok(rep.dead.includes(nopePos), 'the 650-luff sail is dead');
+  ok(!rep.short.includes(nopePos), 'and not merely short');
+}
+
+// checkGroup rigs a good set, and names the piece that would rescue a bad one.
+{
+  const sails = [sail('a', 430, 180), sail('b', 430, 180), sail('c', 430, 180)];
+  const kit = [mast('m1', 430), mast('m2', 430), ext('e1', 0, 50), ext('e2', 0, 50),
+               ext('e3', 0, 50), boom('b1', 140, 200), boom('b2', 140, 200), boom('b3', 140, 200)];
+  const model = buildModel(sails, kit);
+  const counts = full(model); // two masts, so two of the three rig
+
+  const good = checkGroup(model, counts, [0, 1]);
+  ok(good.riggable, 'two sails rig on two masts');
+  eq(good.sheet.length, 2, 'and the sheet has them both');
+
+  const bad = checkGroup(model, counts, [0, 1, 2]);
+  ok(!bad.riggable, 'the third has no mast');
+  eq(bad.missing.length, 1, 'one sail is missing');
+  ok(bad.need && bad.need.kind === 'mast', `a mast is what is short (got ${bad.need && bad.need.kind})`);
+}
+
+// reachGroup hands back a real co-riggable group with the sail in it.
+{
+  const sails = [sail('a', 400, 160), sail('b', 460, 190), sail('c', 490, 200)];
+  const kit = [mast('m1', 400), mast('m2', 460), mast('m3', 490),
+               ext('e1', 0, 50), ext('e2', 0, 50), ext('e3', 0, 50),
+               boom('b1', 140, 210), boom('b2', 140, 210), boom('b3', 140, 210)];
+  const model = buildModel(sails, kit);
+  const counts = full(model);
+  for (let i = 0; i < 3; i++) {
+    const g = reachGroup(model, counts, i);
+    ok(g.includes(i), `reachGroup keeps sail ${i} in its own group`);
+    let mask = 0;
+    g.forEach((s) => { mask |= 1 << s; });
+    ok(allRiggable(model, counts, mask), `reachGroup ${i} is actually riggable at once`);
+  }
 }
 
 // reachGroup hands back a real co-riggable group with the sail in it.

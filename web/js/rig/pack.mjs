@@ -1159,73 +1159,94 @@ export function arrangements(model, result, counts, opts = {}) {
 }
 
 /**
- * Proof that every sail on the trip stands up in a group of at least the
- * promised size. One maximal simultaneous rig rarely holds every sail — seven
- * extensions cap the eighth sail whichever seven you pick — so this returns a
- * short list of **sessions**, each a set of sails that all rig at once, whose
- * union is every sail the club can actually serve.
+ * Which same-day fleets this trailer can stand up.
  *
- * The canonical arrangement (`result.plan`) leads; then, for each sail still in
- * no session, the biggest group that rigs it is added, most-constrained sail
- * first, until they are all covered or `opts.limit` (6) sessions is reached.
+ * A "group of three" only means something if the three are sizes somebody would
+ * sail in the same wind: a 4.5 next to a 7.8 is two different days, not a
+ * session. So the question is asked over **size-contiguous** bands only — the
+ * sails sorted by area, and every run of neighbours from one size up to another.
  *
- * Returns `{ sessions, unreachable, short, capped }`:
- *  - `sessions[i]` is `{ sails, waiting, sheet }` — `sheet` is `rigSheet`'s rows
- *    for the sails up, `waiting` the sail indices sitting that one out.
- *  - `unreachable` — sail indices nothing in the club rigs at all.
- *  - `short` — sail indices that rig, but never in a group of `minRigs`, however
- *    the trailer is packed. These are the ones the proof cannot make.
+ * Returns, over `ord` (row indices sorted small to large):
+ *  - `grid[a][b]` (b >= a) — the band `ord[a..b]` all rigs at once;
+ *  - `band[p]` — `{ len, a, b }`, the widest riggable band containing sail `p`;
+ *  - `widest` — the widest riggable band anywhere;
+ *  - `short` — positions whose widest band is under `minRigs` (the realistic
+ *    promise the trailer misses for that sail);
+ *  - `dead` — positions nothing in the club rigs at all.
  */
-export function coverage(model, result, counts, opts = {}) {
-  const minRigs = opts.minRigs ?? 1;
-  const limit = opts.limit ?? 6;
-  const all = model.rows.map((_, i) => i);
-  const bit = (i) => 1 << i;
+export function spanReport(model, counts, opts = {}) {
+  const ord = model.rows.map((_, i) => i)
+    .sort((a, b) => model.rows[a].sail.m2 - model.rows[b].sail.m2);
+  const n = ord.length;
+  const ask = Math.min(opts.minRigs ?? 1, n);
 
-  const unreachable = all.filter((i) => result.possible[i] === 0);
-  const servable = all.filter((i) => result.possible[i] > 0);
-  const short = servable.filter((i) =>
-    result.reaches[i] < Math.min(minRigs, result.possible[i]));
+  const grid = [];
+  for (let a = 0; a < n; a++) {
+    grid[a] = new Array(n).fill(false);
+    let mask = 0;
+    for (let b = a; b < n; b++) {
+      mask |= 1 << ord[b];
+      grid[a][b] = allRiggable(model, counts, mask);
+    }
+  }
 
-  const listOf = (mask) => all.filter((i) => mask & bit(i));
-  const canon = result.plan.reduce((m, p) => m | bit(p.sailIdx), 0);
-  const masks = canon ? [canon] : [];
-  let covered = canon;
-  let capped = false;
-
-  // Most-constrained sail first: pick its (smaller) group before a roomier sail
-  // claims the slot it needed.
-  const todo = servable.slice().sort((a, b) => result.reaches[a] - result.reaches[b]);
-  for (const i of todo) {
-    if (covered & bit(i)) continue;
-    if (masks.length >= limit) { capped = true; break; }
-
-    // The biggest group that rigs this sail, then trade its already-covered
-    // members for sails still needing a session, while it stays riggable. Fewer,
-    // fuller sessions instead of one near-copy per stranded sail.
-    let mask = reachGroup(model, counts, i).reduce((m, s) => m | bit(s), 0);
-    for (let improved = true; improved;) {
-      improved = false;
-      for (const c of listOf(mask & covered)) {
-        for (const u of servable) {
-          if (mask & bit(u) || covered & bit(u)) continue;
-          const trial = (mask & ~bit(c)) | bit(u);
-          if (allRiggable(model, counts, trial)) { mask = trial; improved = true; break; }
-        }
-        if (improved) break;
+  const band = ord.map((_, p) => {
+    let best = { len: grid[p][p] ? 1 : 0, a: p, b: p };
+    for (let a = 0; a <= p; a++) {
+      for (let b = p; b < n; b++) {
+        if (grid[a][b] && b - a + 1 > best.len) best = { len: b - a + 1, a, b };
       }
     }
+    return best;
+  });
 
-    masks.push(mask);
-    covered |= mask;
+  let widest = { len: 0, a: 0, b: 0 };
+  for (let a = 0; a < n; a++) {
+    for (let b = a; b < n; b++) {
+      if (grid[a][b] && b - a + 1 > widest.len) widest = { len: b - a + 1, a, b };
+    }
   }
-  const sessions = masks.map((mask) => ({
-    sails: listOf(mask),
-    waiting: servable.filter((i) => !(mask & bit(i))),
-    sheet: rigSheet(model, solve(model, counts, { mask })),
-  }));
 
-  return { sessions, unreachable, short, capped, covered: listOf(covered) };
+  const short = [];
+  const dead = [];
+  ord.forEach((_, p) => {
+    if (!grid[p][p]) dead.push(p);
+    else if (band[p].len < ask) short.push(p);
+  });
+
+  return { ord, grid, band, widest, short, dead, ask };
+}
+
+/**
+ * Can this exact set of sails rig at once, and if not, the one piece that would
+ * let it. The interactive "can we also do X" check behind the span grid.
+ *
+ * `sailIdxs` are row indices, in any order. Returns `{ riggable, rigs, sheet,
+ * missing, need }` — `sheet` is the best `rigSheet` for the set (all of it when
+ * `riggable`, as many as fit otherwise), `missing` the row indices left without
+ * a rig, `need` the class one more of which rigs the whole set (or null when no
+ * single piece does).
+ */
+export function checkGroup(model, counts, sailIdxs) {
+  let mask = 0;
+  for (const i of sailIdxs) mask |= 1 << i;
+  const res = solve(model, counts, { mask });
+  const up = new Set(res.plan.map((p) => p.sailIdx));
+  const missing = sailIdxs.filter((i) => !up.has(i));
+  const sheet = rigSheet(model, res);
+  if (!missing.length) return { riggable: true, rigs: res.rigs, sheet, missing: [], need: null };
+
+  const cand = new Set();
+  for (const i of missing) {
+    for (const t of model.rows[i].triples) { cand.add(t.m); cand.add(t.e); cand.add(t.b); }
+  }
+  let need = null;
+  for (const c of cand) {
+    const probe = counts.slice();
+    probe[c] += 1;
+    if (solve(model, probe, { mask }).rigs === sailIdxs.length) { need = model.classes[c]; break; }
+  }
+  return { riggable: false, rigs: res.rigs, sheet, missing, need };
 }
 
 /**

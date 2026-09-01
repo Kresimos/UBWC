@@ -302,29 +302,46 @@ td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabu
 .minibar { height: 5px; background: var(--sunk); border-radius: 2px; overflow: hidden; }
 .minibar i { display: block; height: 100%; background: var(--accent); }
 
-/* ---------------------------------------------------- the coverage matrix */
+/* -------------------------------------------------- the same-day fleet grid */
 
-/* A row per session, a column per sail, a tick where that sail is up in that
-   session. Every row carries at least the promised group size; every sail the
-   club can rig has a tick somewhere. A sail nothing rigs gets an empty,
-   red-headed column. */
-.cov { min-width: 0; width: auto; }
-.cov td, .cov th { padding-top: 6px; padding-bottom: 6px; }
-.cov th.num, .cov td.num {
-  text-align: center; padding-left: 11px; padding-right: 11px;
-  font-family: var(--f-mono); font-variant-numeric: tabular-nums;
+/* Rows and columns are the trip's sails, small to large. Cell (row a, col b >= a)
+   asks: can every sail from a's size up to b's size stand up at the same time?
+   The number is the run length. Scattered groups are never asked -- a 4.5 next
+   to an 8.5 is two different days, not a session. */
+.sp-headline { margin: 0 0 12px; font-size: 13.5px; }
+.sp-headline b { font-weight: 600; }
+
+.sp-grid { min-width: 0; width: auto; }
+.sp-grid td, .sp-grid th {
+  padding: 3px 4px; text-align: center;
+  font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 12px;
 }
-.cov th.num { color: var(--ink); font-weight: 500; font-size: 11.5px; }
-.cov td:first-child, .cov th:first-child { padding-right: 18px; white-space: nowrap; }
-.cov .tick { color: var(--accent); font-weight: 600; }
-.cov th.cov-none { color: var(--short); }
-.cov th.cov-short { color: var(--warn); }
+.sp-grid thead th { color: var(--ink); font-weight: 500; font-size: 11px; border-bottom: 0; }
+.sp-grid td:first-child, .sp-grid th:first-child {
+  color: var(--muted); padding-right: 12px; text-align: right; white-space: nowrap;
+}
+.sp-grid td { border-bottom: 0; }
+.sp-grid .sp-dead { color: var(--short); }
+.sp-grid .sp-short { color: var(--warn); }
+.sp-grid .sp-solo { color: var(--line); }
 
-/* Each session's full rig sheet, folded, first one open. */
-.arr-more { border-top: 1px solid var(--line-soft); }
-.arr-more + .arr-more { margin-top: 0; }
-.arr-more[open] { padding-bottom: 10px; }
-.arr-more table { margin-top: 4px; }
+.sp {
+  font: inherit; font-family: var(--f-mono); font-size: 12px;
+  width: 27px; height: 22px; padding: 0; border: 0; border-radius: 2px;
+  background: var(--sunk); color: var(--line); cursor: pointer;
+  transition: outline-color .1s;
+}
+.sp.is-ok { background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+.sp:hover { outline: 1.5px solid var(--accent); }
+.sp.is-sel { outline: 2px solid var(--accent); }
+
+#rig-detail:empty { display: none; }
+#rig-detail { border-top: 1px solid var(--line-soft); margin-top: 14px; }
+.sp-detail-head {
+  font-family: var(--f-display); font-weight: 700; font-size: 11px;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  margin: 12px 0 0;
+}
 
 /* ------------------------------------------------------------ shortfall */
 
@@ -1747,73 +1764,94 @@ function arrangements(model, result, counts, opts = {}) {
 }
 
 /**
- * Proof that every sail on the trip stands up in a group of at least the
- * promised size. One maximal simultaneous rig rarely holds every sail — seven
- * extensions cap the eighth sail whichever seven you pick — so this returns a
- * short list of **sessions**, each a set of sails that all rig at once, whose
- * union is every sail the club can actually serve.
+ * Which same-day fleets this trailer can stand up.
  *
- * The canonical arrangement (`result.plan`) leads; then, for each sail still in
- * no session, the biggest group that rigs it is added, most-constrained sail
- * first, until they are all covered or `opts.limit` (6) sessions is reached.
+ * A "group of three" only means something if the three are sizes somebody would
+ * sail in the same wind: a 4.5 next to a 7.8 is two different days, not a
+ * session. So the question is asked over **size-contiguous** bands only — the
+ * sails sorted by area, and every run of neighbours from one size up to another.
  *
- * Returns `{ sessions, unreachable, short, capped }`:
- *  - `sessions[i]` is `{ sails, waiting, sheet }` — `sheet` is `rigSheet`'s rows
- *    for the sails up, `waiting` the sail indices sitting that one out.
- *  - `unreachable` — sail indices nothing in the club rigs at all.
- *  - `short` — sail indices that rig, but never in a group of `minRigs`, however
- *    the trailer is packed. These are the ones the proof cannot make.
+ * Returns, over `ord` (row indices sorted small to large):
+ *  - `grid[a][b]` (b >= a) — the band `ord[a..b]` all rigs at once;
+ *  - `band[p]` — `{ len, a, b }`, the widest riggable band containing sail `p`;
+ *  - `widest` — the widest riggable band anywhere;
+ *  - `short` — positions whose widest band is under `minRigs` (the realistic
+ *    promise the trailer misses for that sail);
+ *  - `dead` — positions nothing in the club rigs at all.
  */
-function coverage(model, result, counts, opts = {}) {
-  const minRigs = opts.minRigs ?? 1;
-  const limit = opts.limit ?? 6;
-  const all = model.rows.map((_, i) => i);
-  const bit = (i) => 1 << i;
+function spanReport(model, counts, opts = {}) {
+  const ord = model.rows.map((_, i) => i)
+    .sort((a, b) => model.rows[a].sail.m2 - model.rows[b].sail.m2);
+  const n = ord.length;
+  const ask = Math.min(opts.minRigs ?? 1, n);
 
-  const unreachable = all.filter((i) => result.possible[i] === 0);
-  const servable = all.filter((i) => result.possible[i] > 0);
-  const short = servable.filter((i) =>
-    result.reaches[i] < Math.min(minRigs, result.possible[i]));
+  const grid = [];
+  for (let a = 0; a < n; a++) {
+    grid[a] = new Array(n).fill(false);
+    let mask = 0;
+    for (let b = a; b < n; b++) {
+      mask |= 1 << ord[b];
+      grid[a][b] = allRiggable(model, counts, mask);
+    }
+  }
 
-  const listOf = (mask) => all.filter((i) => mask & bit(i));
-  const canon = result.plan.reduce((m, p) => m | bit(p.sailIdx), 0);
-  const masks = canon ? [canon] : [];
-  let covered = canon;
-  let capped = false;
-
-  // Most-constrained sail first: pick its (smaller) group before a roomier sail
-  // claims the slot it needed.
-  const todo = servable.slice().sort((a, b) => result.reaches[a] - result.reaches[b]);
-  for (const i of todo) {
-    if (covered & bit(i)) continue;
-    if (masks.length >= limit) { capped = true; break; }
-
-    // The biggest group that rigs this sail, then trade its already-covered
-    // members for sails still needing a session, while it stays riggable. Fewer,
-    // fuller sessions instead of one near-copy per stranded sail.
-    let mask = reachGroup(model, counts, i).reduce((m, s) => m | bit(s), 0);
-    for (let improved = true; improved;) {
-      improved = false;
-      for (const c of listOf(mask & covered)) {
-        for (const u of servable) {
-          if (mask & bit(u) || covered & bit(u)) continue;
-          const trial = (mask & ~bit(c)) | bit(u);
-          if (allRiggable(model, counts, trial)) { mask = trial; improved = true; break; }
-        }
-        if (improved) break;
+  const band = ord.map((_, p) => {
+    let best = { len: grid[p][p] ? 1 : 0, a: p, b: p };
+    for (let a = 0; a <= p; a++) {
+      for (let b = p; b < n; b++) {
+        if (grid[a][b] && b - a + 1 > best.len) best = { len: b - a + 1, a, b };
       }
     }
+    return best;
+  });
 
-    masks.push(mask);
-    covered |= mask;
+  let widest = { len: 0, a: 0, b: 0 };
+  for (let a = 0; a < n; a++) {
+    for (let b = a; b < n; b++) {
+      if (grid[a][b] && b - a + 1 > widest.len) widest = { len: b - a + 1, a, b };
+    }
   }
-  const sessions = masks.map((mask) => ({
-    sails: listOf(mask),
-    waiting: servable.filter((i) => !(mask & bit(i))),
-    sheet: rigSheet(model, solve(model, counts, { mask })),
-  }));
 
-  return { sessions, unreachable, short, capped, covered: listOf(covered) };
+  const short = [];
+  const dead = [];
+  ord.forEach((_, p) => {
+    if (!grid[p][p]) dead.push(p);
+    else if (band[p].len < ask) short.push(p);
+  });
+
+  return { ord, grid, band, widest, short, dead, ask };
+}
+
+/**
+ * Can this exact set of sails rig at once, and if not, the one piece that would
+ * let it. The interactive "can we also do X" check behind the span grid.
+ *
+ * `sailIdxs` are row indices, in any order. Returns `{ riggable, rigs, sheet,
+ * missing, need }` — `sheet` is the best `rigSheet` for the set (all of it when
+ * `riggable`, as many as fit otherwise), `missing` the row indices left without
+ * a rig, `need` the class one more of which rigs the whole set (or null when no
+ * single piece does).
+ */
+function checkGroup(model, counts, sailIdxs) {
+  let mask = 0;
+  for (const i of sailIdxs) mask |= 1 << i;
+  const res = solve(model, counts, { mask });
+  const up = new Set(res.plan.map((p) => p.sailIdx));
+  const missing = sailIdxs.filter((i) => !up.has(i));
+  const sheet = rigSheet(model, res);
+  if (!missing.length) return { riggable: true, rigs: res.rigs, sheet, missing: [], need: null };
+
+  const cand = new Set();
+  for (const i of missing) {
+    for (const t of model.rows[i].triples) { cand.add(t.m); cand.add(t.e); cand.add(t.b); }
+  }
+  let need = null;
+  for (const c of cand) {
+    const probe = counts.slice();
+    probe[c] += 1;
+    if (solve(model, probe, { mask }).rigs === sailIdxs.length) { need = model.classes[c]; break; }
+  }
+  return { riggable: false, rigs: res.rigs, sheet, missing, need };
 }
 
 /**
@@ -1884,6 +1922,10 @@ function shortfalls(model, result, counts) {
     minRigs: 3,
     weights: { spare: 45, short: 25, match: 30, light: 2 },
   };
+
+  // The last solved model, kept so the same-day grid can answer a clicked band
+  // without re-running the trailer search.
+  var last = { model: null, counts: null, rep: null };
 
   var $ = function (id) { return document.getElementById(id); };
   var has = function (list, id) { return list.indexOf(id) !== -1; };
@@ -2082,90 +2124,108 @@ function shortfalls(model, result, counts) {
       }).join('') + '</tbody></table>';
   }
 
-  function drawRigs(model, result, counts) {
-    var cov = coverage(model, result, counts, { minRigs: state.minRigs });
-    var sessions = cov.sessions;
-    var sails = model.sails;
+  function friendlyClass(c) {
+    var p = c.rep;
+    if (c.kind === 'mast') return p.len + ' ' + p.diam + ' mast';
+    if (c.kind === 'ext') return (p.diam ? p.diam + ' ' : '') + 'extension';
+    return p.min + '-' + p.max + ' boom';
+  }
 
-    if (!sessions.length) {
+  // Fill the detail panel for one band of the grid: the rig sheet if the whole
+  // band stands up, otherwise how far it gets and the one piece that would close it.
+  function showBand(a, b) {
+    if (!last.model) return;
+    var ord = last.rep.ord;
+    var sail = function (p) { return last.model.sails[ord[p]]; };
+    var idxs = ord.slice(a, b + 1);
+    var r = checkGroup(last.model, last.counts, idxs);
+
+    var title = sail(a).m2.toFixed(1) + (a === b ? 'm²' : '–' + sail(b).m2.toFixed(1) + 'm²') +
+      ' · ' + idxs.length + ' sail' + (idxs.length === 1 ? '' : 's');
+    var lead = r.riggable
+      ? 'These rig at the same time.'
+      : r.sheet.length + ' of ' + idxs.length + ' stand up. ' +
+        (r.need ? 'One more <b>' + esc(friendlyClass(r.need)) + '</b> would fit the rest.'
+          : 'More than one piece short for the whole band.');
+
+    $('rig-detail').innerHTML = '<div class="sp-detail-head">' + esc(title) + '</div>' +
+      '<p class="hint" style="margin:3px 0 9px">' + lead + '</p>' +
+      (r.sheet.length ? sheetTable(r.sheet) : '');
+
+    [].forEach.call(document.querySelectorAll('#rigs .sp'), function (el) {
+      el.classList.toggle('is-sel', +el.dataset.ba === a && +el.dataset.bb === b);
+    });
+  }
+
+  function drawRigs(model, result, counts) {
+    var rep = spanReport(model, counts, { minRigs: state.minRigs });
+    last.model = model; last.counts = counts; last.rep = rep;
+    var ord = rep.ord, n = ord.length;
+    var sail = function (p) { return model.sails[ord[p]]; };
+    var lab = function (p) { return sail(p).m2.toFixed(1) + (sail(p).cams ? '◆' : ''); };
+    var tag = function (p) {
+      return rep.dead.indexOf(p) !== -1 ? ' sp-dead'
+        : rep.short.indexOf(p) !== -1 ? ' sp-short' : '';
+    };
+
+    if (rep.dead.length === n) {
       $('rigs').innerHTML = '<p class="hint" style="margin:0">Nothing rigs. ' +
         'Bring some kit back on site, or pick fewer sails.</p>';
       $('rig-note').textContent = '';
       return;
     }
 
-    // One session that holds every sail, nothing sitting out: the plain sheet.
-    var oneShot = sessions.length === 1 && !sessions[0].waiting.length
-      && !cov.short.length && !cov.unreachable.length;
-    if (oneShot) {
-      $('rigs').innerHTML = sheetTable(sessions[0].sheet);
-      $('rig-note').textContent = 'every sail up at once · extension settings are the head kept shut';
-      return;
-    }
+    var w = rep.widest;
+    var headline = w.len >= 2
+      ? '<b>' + w.len + ' sails</b> stand up at once at the widest — ' +
+        sail(w.a).m2.toFixed(1) + '–' + sail(w.b).m2.toFixed(1) + 'm²'
+      : 'No two neighbouring sails rig at the same time.';
 
-    // The coverage matrix: a row per session, a column per sail, a tick where
-    // that sail is up in that session. Every row carries at least the promised
-    // group size; every sail the club can rig has a tick in some row.
-    var order = sails.map(function (_, i) { return i; })
-      .sort(function (a, b) { return sails[a].m2 - sails[b].m2; });
-    var inSession = sessions.map(function (s) {
-      var set = {};
-      s.sheet.forEach(function (r) { set[r.sailIdx] = true; });
-      return set;
-    });
-
-    var head = '<tr><th></th>' + order.map(function (i) {
-      var un = cov.unreachable.indexOf(i) !== -1;
-      var sh = cov.short.indexOf(i) !== -1;
-      return '<th class="num' + (un ? ' cov-none' : sh ? ' cov-short' : '') + '">' +
-        sails[i].m2.toFixed(1) + (sails[i].cams ? '◆' : '') + '</th>';
+    var thead = '<tr><th></th>' + ord.map(function (_, b) {
+      return '<th class="num' + tag(b) + '">' + lab(b) + '</th>';
     }).join('') + '</tr>';
 
-    var body = sessions.map(function (s, n) {
-      var cells = order.map(function (i) {
-        return '<td class="num">' + (inSession[n][i] ? '<span class="tick">✓</span>' : '') + '</td>';
+    var tbody = ord.map(function (_, a) {
+      var cells = ord.map(function (_, b) {
+        if (b < a) return '<td></td>';
+        if (b === a) {
+          return '<td><span class="sp-solo">' + (rep.grid[a][a] ? '·' : '×') + '</span></td>';
+        }
+        var ok = rep.grid[a][b];
+        return '<td><button class="sp' + (ok ? ' is-ok' : '') +
+          '" data-ba="' + a + '" data-bb="' + b + '" ' +
+          'title="' + lab(a) + '–' + lab(b) + '">' + (ok ? (b - a + 1) : '') + '</button></td>';
       }).join('');
-      return '<tr><td class="mono dim">S' + (n + 1) + '<span class="dim"> · ' +
-        s.sheet.length + ' up</span></td>' + cells + '</tr>';
+      return '<tr><td class="' + (tag(a) || 'dim') + '">' + lab(a) + '</td>' + cells + '</tr>';
     }).join('');
 
-    var matrix = '<div class="chart-wrap"><table class="cov"><thead>' + head +
-      '</thead><tbody>' + body + '</tbody></table></div>';
+    var grid = '<div class="chart-wrap"><table class="sp-grid"><thead>' + thead +
+      '</thead><tbody>' + tbody + '</tbody></table></div>';
 
-    var m2s = function (list) {
-      return list.map(function (i) { return sails[i].m2.toFixed(1); }).join(', ') + 'm²';
-    };
-    var details = sessions.map(function (s, n) {
-      var up = s.sheet.map(function (r) { return r.sailIdx; });
-      // Name the shorter side: who is up in a small session, who sits out of a big one.
-      var cap = 'Session ' + (n + 1) + ' — ' +
-        (!s.waiting.length ? 'all ' + up.length + ' up'
-          : s.waiting.length <= up.length ? m2s(s.waiting) + ' sit' +
-            (s.waiting.length === 1 ? 's' : '') + ' out'
-          : m2s(up) + ' up');
-      return '<details class="arr-more"' + (n === 0 ? ' open' : '') + '><summary>' +
-        esc(cap) + '</summary>' + sheetTable(s.sheet) + '</details>';
+    var problems = rep.dead.map(function (p) {
+      return { s: sail(p), why: 'nothing in the club rigs it' };
+    }).concat(rep.short.map(function (p) {
+      var nb = rep.band[p].len - 1;
+      return { s: sail(p), why: 'only rigs alongside ' + nb + ' neighbour' +
+        (nb === 1 ? '' : 's') + ', short of a same-day group of ' + state.minRigs };
+    })).map(function (x) {
+      return '<div class="shortfall"><b>' + x.s.m2.toFixed(1) + 'm² ' +
+        esc(x.s.mfr) + ' ' + esc(x.s.model) + '</b> <span>' + esc(x.why) + '</span></div>';
     }).join('');
 
-    var problems = cov.unreachable.map(function (i) {
-      return { s: sails[i], why: 'nothing in the club rigs it' };
-    }).concat(cov.short.map(function (i) {
-      return { s: sails[i], why: 'rigs at most ' + result.reaches[i] +
-        ' at once, never a group of ' + state.minRigs };
-    })).map(function (p) {
-      return '<div class="shortfall"><b>' + p.s.m2.toFixed(1) + 'm² ' +
-        esc(p.s.mfr) + ' ' + esc(p.s.model) + '</b> <span>' + esc(p.why) + '</span></div>';
-    }).join('');
-
-    $('rigs').innerHTML = matrix +
-      '<div style="margin-top:16px">' + details + '</div>' +
+    $('rigs').innerHTML =
+      '<p class="sp-headline">' + headline + '</p>' + grid +
+      '<p class="hint" style="margin-top:9px">Each cell: can every sail from that row up to that column ' +
+      'stand up together. Click one for the kit.</p>' +
+      '<div id="rig-detail"></div>' +
       (problems ? '<div style="margin-top:14px">' + problems + '</div>' : '');
 
-    var missing = cov.short.length + cov.unreachable.length;
-    $('rig-note').textContent = missing
-      ? missing + ' sail' + (missing === 1 ? '' : 's') + ' never reach a group of ' + state.minRigs
-      : 'every sail stands up in one of these ' + sessions.length + ' sessions' +
-        (cov.capped ? ' (and more)' : '');
+    var miss = rep.short.length + rep.dead.length;
+    $('rig-note').textContent = miss
+      ? miss + ' sail' + (miss === 1 ? '' : 's') + ' short of a same-day group of ' + state.minRigs
+      : 'every sail rigs alongside a same-day group of ' + state.minRigs;
+
+    if (w.len >= 2) showBand(w.a, w.b);
   }
 
   function drawScore(result, fragile) {
@@ -2324,7 +2384,8 @@ function shortfalls(model, result, counts) {
   document.addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.sail) { toggle(state.sails, b.dataset.sail); schedule(); }
+    if (b.dataset.ba !== undefined) { showBand(+b.dataset.ba, +b.dataset.bb); }
+    else if (b.dataset.sail) { toggle(state.sails, b.dataset.sail); schedule(); }
     else if (b.dataset.pin) {
       if (has(state.out, b.dataset.pin)) toggle(state.out, b.dataset.pin);
       else toggle(state.pinned, b.dataset.pin);

@@ -19,12 +19,13 @@
  *   --explain       show the scoring arithmetic term by term
  *   --trace         show every move the search made
  *   --ways          list every way the packed trailer rigs the same group
+ *   --group a,b,c   check whether this exact set of sail sizes rigs at once
  *   --list          print the fixture rack's item ids and exit
  */
 
 import {
   buildModel, chooseTrailer, exhaustive, packingList, rigSheet, arrangements,
-  coverage, fragileKinds, DEFAULT_WEIGHTS,
+  spanReport, checkGroup, classLabel, fragileKinds, DEFAULT_WEIGHTS,
 } from './pack.mjs';
 import { SAILS, KIT, sailsBySize } from './pack.fixtures.mjs';
 
@@ -148,26 +149,52 @@ table([['sail', 'mast', 'extension', 'boom', 'match'],
          `${Math.round(100 * r.quality)}%`,
        ])], ['l', 'l', 'l', 'l', 'r']);
 
-// One maximal session rarely holds every sail. The coverage matrix is the
-// proof that each of them still stands up in a group of at least the promise:
-// a row per session, a column per sail, a tick where that sail is up.
-const cov = coverage(model, best, best.counts, opts);
-if (cov.sessions.length > 1 || cov.short.length || cov.unreachable.length) {
-  head('Every sail stands up in one of these sessions');
-  const cols = sails.map((_, i) => i).sort((a, b) => sails[a].m2 - sails[b].m2);
-  const flag = (i) => (cov.unreachable.includes(i) ? '!' : cov.short.includes(i) ? '?' : '');
-  table([
-    ['', ...cols.map((i) => `${sails[i].m2}${sails[i].cams ? 'c' : ''}${flag(i)}`)],
-    ...cov.sessions.map((s, n) => {
-      const up = new Set(s.sheet.map((r) => r.sailIdx));
-      return [`S${n + 1} (${s.sheet.length})`, ...cols.map((i) => (up.has(i) ? 'x' : '.'))];
-    }),
-  ], ['l', ...cols.map(() => 'r')]);
+// Same-day fleets: for every size-contiguous run of sails, whether they all
+// stand up at once. A "group of three" only counts if the three are sizes
+// somebody would sail in the same wind, so the question skips scattered groups.
+const span = spanReport(model, best.counts, opts);
+{
+  const lab = span.ord.map((i) => `${sails[i].m2}${sails[i].cams ? 'c' : ''}`);
+  const w = lab.reduce((m, s) => Math.max(m, s.length), 3);
+  const cell = (s) => String(s).padStart(w + 1);
+  head('Same-day fleets that rig at once  (run of sizes, small to large)');
+  console.log(' '.repeat(w + 2) + lab.map(cell).join(''));
+  span.ord.forEach((_, a) => {
+    let row = cell(lab[a]) + ' ';
+    for (let b = 0; b < span.ord.length; b++) {
+      row += cell(b < a ? '' : b === a ? '-' : span.grid[a][b] ? '#' : '.');
+    }
+    console.log(row);
+  });
+  const s = (p) => `${sails[span.ord[p]].m2}m2 ${sails[span.ord[p]].mfr} ${sails[span.ord[p]].model}`;
+  const rng = span.widest;
+  console.log();
+  console.log(rng.len >= 2
+    ? `Widest fleet up at once: ${rng.len} sails, ${sails[span.ord[rng.a]].m2}-${sails[span.ord[rng.b]].m2}m2`
+    : 'No two neighbouring sails rig at once.');
+  span.dead.forEach((p) => console.log(`  ! ${s(p)}: nothing in the club rigs it`));
+  span.short.forEach((p) => console.log(
+    `  ? ${s(p)}: only rigs alongside ${span.band[p].len - 1} neighbour`
+    + `${span.band[p].len === 2 ? '' : 's'}, short of a same-day ${minRigs}`));
+}
 
-  const named = (i) => `${sails[i].m2}m2 ${sails[i].mfr} ${sails[i].model}`;
-  cov.unreachable.forEach((i) => console.log(`  ! ${named(i)}: nothing in the club rigs it`));
-  cov.short.forEach((i) => console.log(
-    `  ? ${named(i)}: rigs at most ${best.reaches[i]} at once, never a group of ${minRigs}`));
+if (args.opt.group) {
+  const want = sailsBySize(list('group').map(Number));
+  const idxs = want.map((w) => sails.indexOf(w));
+  const r = checkGroup(model, best.counts, idxs);
+  head(`Can ${want.map((w) => w.m2).join(' + ')} rig at once?`);
+  if (r.riggable) {
+    console.log('Yes.');
+    table([['sail', 'mast', 'extension', 'boom'],
+           ...r.sheet.map((x) => [`${x.sail.m2}m2`, `${x.mast.len} ${x.mast.diam} ${x.mast.id}`,
+             `${x.ext.id} +${x.setting}`, `${x.boom.min}-${x.boom.max} ${x.boom.id}`])], ['l', 'l', 'l', 'l']);
+  } else {
+    console.log(`No: ${r.sheet.length} of ${idxs.length} rig. `
+      + `Missing ${r.missing.map((i) => `${sails[i].m2}m2`).join(', ')}.`);
+    console.log(r.need
+      ? `One more ${classLabel(r.need)} would do it.`
+      : 'More than one piece short.');
+  }
 }
 
 /* --------------------------------------------------------- the ways */

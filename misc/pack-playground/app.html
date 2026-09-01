@@ -304,15 +304,17 @@ td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabu
 
 /* ------------------------------------------------------------ shortfall */
 
-.shortfall {
+.shortfall, .waiting {
   border-left: 2px solid var(--short);
   background: var(--short-wash);
   padding: 9px 13px; border-radius: 0 var(--r) var(--r) 0;
   margin-bottom: 7px;
 }
-.shortfall:last-child { margin-bottom: 0; }
-.shortfall b { font-family: var(--f-mono); font-weight: 500; }
-.shortfall span { color: var(--muted); }
+/* Waiting a turn is not a fault, so it does not get the alarm colour. */
+.waiting { border-left-color: var(--line); background: var(--sunk); }
+.shortfall:last-child, .waiting:last-child { margin-bottom: 0; }
+.shortfall b, .waiting b { font-family: var(--f-mono); font-weight: 500; }
+.shortfall span, .waiting span { color: var(--muted); }
 
 /* ----------------------------------------------------------- score maths */
 
@@ -325,17 +327,22 @@ td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabu
 .maths tr.total td { border-bottom: 0; border-top: 1px solid var(--line); font-weight: 600; padding-top: 9px; }
 .maths tr.total td.out { font-size: 16px; color: var(--accent); }
 
-/* ---------------------------------------------------------- histogram */
+/* ------------------------------------------------------------ reach rows */
 
 .hist { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.hist-row { display: grid; grid-template-columns: 84px minmax(0,1fr) 84px; gap: 12px; align-items: center; font-size: 12.5px; }
-.hist-row .lab { font-family: var(--f-mono); color: var(--muted); text-align: right; white-space: nowrap; }
-.hist-row.counted .lab { color: var(--ink); font-weight: 500; }
+.hist-row { display: grid; grid-template-columns: 76px minmax(0,1fr) 96px; gap: 12px; align-items: center; font-size: 12.5px; }
+.hist-row .lab { font-family: var(--f-mono); color: var(--ink); text-align: right; white-space: nowrap; }
+.hist-row.is-short .lab { color: var(--short); }
 .hist-track { height: 13px; background: var(--sunk); border-radius: 2px; overflow: hidden; display: flex; }
-.hist-track i { display: block; height: 100%; background: var(--line); }
-.hist-row.counted .hist-track i { background: var(--accent); }
-.hist-track i.miss { background: var(--short); opacity: .55; }
+/* The solid run is the group this sail actually reaches; the faint run after
+   it is the headroom the whole rack could have given it. Faint is not a
+   failure, so it stays neutral, and only a broken promise turns the row red. */
+.hist-track i { display: block; height: 100%; background: var(--accent); }
+.hist-track i.miss { background: var(--line); }
+.hist-row.is-short .hist-track i { background: var(--short); }
+.hist-row.is-short .hist-track i.miss { background: var(--short-wash); }
 .hist-row .val { font-family: var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.hist-row.is-short .val { color: var(--short); }
 
 /* ---------------------------------------------------------------- misc */
 
@@ -376,19 +383,30 @@ details[open] summary { margin-bottom: 12px; }
 
       <div class="field">
         <div class="top">
-          <label for="min-rigs">Group size counted</label>
+          <label for="min-rigs">Sails up at once</label>
           <output id="min-rigs-out"></output>
         </div>
         <input type="range" id="min-rigs" min="1" max="8" step="1">
-        <p class="why">Flexibility counts every group of at least this many sails that can rig at once.</p>
+        <p class="why">The promise: every sail rigs, and rigs while this many are up.</p>
       </div>
 
       <div class="field">
         <div class="top">
-          <label for="w-flex">Flexibility</label>
-          <output id="w-flex-out"></output>
+          <label for="w-short">Breaking the promise</label>
+          <output id="w-short-out"></output>
         </div>
-        <input type="range" id="w-flex" min="0" max="200" step="5">
+        <input type="range" id="w-short" min="0" max="100" step="5">
+        <p class="why">Charged per sail, per group place it falls short.</p>
+      </div>
+
+      <div class="field">
+        <div class="top">
+          <label for="w-depth">Going further</label>
+          <output id="w-depth-out"></output>
+        </div>
+        <input type="range" id="w-depth" min="0" max="200" step="5">
+        <p class="why">Reward for reaching past the promise, which is what still works
+          when a mast snaps on day one.</p>
       </div>
 
       <div class="field">
@@ -444,7 +462,7 @@ details[open] summary { margin-bottom: 12px; }
     </section>
 
     <section class="card">
-      <p class="eyebrow">Riggable groups, by size</p>
+      <p class="eyebrow">How far each sail gets <span class="note" id="reach-note"></span></p>
       <div class="hist" id="hist"></div>
       <p class="hint" id="hist-note"></p>
     </section>
@@ -475,7 +493,7 @@ details[open] summary { margin-bottom: 12px; }
     pinned: [],
     out: [],
     minRigs: 3,
-    weights: { flex: 100, match: 30, light: 2 },
+    weights: { depth: 100, short: 25, match: 30, light: 2 },
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -517,8 +535,10 @@ details[open] summary { margin-bottom: 12px; }
     slider.value = String(state.minRigs);
     $('min-rigs-out').textContent = state.minRigs + ' or more';
 
-    $('w-flex').value = String(state.weights.flex);
-    $('w-flex-out').textContent = state.weights.flex;
+    $('w-depth').value = String(state.weights.depth);
+    $('w-depth-out').textContent = state.weights.depth;
+    $('w-short').value = String(state.weights.short);
+    $('w-short-out').textContent = state.weights.short;
     $('w-match').value = String(state.weights.match);
     $('w-match-out').textContent = state.weights.match;
     $('w-light').value = String(state.weights.light);
@@ -635,13 +655,17 @@ details[open] summary { margin-bottom: 12px; }
   /* ------------------------------------------------------- the results */
 
   function drawSummary(result, sails) {
-    var all = result.rigs === sails.length && sails.length > 0;
+    const all = result.rigs === sails.length && sails.length > 0;
+    const kept = result.keptPromise;
     $('summary').innerHTML = [
-      '<div class="stat ' + (all ? 'is-full' : 'is-short') + '"><div class="k">Rigs at once</div>' +
+      '<div class="stat ' + (all ? 'is-full' : '') + '"><div class="k">Rigs at once</div>' +
         '<div class="v">' + result.rigs + '<small> / ' + sails.length + '</small></div></div>',
+      '<div class="stat ' + (kept ? 'is-full' : 'is-short') + '"><div class="k">The promise</div>' +
+        '<div class="v">' + (kept ? 'kept' : result.shortBy + '<small> short</small>') +
+        '</div></div>',
+      '<div class="stat"><div class="k">Depth</div><div class="v">' +
+        Math.round(result.depth * 100) + '<small>%</small></div></div>',
       '<div class="stat"><div class="k">Pieces packed</div><div class="v">' + result.pieces + '</div></div>',
-      '<div class="stat"><div class="k">Flexibility</div><div class="v">' +
-        Math.round(result.flex.frac * 100) + '<small>%</small></div></div>',
       '<div class="stat"><div class="k">Kit matching</div><div class="v">' +
         Math.round(result.match * 100) + '<small>%</small></div></div>',
       '<div class="stat"><div class="k">Score</div><div class="v">' + n1(result.total) + '</div></div>',
@@ -671,9 +695,20 @@ details[open] summary { margin-bottom: 12px; }
         '<th colspan="2" class="num">Kit match</th></tr></thead><tbody>' + rows + '</tbody></table>'
       : '<p class="hint" style="margin:0">Nothing rigs. Bring some kit back on site, or pick fewer sails.</p>';
 
+    // A sail missing from the biggest single session is not necessarily a
+    // failure. The promise is that it rigs in a group of `minRigs`, not that it
+    // is in this particular group, so a sail waiting its turn must not be
+    // dressed as a shortfall.
     var short = shortfalls(model, result, counts).map(function (s) {
-      return '<div class="shortfall"><b>' + s.sail.m2.toFixed(1) + 'm² ' + esc(s.sail.mfr) +
-        ' ' + esc(s.sail.model) + '</b> <span>' + esc(s.why) + '</span></div>';
+      var i = model.sails.indexOf(s.sail);
+      var got = result.reaches[i];
+      var can = result.possible[i];
+      var kept = can > 0 && got >= Math.min(state.minRigs, can);
+      return '<div class="' + (kept ? 'waiting' : 'shortfall') + '"><b>' +
+        s.sail.m2.toFixed(1) + 'm² ' + esc(s.sail.mfr) + ' ' + esc(s.sail.model) +
+        '</b> <span>' + (kept
+          ? 'rigs in a group of ' + got + ', just not in this one'
+          : esc(s.why)) + '</span></div>';
     }).join('');
 
     $('rigs').innerHTML = table + (short ? '<div style="margin-top:14px">' + short + '</div>' : '');
@@ -682,56 +717,71 @@ details[open] summary { margin-bottom: 12px; }
   }
 
   function drawScore(result) {
-    var w = result.weights, t = result.terms;
+    const w = result.weights, t = result.terms;
+    const rows = [
+      ['Going further', 'each sail averages ' + Math.round(result.depth * 100) +
+        '% of the deepest group it could ever reach',
+       n2(result.depth) + ' \u00d7 ' + w.depth, n1(t.depth)],
+      ['The promise', result.shortBy === 0
+        ? 'every sail rigs, in a group of at least ' + state.minRigs
+        : result.shortBy + ' group ' + (result.shortBy === 1 ? 'place' : 'places') +
+          ' short, added up across the sails',
+       result.shortBy + ' \u00d7 \u2212' + w.short, n1(t.short)],
+      ['Kit matching', 'each rigged sail averages ' + Math.round(result.match * 100) +
+        '% of the best kit it could have had',
+       n2(result.match) + ' \u00d7 ' + w.match, n1(t.match)],
+      ['Lightness', result.pieces + ' pieces on the trailer',
+       result.pieces + ' \u00d7 \u2212' + w.light, n1(t.light)],
+    ];
     $('score').innerHTML = '<table class="maths"><tbody>' +
-      '<tr><td class="term">Flexibility</td>' +
-        '<td class="detail">' + result.flex.count + ' of ' + result.flex.total +
-          ' groups of ' + state.minRigs + ' or more sails can rig at once</td>' +
-        '<td class="calc">' + n2(result.flex.frac) + ' × ' + w.flex + '</td>' +
-        '<td class="out">' + n1(t.flex) + '</td></tr>' +
-      '<tr><td class="term">Kit matching</td>' +
-        '<td class="detail">each rigged sail averages ' + Math.round(result.match * 100) +
-          '% of the best kit it could have had</td>' +
-        '<td class="calc">' + n2(result.match) + ' × ' + w.match + '</td>' +
-        '<td class="out">' + n1(t.match) + '</td></tr>' +
-      '<tr><td class="term">Lightness</td>' +
-        '<td class="detail">' + result.pieces + ' pieces on the trailer</td>' +
-        '<td class="calc">' + result.pieces + ' × −' + w.light + '</td>' +
-        '<td class="out">' + n1(t.light) + '</td></tr>' +
+      rows.map(function (r) {
+        return '<tr><td class="term">' + r[0] + '</td><td class="detail">' + r[1] +
+          '</td><td class="calc">' + r[2] + '</td><td class="out">' + r[3] + '</td></tr>';
+      }).join('') +
       '<tr class="total"><td class="term">Score</td><td class="detail"></td>' +
         '<td class="calc"></td><td class="out">' + n1(result.total) + '</td></tr>' +
     '</tbody></table>';
   }
 
-  function choose(n, k) {
-    if (k < 0 || k > n) return 0;
-    var r = 1;
-    for (var i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
-    return Math.round(r);
-  }
 
-  function drawHist(result, n) {
-    var rows = [];
-    var maxTotal = 1;
-    for (var k = 1; k <= n; k++) maxTotal = Math.max(maxTotal, choose(n, k));
+  /**
+   * One row per sail: how big a group it can be part of, against the biggest
+   * the whole rack could ever put it in, with the promise marked. This is the
+   * flexibility measure itself, drawn rather than summarised, so the sail that
+   * is holding the trailer back is the one you can see.
+   */
+  function drawReach(result, sails) {
+    const scale = Math.max(1, Math.max.apply(null, result.possible.concat([1])));
+    const rows = sails.map(function (sl, i) {
+      const got = result.reaches[i];
+      const can = result.possible[i];
+      const asked = Math.min(state.minRigs, can);
+      const short = can > 0 && got < asked;
+      const spare = can > 0 ? Math.max(0, can - got) : 0;
 
-    for (var k2 = 1; k2 <= n; k2++) {
-      var got = result.flex.bySize[k2] || 0;
-      var tot = choose(n, k2);
-      var counted = k2 >= state.minRigs;
-      rows.push('<div class="hist-row ' + (counted ? 'counted' : '') + '">' +
-        '<span class="lab">' + k2 + ' at once</span>' +
-        '<span class="hist-track">' +
-          '<i style="width:' + (got / maxTotal * 100) + '%"></i>' +
-          '<i class="miss" style="width:' + ((tot - got) / maxTotal * 100) + '%"></i>' +
+      let note;
+      if (can === 0) note = 'nothing fits it';
+      else if (short) note = (asked - got) + ' short';
+      else if (got > asked) note = got + ', needs ' + asked;
+      else note = 'meets ' + asked;
+
+      return '<div class="hist-row ' + (short ? 'is-short' : 'counted') + '">' +
+        '<span class="lab">' + sl.m2.toFixed(1) + 'm\u00b2' + (sl.cams ? ' \u25c6' : '') + '</span>' +
+        '<span class="hist-track" title="reaches a group of ' + got + ' of a possible ' + can + '">' +
+          '<i style="width:' + (got / scale * 100) + '%"></i>' +
+          '<i class="miss" style="width:' + (spare / scale * 100) + '%"></i>' +
         '</span>' +
-        '<span class="val">' + got + ' / ' + tot + '</span>' +
-      '</div>');
-    }
-    $('hist').innerHTML = rows.join('');
-    $('hist-note').textContent = 'Rows at or above ' + state.minRigs +
-      ' count toward flexibility. A group is only tested once every group one smaller has ' +
-      'worked, which is what keeps this off 2ⁿ assignments.';
+        '<span class="val">' + note + '</span>' +
+      '</div>';
+    }).join('');
+
+    $('hist').innerHTML = rows;
+    $('reach-note').textContent = 'bar is the group it reaches, faint is what the rack could give it';
+    $('hist-note').textContent = result.impossible.length
+      ? 'A sail nothing in the club rigs is an inventory problem, not a packing one, '
+        + 'so it is left out of the score rather than charged to the trailer.'
+      : 'A sail is never asked for a bigger group than the whole rack could give it, '
+        + 'so the bar to clear is the smaller of the setting and what is possible.';
   }
 
   function drawTrace(result) {
@@ -770,6 +820,7 @@ details[open] summary { margin-bottom: 12px; }
       $('score').innerHTML = '';
       $('hist').innerHTML = '';
       $('hist-note').textContent = '';
+      $('reach-note').textContent = '';
       $('trace').innerHTML = '';
       $('footnote').textContent = '';
       return;
@@ -788,7 +839,7 @@ details[open] summary { margin-bottom: 12px; }
     drawChart(model, result, sails);
     drawRigs(model, result, result.counts);
     drawScore(result);
-    drawHist(result, sails.length);
+    drawReach(result, sails);
     drawTrace(result);
 
     $('footnote').innerHTML = 'Solved in <code>' + Math.round(ms) + 'ms</code>, scoring <code>' +
@@ -818,12 +869,13 @@ details[open] summary { margin-bottom: 12px; }
       state.pinned = [];
       state.out = [];
       state.minRigs = 3;
-      state.weights = { flex: 100, match: 30, light: 2 };
+      state.weights = { depth: 100, short: 25, match: 30, light: 2 };
       schedule();
     }
   });
 
-  [['min-rigs', 'minRigs'], ['w-flex', 'flex'], ['w-match', 'match'], ['w-light', 'light']]
+  [['min-rigs', 'minRigs'], ['w-depth', 'depth'], ['w-short', 'short'],
+   ['w-match', 'match'], ['w-light', 'light']]
     .forEach(function (pair) {
       $(pair[0]).addEventListener('input', function (e) {
         var v = Number(e.target.value);

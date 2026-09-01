@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import {
   buildModel, solve, allRiggable, chooseTrailer, exhaustive, scoreP,
-  packingList, rigSheet, shortfalls, itemPart,
+  packingList, rigSheet, shortfalls, itemPart, reachVector,
   mastFits, extFits, boomFits, extSetting,
 } from './pack.mjs';
 import { SAILS, KIT } from './pack.fixtures.mjs';
@@ -308,7 +308,7 @@ function randomInstance() {
     const counts = model.classes.map((c, i) => Math.min(c.items.length, model.cap[i]));
     for (let mask = 1; mask < (1 << sails.length); mask++) {
       const fast = allRiggable(model, counts, mask);
-      const slow = solve(model, counts, mask).rigs === (mask.toString(2).match(/1/g) || []).length;
+      const slow = solve(model, counts, { mask }).rigs === (mask.toString(2).match(/1/g) || []).length;
       eq(fast, slow, `case ${n} mask ${mask}: the fast feasibility check disagrees`);
       tested++;
     }
@@ -316,12 +316,39 @@ function randomInstance() {
   console.log(`  allRiggable vs solve:      ${tested} sail groups agree`);
 }
 
+// 3b2. Reach is what it claims: the size of the largest group of sails that can
+//      all rig at once with this one among them. Brute force finds that by
+//      trying every group; the solver settles most sails from a single search,
+//      so this is exactly where that shortcut would show up as wrong.
+{
+  let tested = 0;
+  for (let n = 0; n < 250; n++) {
+    const { sails, kit } = randomInstance();
+    const model = buildModel(sails, kit);
+    const counts = model.classes.map((c, i) => Math.min(c.items.length, model.cap[i]));
+    const got = reachVector(model, counts);
+
+    sails.forEach((_, s) => {
+      let want = 0;
+      for (let mask = 1; mask < (1 << sails.length); mask++) {
+        if (!((mask >> s) & 1)) continue;
+        const size = (mask.toString(2).match(/1/g) || []).length;
+        if (size > want && allRiggable(model, counts, mask)) want = size;
+      }
+      eq(got[s], want, `case ${n} sail ${s}: reach disagrees with brute force`);
+      tested++;
+    });
+  }
+  console.log(`  reach vs brute force:      ${tested} sails agree`);
+}
+
 // 3c. The outer search finds what walking the whole lattice finds.
 {
   let tested = 0;
   let optimal = 0;
   let worstGap = 0;
-  for (let n = 0; n < 60; n++) {
+  let worstRel = 0;
+  for (let n = 0; n < 150; n++) {
     const { sails, kit } = randomInstance();
     const pins = rnd() < 0.4 ? [pick(kit).id] : [];
     const model = buildModel(sails, kit, pins);
@@ -336,10 +363,16 @@ function randomInstance() {
     ok(gap > -1e-6, `case ${n}: the search beat the exhaustive optimum, which is a bug`);
     if (gap <= 1e-6) optimal++;
     worstGap = Math.max(worstGap, gap);
+    if (Math.abs(want.total) > 1e-9) worstRel = Math.max(worstRel, gap / Math.abs(want.total));
     tested++;
   }
-  console.log(`  chooseTrailer vs lattice:  ${optimal}/${tested} optimal, worst gap ${worstGap.toFixed(2)}`);
+  console.log(`  chooseTrailer vs lattice:  ${optimal}/${tested} optimal, `
+    + `worst gap ${worstGap.toFixed(2)} (${(worstRel * 100).toFixed(1)}%)`);
   ok(optimal / tested >= 0.9, `the search should be optimal on at least 9 in 10 racks, got ${optimal}/${tested}`);
+  // The count alone would hide a search that misses badly but rarely. What
+  // matters when it does miss is by how much, and a few points out of a hundred
+  // is a second identically-specified extension picked over its twin.
+  ok(worstRel <= 0.05, `the worst miss should be within 5% of optimal, was ${(worstRel * 100).toFixed(1)}%`);
 }
 
 // 3d. On the real fixture rack, the search matches the lattice too.
@@ -367,7 +400,10 @@ function randomInstance() {
     counts[i]++;
     const after = scoreP(model, counts, { minRigs: 1 });
     ok(after.rigs >= before.rigs, `case ${n}: an extra piece lost a rig`);
-    ok(after.flex.count >= before.flex.count, `case ${n}: an extra piece lost flexibility`);
+    after.reaches.forEach((r, s) => {
+      ok(r >= before.reaches[s], `case ${n}: an extra piece shortened a sail's reach`);
+    });
+    ok(after.shortBy <= before.shortBy, `case ${n}: an extra piece broke the promise further`);
   }
   console.log('  monotonicity:              adding kit never rigs fewer sails');
 }

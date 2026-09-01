@@ -9,11 +9,12 @@
  *
  * Options
  *   --sails a,b,c   sail sizes to take, from the fixture rack (default: all)
- *   --min N         the flexibility count is over groups of at least N sails (default 3)
+ *   --min N         every sail must rig in a group of at least N (default 3)
  *   --pin id,id     item ids that must be on the trailer whatever the score says
- *   --w-flex N      weight on flexibility        (default 100)
- *   --w-match N     weight on kit matching       (default 30)
- *   --w-light N     charge per piece of kit      (default 2)
+ *   --w-depth N     reward for reaching past the promise  (default 100)
+ *   --w-short N     penalty per sail-slot short of it     (default 25)
+ *   --w-match N     weight on kit matching                (default 30)
+ *   --w-light N     charge per piece of kit               (default 2)
  *   --exact         also walk the whole lattice and say whether the search found it
  *   --explain       show the scoring arithmetic term by term
  *   --trace         show every move the search made
@@ -90,7 +91,8 @@ const sails = args.opt.sails ? sailsBySize(list('sails').map(Number)) : SAILS;
 const pins = list('pin');
 const minRigs = num('min', 3);
 const weights = {
-  flex: num('w-flex', DEFAULT_WEIGHTS.flex),
+  depth: num('w-depth', DEFAULT_WEIGHTS.depth),
+  short: num('w-short', DEFAULT_WEIGHTS.short),
   match: num('w-match', DEFAULT_WEIGHTS.match),
   light: num('w-light', DEFAULT_WEIGHTS.light),
 };
@@ -107,8 +109,9 @@ const model = buildModel(sails, KIT, pins);
 
 console.log();
 console.log(`Sails      ${sails.map((s) => `${s.m2}`).join(', ')}  (${sails.length})`);
-console.log(`Groups     at least ${minRigs} sails rigged at once`);
-console.log(`Weights    flex ${weights.flex}, match ${weights.match}, ${weights.light} per piece`);
+console.log(`Promise    every sail rigs, in a group of at least ${minRigs}`);
+console.log(`Weights    depth ${weights.depth}, short ${weights.short}, `
+  + `match ${weights.match}, ${weights.light} per piece`);
 if (pins.length) console.log(`Pinned     ${pins.join(', ')}`);
 
 const t0 = Date.now();
@@ -144,20 +147,64 @@ table([['sail', 'mast', 'extension', 'boom', 'match'],
          `${Math.round(100 * r.quality)}%`,
        ])], ['l', 'l', 'l', 'l', 'r']);
 
+// A sail missing from the biggest single session is not necessarily a failure:
+// the promise is that it rigs in a group of `minRigs`, not that it is in this
+// one. So a sail waiting its turn is listed apart from one that is genuinely short.
 const short = shortfalls(model, best, best.counts);
 if (short.length) {
-  console.log();
-  console.log('Short:');
-  short.forEach((s) => console.log(`  ${s.sail.m2}m2 ${s.sail.mfr} ${s.sail.model}: ${s.why}`));
+  const tell = (s) => {
+    const i = sails.indexOf(s.sail);
+    const got = best.reaches[i];
+    const can = best.possible[i];
+    const kept = can > 0 && got >= Math.min(minRigs, can);
+    return { s, kept, got };
+  };
+  const lines = short.map(tell);
+  const broken = lines.filter((l) => !l.kept);
+  const waiting = lines.filter((l) => l.kept);
+
+  if (broken.length) {
+    console.log();
+    console.log('Short:');
+    broken.forEach(({ s }) => console.log(`  ${s.sail.m2}m2 ${s.sail.mfr} ${s.sail.model}: ${s.why}`));
+  }
+  if (waiting.length) {
+    console.log();
+    console.log('Waiting a turn (the promise still holds for these):');
+    waiting.forEach(({ s, got }) => console.log(
+      `  ${s.sail.m2}m2 ${s.sail.mfr} ${s.sail.model}: rigs in a group of ${got}, just not in this one`));
+  }
 }
 
 /* ----------------------------------------------------------- the score */
 
+head('The promise');
+table([['sail', 'rigs in a group of', 'best possible', '', 'verdict'],
+       ...sails.map((sl, i) => {
+         const got = best.reaches[i];
+         const can = best.possible[i];
+         const asked = Math.min(minRigs, can);
+         const bar = can > 0 ? '#'.repeat(got) + '.'.repeat(Math.max(0, can - got)) : '';
+         return [
+           `${sl.m2}m2 ${sl.mfr}`,
+           can > 0 ? String(got) : 'cannot rig',
+           can > 0 ? String(can) : 'nothing fits it',
+           bar,
+           can === 0 ? 'not the trailer\'s fault'
+             : got >= asked ? (got > asked ? `${got - asked} to spare` : 'just meets it')
+             : `${asked - got} short`,
+         ];
+       })], ['l', 'r', 'r', 'l', 'l']);
+
 head('The score');
 const t = best.terms;
 table([
-  ['flexibility', `${best.flex.count} of ${best.flex.total} groups riggable`,
-   `${n2(best.flex.frac)} x ${weights.flex}`, `= ${n1(t.flex)}`],
+  ['depth', `each sail averages ${Math.round(best.depth * 100)}% of the deepest group it could reach`,
+   `${n2(best.depth)} x ${weights.depth}`, `= ${n1(t.depth)}`],
+  ['promise', best.shortBy === 0
+    ? 'every sail rigs in a group of ' + minRigs
+    : `${best.shortBy} sail-slots short of a group of ${minRigs}`,
+   `${best.shortBy} x -${weights.short}`, `= ${n1(t.short)}`],
   ['kit matching', `mean ${Math.round(best.match * 100)}% of each sail's best possible kit`,
    `${n2(best.match)} x ${weights.match}`, `= ${n1(t.match)}`],
   ['lightness', `${best.pieces} pieces on the trailer`,
@@ -165,17 +212,25 @@ table([
   ['', '', 'total', `= ${n1(best.total)}`],
 ], ['l', 'l', 'r', 'r']);
 
-if (args.flags.has('explain')) {
-  head('Riggable groups, by size');
-  table([['sails at once', 'groups riggable', 'groups there are'],
-         ...best.flex.bySize.map((c, k) => (c === undefined ? null : [
-           `${k}${k >= minRigs ? ' *' : ''}`, String(c),
-           String(choose(sails.length, k)),
-         ])).filter(Boolean)], ['r', 'r', 'r']);
+if (best.impossible.length) {
   console.log();
-  console.log(`* counted toward flexibility (groups of at least ${minRigs}).`);
-  console.log('A group is only tested when every group one smaller already worked,');
-  console.log('which is why this is not 2^n assignments.');
+  console.log('Not a packing problem:');
+  best.impossible.forEach((i) => console.log(
+    `  ${sails[i].m2}m2 ${sails[i].mfr} ${sails[i].model}: nothing in the club rigs it, `
+    + 'so it is left out of the scoring entirely.'));
+}
+
+if (args.flags.has('explain')) {
+  head('What the promise means');
+  console.log(`Each sail is promised two things: that it rigs at all, and that it rigs`);
+  console.log(`while at least ${minRigs - 1} other sails are also up. Reach is the biggest group`);
+  console.log('a sail can be part of, so the promise is kept when every reach is at');
+  console.log(`least ${minRigs}, and depth rewards going past it, which is what leaves the`);
+  console.log('trailer still working when somebody snaps a mast on the first day.');
+  console.log();
+  console.log('A sail is never charged for a group the club could not give it: the');
+  console.log('"best possible" column is what the whole rack can do, and the promise');
+  console.log('asks for the smaller of that and the minimum.');
 }
 
 if (args.flags.has('trace')) {

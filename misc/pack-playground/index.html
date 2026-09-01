@@ -1,0 +1,1652 @@
+<title>Trailer Packer</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+
+<style>
+:root {
+  --ground:  #e7eaec;
+  --panel:   #fbfcfc;
+  --sunk:    #dfe4e6;
+  --ink:     #10161a;
+  --muted:   #66757e;
+  --line:    #ccd4d8;
+  --line-soft: #dde3e6;
+  --accent:  #00646d;
+  --accent-ink: #ffffff;
+  --accent-wash: #d9e8e9;
+  --good:    #2c7a52;
+  --warn:    #96650f;
+  --short:   #b03e2e;
+  --short-wash: #f2dedb;
+
+  --f-display: "IBM Plex Sans Condensed", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --r: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:  #12171a;
+    --panel:   #1b2328;
+    --sunk:    #161d21;
+    --ink:     #e6ecef;
+    --muted:   #8fa0aa;
+    --line:    #2b353c;
+    --line-soft: #232c32;
+    --accent:  #43b8c2;
+    --accent-ink: #08161a;
+    --accent-wash: #14343a;
+    --good:    #5cb885;
+    --warn:    #d3a04a;
+    --short:   #e2796a;
+    --short-wash: #3a221f;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:  #12171a;
+  --panel:   #1b2328;
+  --sunk:    #161d21;
+  --ink:     #e6ecef;
+  --muted:   #8fa0aa;
+  --line:    #2b353c;
+  --line-soft: #232c32;
+  --accent:  #43b8c2;
+  --accent-ink: #08161a;
+  --accent-wash: #14343a;
+  --good:    #5cb885;
+  --warn:    #d3a04a;
+  --short:   #e2796a;
+  --short-wash: #3a221f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ------------------------------------------------------------ masthead */
+
+.masthead {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  padding: 18px 28px 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.masthead h1 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 25px;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.masthead p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+/* --------------------------------------------------------------- shell */
+
+.shell {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 22px 22px 40px;
+  border-right: 1px solid var(--line);
+  background: var(--sunk);
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.main {
+  padding: 22px 28px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
+  .main { padding: 22px 20px 60px; }
+  .masthead { padding: 16px 20px; }
+}
+
+/* --------------------------------------------------------------- parts */
+
+.eyebrow {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.eyebrow .note {
+  font-family: var(--f-mono);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px 18px 18px;
+}
+
+.hint { color: var(--muted); font-size: 12.5px; margin: 10px 0 0; }
+
+/* ------------------------------------------------------------- toggles */
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chip {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.chip:hover { border-color: var(--accent); }
+.chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------- sliders */
+
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px; }
+.field:last-child { margin-bottom: 0; }
+.field .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.field label { font-weight: 500; font-size: 13px; }
+.field output { font-family: var(--f-mono); font-size: 13px; color: var(--accent); font-weight: 500; }
+.field .why { color: var(--muted); font-size: 12px; line-height: 1.4; }
+
+input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 18px; background: transparent; cursor: pointer; margin: 0;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: var(--line); border-radius: 2px;
+}
+input[type=range]::-moz-range-track { height: 3px; background: var(--line); border-radius: 2px; }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--accent); margin-top: -5px; border: 0;
+}
+input[type=range]::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%; background: var(--accent); border: 0;
+}
+
+/* ------------------------------------------------------------- summary */
+
+/* Flex rather than grid so a row that does not divide evenly stretches its
+   last tile instead of leaving an empty cell showing the rule colour. */
+.summary { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.stat { flex: 1 1 132px; background: var(--panel); padding: 13px 15px 14px; }
+.stat .k {
+  font-family: var(--f-display); font-weight: 700; font-size: 10.5px;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+}
+.stat .v {
+  font-family: var(--f-mono); font-size: 26px; font-weight: 500;
+  line-height: 1.15; margin-top: 3px; font-variant-numeric: tabular-nums;
+}
+.stat .v small { font-size: 14px; color: var(--muted); font-weight: 400; }
+.stat.is-short .v { color: var(--short); }
+.stat.is-full .v { color: var(--good); }
+
+/* --------------------------------------------------------------- chart */
+
+.chart-wrap { overflow-x: auto; }
+.chart-wrap svg { display: block; min-width: 620px; width: 100%; height: auto; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; color: var(--muted); font-size: 12px; align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 20px; height: 8px; border-radius: 1px; display: inline-block; }
+
+/* ---------------------------------------------------------------- rack */
+
+.rack-group { margin-bottom: 16px; }
+.rack-group:last-child { margin-bottom: 0; }
+.rack-group h3 {
+  font-family: var(--f-display); font-weight: 700; font-size: 11px;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 7px;
+}
+.rack { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.piece {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--panel); overflow: hidden;
+}
+.piece .body {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 1px; padding: 5px 9px; border: 0; background: none; cursor: pointer;
+  text-align: left; line-height: 1.25;
+}
+.piece .id { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
+.piece .spec { font-family: var(--f-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.piece .drop {
+  border: 0; border-left: 1px solid var(--line-soft); background: none;
+  color: var(--muted); cursor: pointer; padding: 0 8px; font-size: 14px; line-height: 1;
+}
+.piece .drop:hover { color: var(--short); background: var(--short-wash); }
+
+.piece.is-packed { border-color: var(--accent); background: var(--accent-wash); }
+.piece.is-packed .id { color: var(--accent); }
+.piece.is-pinned { border-color: var(--accent); background: var(--accent); }
+.piece.is-pinned .id, .piece.is-pinned .spec { color: var(--accent-ink); }
+.piece.is-pinned .drop { color: var(--accent-ink); border-left-color: rgba(255,255,255,.28); }
+.piece.is-out { opacity: .42; }
+.piece.is-out .spec { text-decoration: line-through; }
+
+/* --------------------------------------------------------------- table */
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  font-family: var(--f-display); font-weight: 700; font-size: 10.5px;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  text-align: left; padding: 0 12px 7px 0; border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line-soft); vertical-align: baseline; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.dim { color: var(--muted); }
+
+.bar-cell { width: 74px; }
+.minibar { height: 5px; background: var(--sunk); border-radius: 2px; overflow: hidden; }
+.minibar i { display: block; height: 100%; background: var(--accent); }
+
+/* ------------------------------------------------------------ shortfall */
+
+.shortfall {
+  border-left: 2px solid var(--short);
+  background: var(--short-wash);
+  padding: 9px 13px; border-radius: 0 var(--r) var(--r) 0;
+  margin-bottom: 7px;
+}
+.shortfall:last-child { margin-bottom: 0; }
+.shortfall b { font-family: var(--f-mono); font-weight: 500; }
+.shortfall span { color: var(--muted); }
+
+/* ----------------------------------------------------------- score maths */
+
+.maths { width: 100%; border-collapse: collapse; font-size: 13px; }
+.maths td { padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.maths td.term { font-weight: 500; white-space: nowrap; padding-right: 14px; }
+.maths td.detail { color: var(--muted); width: 99%; padding-right: 14px; }
+.maths td.calc { font-family: var(--f-mono); text-align: right; white-space: nowrap; padding-right: 14px; color: var(--muted); }
+.maths td.out { font-family: var(--f-mono); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.maths tr.total td { border-bottom: 0; border-top: 1px solid var(--line); font-weight: 600; padding-top: 9px; }
+.maths tr.total td.out { font-size: 16px; color: var(--accent); }
+
+/* ---------------------------------------------------------- histogram */
+
+.hist { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.hist-row { display: grid; grid-template-columns: 84px minmax(0,1fr) 84px; gap: 12px; align-items: center; font-size: 12.5px; }
+.hist-row .lab { font-family: var(--f-mono); color: var(--muted); text-align: right; white-space: nowrap; }
+.hist-row.counted .lab { color: var(--ink); font-weight: 500; }
+.hist-track { height: 13px; background: var(--sunk); border-radius: 2px; overflow: hidden; display: flex; }
+.hist-track i { display: block; height: 100%; background: var(--line); }
+.hist-row.counted .hist-track i { background: var(--accent); }
+.hist-track i.miss { background: var(--short); opacity: .55; }
+.hist-row .val { font-family: var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+/* ---------------------------------------------------------------- misc */
+
+details summary {
+  cursor: pointer; font-family: var(--f-display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+}
+details[open] summary { margin-bottom: 12px; }
+
+.working { color: var(--accent); }
+
+.footnote {
+  color: var(--muted); font-size: 12.5px; max-width: 74ch;
+  border-top: 1px solid var(--line); padding-top: 14px;
+}
+.footnote code { font-family: var(--f-mono); font-size: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+
+<header class="masthead">
+  <h1>Trailer Packer</h1>
+  <p>Pick the sails going on the trip. The solver decides which masts, extensions and booms go with them, and shows what each piece bought.</p>
+</header>
+
+<div class="shell">
+  <aside class="rail">
+    <section>
+      <p class="eyebrow">Sails on the trip <span class="note" id="sail-count"></span></p>
+      <div class="chips" id="sail-picker"></div>
+      <p class="hint">Every rig has to stand up at the same time, so nothing is shared between them.</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">Scoring</p>
+
+      <div class="field">
+        <div class="top">
+          <label for="min-rigs">Group size counted</label>
+          <output id="min-rigs-out"></output>
+        </div>
+        <input type="range" id="min-rigs" min="1" max="8" step="1">
+        <p class="why">Flexibility counts every group of at least this many sails that can rig at once.</p>
+      </div>
+
+      <div class="field">
+        <div class="top">
+          <label for="w-flex">Flexibility</label>
+          <output id="w-flex-out"></output>
+        </div>
+        <input type="range" id="w-flex" min="0" max="200" step="5">
+      </div>
+
+      <div class="field">
+        <div class="top">
+          <label for="w-match">Kit matching</label>
+          <output id="w-match-out"></output>
+        </div>
+        <input type="range" id="w-match" min="0" max="100" step="5">
+      </div>
+
+      <div class="field">
+        <div class="top">
+          <label for="w-light">Charge per piece</label>
+          <output id="w-light-out"></output>
+        </div>
+        <input type="range" id="w-light" min="0" max="40" step="0.5">
+        <p class="why">How much flexibility a piece has to buy before it earns a place on the trailer.</p>
+      </div>
+    </section>
+
+    <section>
+      <button class="chip" id="reset" style="padding:7px 12px;">Reset everything</button>
+    </section>
+  </aside>
+
+  <main class="main">
+    <div class="summary" id="summary"></div>
+
+    <section class="card">
+      <p class="eyebrow">Rigging windows <span class="note" id="chart-note"></span></p>
+      <div class="chart-wrap" id="chart"></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--accent-wash);border:1px solid var(--accent)"></i> mast lengths this sail accepts</span>
+        <span><i class="swatch" style="background:var(--accent);width:8px;height:14px;border-radius:1px"></i> the mast it got</span>
+        <span><i class="swatch" style="background:var(--muted);width:2px;height:14px"></i> a length the club owns that fits it</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">The rack <span class="note">click to pin &middot; &times; to take it off site</span></p>
+      <div id="rack"></div>
+      <p class="hint">Pinned kit is packed whatever it scores, and the rigs get built around it. Filled outlines are what the solver chose.</p>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">The rigs <span class="note" id="rig-note"></span></p>
+      <div id="rigs"></div>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">The score</p>
+      <div id="score"></div>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">Riggable groups, by size</p>
+      <div class="hist" id="hist"></div>
+      <p class="hint" id="hist-note"></p>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary>How the search got there</summary>
+        <div id="trace"></div>
+      </details>
+    </section>
+
+    <p class="footnote" id="footnote"></p>
+  </main>
+</div>
+
+<script>
+/* ---- inlined from web/js/rig/pack.fixtures.mjs ---- */
+
+/**
+ * A club-shaped rack to try the solver against, standing in for the real
+ * inventory until the DB is wired up. Sizes are the ones UBWC actually owns
+ * shapes of: masts on the 30cm grid, two diameter classes, a couple of short
+ * extensions that only reach 30cm so the mast and extension choices genuinely
+ * couple, and two cammed sails locked to SDM.
+ */
+
+const rate = (avg) => ({ avg });
+
+const SAILS = [
+  { id: 's45', kind: 'sail', mfr: 'Neil Pryde', model: 'Fusion 4.5', m2: 4.5, luff: 400, topExt: 0, boom: 150, cams: 0, diam: null },
+  { id: 's50', kind: 'sail', mfr: 'Neil Pryde', model: 'Fusion 5.0', m2: 5.0, luff: 415, topExt: 0, boom: 158, cams: 0, diam: null },
+  { id: 's55', kind: 'sail', mfr: 'Duotone', model: 'Super Hero 5.5', m2: 5.5, luff: 430, topExt: 0, boom: 166, cams: 0, diam: null },
+  { id: 's60', kind: 'sail', mfr: 'Duotone', model: 'Super Hero 6.0', m2: 6.0, luff: 445, topExt: 20, boom: 175, cams: 0, diam: null },
+  { id: 's65', kind: 'sail', mfr: 'Bic', model: 'Techno 6.5', m2: 6.5, luff: 458, topExt: 0, boom: 183, cams: 0, diam: null },
+  { id: 's70', kind: 'sail', mfr: 'Bic', model: 'Techno 7.0', m2: 7.0, luff: 470, topExt: 0, boom: 192, cams: 0, diam: null },
+  { id: 's78', kind: 'sail', mfr: 'Gaastra', model: 'Matrix 7.8', m2: 7.8, luff: 490, topExt: 0, boom: 202, cams: 1, diam: 'SDM' },
+  { id: 's85', kind: 'sail', mfr: 'Gaastra', model: 'Matrix 8.5', m2: 8.5, luff: 505, topExt: 0, boom: 212, cams: 1, diam: 'SDM' },
+];
+
+const mast = (id, mfr, len, diam, cond, avg, faults = []) =>
+  ({ id, kind: 'mast', mfr, model: `${diam} ${len}`, len, diam, cond, rate: rate(avg), faults });
+
+const MASTS = [
+  mast('m370a', 'Neil Pryde', 370, 'RDM', 'good', 4),
+  mast('m370b', 'Neil Pryde', 370, 'RDM', 'fair', 3),
+  mast('m400a', 'Neil Pryde', 400, 'RDM', 'very good', 4.5),
+  mast('m400b', 'Neil Pryde', 400, 'RDM', 'good', 4),
+  mast('m430a', 'Duotone', 430, 'RDM', 'very good', 4.5),
+  mast('m430b', 'Duotone', 430, 'RDM', 'good', 3.5),
+  mast('m430c', 'Bic', 430, 'SDM', 'fair', 3),
+  mast('m460a', 'Bic', 460, 'SDM', 'good', 4),
+  mast('m460b', 'Bic', 460, 'SDM', 'fair', 3, [{ title: 'scuffed base' }]),
+  mast('m460c', 'Duotone', 460, 'RDM', 'very good', 4.5),
+  mast('m490a', 'Gaastra', 490, 'SDM', 'good', 4),
+];
+
+const ext = (id, mfr, min, max, diam, cond, avg) =>
+  ({ id, kind: 'ext', mfr, model: `${diam} ${min}-${max}`, min, max, diam, cond, rate: rate(avg), faults: [] });
+
+const EXTS = [
+  ext('e1', 'Neil Pryde', 0, 50, 'RDM', 'very good', 4.5),
+  ext('e2', 'Neil Pryde', 0, 50, 'RDM', 'good', 4),
+  ext('e3', 'Neil Pryde', 0, 50, 'RDM', 'fair', 3),
+  ext('e4', 'Bic', 0, 50, 'SDM', 'good', 4),
+  ext('e5', 'Bic', 0, 50, 'SDM', 'fair', 3),
+  ext('e6', 'Chinook', 0, 30, 'RDM', 'good', 3.5),
+  ext('e7', 'Chinook', 0, 30, 'RDM', 'good', 3.5),
+];
+
+const boom = (id, mfr, min, max, cond, avg) =>
+  ({ id, kind: 'boom', mfr, model: `${min}-${max}`, min, max, cond, rate: rate(avg), faults: [] });
+
+const BOOMS = [
+  boom('b1', 'Neil Pryde', 140, 190, 'good', 4),
+  boom('b2', 'Neil Pryde', 140, 190, 'fair', 3),
+  boom('b3', 'Duotone', 150, 200, 'very good', 4.5),
+  boom('b4', 'Duotone', 150, 200, 'good', 4),
+  boom('b5', 'Bic', 160, 210, 'good', 4),
+  boom('b6', 'Bic', 160, 210, 'fair', 3),
+  boom('b7', 'Gaastra', 180, 230, 'good', 4),
+  boom('b8', 'Gaastra', 180, 230, 'very good', 4.5),
+  boom('b9', 'Chinook', 190, 240, 'fair', 3),
+];
+
+const KIT = [...MASTS, ...EXTS, ...BOOMS];
+
+/** Sails picked by size, so the CLI can take `--sails 5.5,7.0,8.5`. */
+function sailsBySize(list) {
+  return list.map((size) => {
+    const hit = SAILS.find((s) => Math.abs(s.m2 - size) < 0.051);
+    if (!hit) throw new Error(`no ${size}m sail in the fixture rack`);
+    return hit;
+  });
+}
+
+
+/* ---- inlined from web/js/rig/pack.mjs ---- */
+
+/**
+ * The trailer solver: given the sails somebody wants to take, decide which
+ * masts, extensions and booms go on the trailer with them.
+ *
+ * This is the combinatorial half of the trip wizard. The rig rules themselves
+ * are CLAUDE.md's and are restated here in section 1 rather than imported, so
+ * this file runs on its own under `node` with nothing else loaded.
+ *
+ * The shape of the problem, and why it is not as bad as it looks:
+ *
+ *  - **The boom is independent of the mast and extension.** Nothing about a
+ *    boom constrains which mast a sail ends up on. So "can these sails all be
+ *    rigged at once" factors into two assignment problems sharing no resources.
+ *  - **Each sail accepts a window of mast lengths**, `[luff - 50, luff + top]`,
+ *    and masts come on a 30cm grid, so a sail has two or three lengths open to
+ *    it. The branching factor per sail is tiny however big the club's rack is.
+ *  - **Kit is interchangeable within a class.** Two 430 RDM Duotone masts are
+ *    the same mast as far as rigging goes. So a packing list is a vector of
+ *    small counts over a dozen classes, not a subset of a 200-item inventory.
+ *
+ * That last point is what makes the outer search tractable: the space to search
+ * is a small integer lattice, and section 5 walks it.
+ *
+ * Everything here works on the three rig slots only. Boards, fins and bases are
+ * a counting exercise with one hard rule (box type) and are handled elsewhere.
+ */
+
+const EXT_MAX = 50; // the physical travel of a mast extension, in cm
+const EPS = 1e-9;
+const BIG = 1000; // one rigged sail outranks any amount of kit-match quality
+
+const known = (v) => v !== null && v !== undefined;
+const popcount = (m) => { let c = 0; while (m) { m &= m - 1; c++; } return c; };
+
+const CONDITION_RANK = { 'very good': 3, good: 2, fair: 1, poor: 0 };
+const conditionScore = (p) => CONDITION_RANK[String(p.cond || '').toLowerCase()] ?? 1.5;
+const ratingScore = (p) => (p.rate ? p.rate.avg : 3);
+
+/* ================================================== 1. the hard rig rules */
+
+/**
+ * The window of mast lengths this sail accepts. A mast shorter than the luff
+ * needs an extension to bridge the gap, and an extension only has 50cm of
+ * travel; a mast longer than the luff is only legal if the head opens far
+ * enough to swallow the overshoot. Hence `[luff - 50, luff + adjustable top]`.
+ */
+function mastWindow(sail) {
+  if (!known(sail.luff)) return null;
+  return [sail.luff - EXT_MAX, sail.luff + (sail.topExt || 0)];
+}
+
+function mastFits(sail, mast) {
+  // Cams are moulded to one diameter. Everything else takes either.
+  if (sail.cams && sail.diam && mast.diam && sail.diam !== mast.diam) return false;
+  const w = mastWindow(sail);
+  // A missing measurement is somebody not having written it down, and must
+  // never be read as a "no".
+  if (!w || !known(mast.len)) return true;
+  return mast.len >= w[0] - EPS && mast.len <= w[1] + EPS;
+}
+
+/** The band of extension settings that make this mast total this sail's luff. */
+function extNeed(sail, mast) {
+  if (!known(sail.luff) || !known(mast.len)) return null;
+  const low = Math.max(0, sail.luff - mast.len);
+  const high = Math.min(EXT_MAX, sail.luff + (sail.topExt || 0) - mast.len);
+  return high < low ? null : [low, high];
+}
+
+/**
+ * The setting a person actually uses: head kept shut, extension making up the
+ * difference. The head only opens when the mast is longer than the luff.
+ */
+function extSetting(sail, mast) {
+  if (!known(sail.luff) || !known(mast.len)) return null;
+  return Math.max(0, sail.luff - mast.len);
+}
+
+function extFits(sail, mast, ext) {
+  // An extension bolts into its mast, so those two must agree whatever the
+  // sail is.
+  if (ext.diam && mast.diam && ext.diam !== mast.diam) return false;
+  const need = extNeed(sail, mast);
+  if (!need || !known(ext.min)) return true;
+  return Math.max(need[0], ext.min) <= Math.min(need[1], ext.max) + EPS;
+}
+
+function boomFits(sail, boom) {
+  if (!known(sail.boom) || !known(boom.min)) return true;
+  return sail.boom >= boom.min - EPS && sail.boom <= boom.max + EPS;
+}
+
+/* ==================================================== 2. the soft ranking */
+
+/**
+ * A piece's score splits cleanly in two, and the split is what lets section 4
+ * stay exact:
+ *
+ *  - `itemPart` depends on the physical item alone (how the club rates it, what
+ *    condition it is in, what is broken). Every sail values it the same.
+ *  - `sailPart` depends on the sail and on the *class* spec (brand, length,
+ *    range), never on which individual item of that class you happen to hold.
+ *
+ * So the total match quality of an assignment is
+ * `sum over sails of sailPart` plus `sum over classes of the itemParts of the
+ * items actually taken`, and the second sum does not care who got what. That
+ * makes it a per-class prefix sum the solver can charge incrementally.
+ */
+const itemPart = (p) =>
+  ratingScore(p) * 1.2 + conditionScore(p) - 2 * ((p.faults || []).length);
+
+function mastPart(sail, mast) {
+  let s = 0;
+  if (sail.mfr && mast.mfr === sail.mfr) s += 2.5;   // brand match is a nudge, never a rule
+  const x = extSetting(sail, mast);
+  if (x !== null) s += 2 - Math.min(2, x / 25);      // least extension rigs cleanest
+  if (sail.diam && mast.diam === sail.diam) s += 1;  // free when it was free to choose
+  return s;
+}
+
+function extPart(sail, mast, ext) {
+  let s = 0;
+  if (sail.mfr && ext.mfr === sail.mfr) s += 2.5;
+  const x = extSetting(sail, mast);
+  // Sitting at the top of its travel means a hard downhaul, so room to spare wins.
+  if (x !== null && known(ext.max)) s += Math.min(1.5, Math.max(0, ext.max - x) / 10);
+  if (mast.diam && ext.diam === mast.diam) s += 1.5;
+  return s;
+}
+
+function boomPart(sail, boom) {
+  let s = 0;
+  if (sail.mfr && boom.mfr === sail.mfr) s += 2.5;
+  if (known(sail.boom) && known(boom.min)) {
+    const headroom = Math.min(sail.boom - boom.min, boom.max - sail.boom);
+    s += Math.min(1.5, Math.max(0, headroom) / 15);
+  }
+  return s;
+}
+
+/* ============================================= 3. classes and the model */
+
+/**
+ * Two pieces are the same piece to the solver when they rig identically and
+ * rank identically. Brand is in the key because it changes the ranking (a Neil
+ * Pryde sail prefers a Neil Pryde mast), so keeping it here means a class has
+ * one `sailPart` for a given sail and the split in section 2 holds exactly.
+ */
+function classKeyOf(p) {
+  if (p.kind === 'mast') return `mast|${p.len}|${p.diam || '?'}|${p.mfr || '?'}`;
+  if (p.kind === 'ext') return `ext|${p.min}-${p.max}|${p.diam || '?'}|${p.mfr || '?'}`;
+  if (p.kind === 'boom') return `boom|${p.min}-${p.max}|${p.mfr || '?'}`;
+  return null;
+}
+
+function classLabel(c) {
+  const p = c.rep;
+  const brand = p.mfr || 'unbranded';
+  if (c.kind === 'mast') return `${p.len} ${p.diam || ''} ${brand}`.replace(/\s+/g, ' ').trim();
+  if (c.kind === 'ext') return `${p.min}-${p.max} ${p.diam || ''} ${brand} ext`.replace(/\s+/g, ' ').trim();
+  return `${p.min}-${p.max} ${brand} boom`;
+}
+
+/**
+ * Everything the solver needs, worked out once: the classes in the club's rack,
+ * and for each sail the list of (mast class, extension class, boom class)
+ * triples that legally rig it.
+ *
+ * `pins` are item ids somebody has insisted on. A pinned item sorts to the
+ * front of its class, so "take k from this class" always takes the pinned ones
+ * first, and `floor[class]` records how many must be taken.
+ */
+function buildModel(sails, kit, pins = []) {
+  const pinned = new Set(pins);
+  const classes = [];
+  const byKey = new Map();
+
+  for (const p of kit) {
+    const key = classKeyOf(p);
+    if (!key) continue;
+    let c = byKey.get(key);
+    if (!c) {
+      c = { key, kind: p.kind, rep: p, items: [], idx: classes.length };
+      byKey.set(key, c);
+      classes.push(c);
+    }
+    c.items.push(p);
+  }
+
+  const floor = classes.map(() => 0);
+  classes.forEach((c) => {
+    c.items.sort((a, b) =>
+      (pinned.has(b.id) ? 1 : 0) - (pinned.has(a.id) ? 1 : 0)
+      || itemPart(b) - itemPart(a)
+      || String(a.id).localeCompare(String(b.id)));
+    floor[c.idx] = c.items.filter((i) => pinned.has(i.id)).length;
+  });
+
+  const masts = classes.filter((c) => c.kind === 'mast');
+  const exts = classes.filter((c) => c.kind === 'ext');
+  const booms = classes.filter((c) => c.kind === 'boom');
+
+  const rows = sails.map((sail) => {
+    const triples = [];
+    for (const m of masts) {
+      if (!mastFits(sail, m.rep)) continue;
+      const mp = mastPart(sail, m.rep);
+      for (const e of exts) {
+        if (!extFits(sail, m.rep, e.rep)) continue;
+        const me = mp + extPart(sail, m.rep, e.rep);
+        for (const b of booms) {
+          if (!boomFits(sail, b.rep)) continue;
+          triples.push({ m: m.idx, e: e.idx, b: b.idx, part: me + boomPart(sail, b.rep) });
+        }
+      }
+    }
+    triples.sort((a, b) => b.part - a.part);
+    return { sail, triples };
+  });
+
+  // The best a sail could ever score if it had the whole rack to itself. Used
+  // only to put match quality on a 0..1 scale, so a number in the CLI means
+  // something without knowing the weights.
+  const ceiling = rows.map((row) => {
+    let best = 0;
+    for (const t of row.triples) {
+      const v = t.part
+        + itemPart(classes[t.m].items[0])
+        + itemPart(classes[t.e].items[0])
+        + itemPart(classes[t.b].items[0]);
+      if (v > best) best = v;
+    }
+    return best;
+  });
+
+  // Never stock more of a class than there are sails that could use it: kit
+  // beyond that can only ever add weight.
+  const useful = classes.map(() => 0);
+  rows.forEach((row) => {
+    const seen = new Set();
+    row.triples.forEach((t) => { seen.add(t.m); seen.add(t.e); seen.add(t.b); });
+    seen.forEach((i) => { useful[i] += 1; });
+  });
+  const cap = classes.map((c, i) => Math.max(floor[i], Math.min(c.items.length, useful[i])));
+
+  return { classes, rows, sails, floor, cap, ceiling };
+}
+
+/* ================================================ 4. the inner assignment */
+
+/**
+ * The exact answer to "with this trailer, how many of these sails can stand up
+ * at the same time, and how well does each one match its kit".
+ *
+ * It is a dynamic program over sails, with the state being how much of each
+ * class is left. Two things keep it small:
+ *
+ *  - sails are taken most-constrained-first, so the branches that fail fail early;
+ *  - the state is a vector of counts, not a set of items, so two different ways
+ *    of spending the same kit collapse to one memo entry.
+ *
+ * The value maximised is `rigs * 1000 + match`, which is lexicographic: it will
+ * never give up a rigged sail to improve anybody's brand match.
+ *
+ * `budget` caps the nodes explored. At club sizes it is never reached, and the
+ * result carries `exact: false` if it ever is.
+ */
+function solve(model, counts, mask, budget = 400000) {
+  const rows = model.rows;
+  const full = rows.length === 32 ? -1 : (1 << rows.length) - 1;
+  const use = mask === undefined ? full : mask;
+
+  const idxs = [];
+  for (let i = 0; i < rows.length; i++) if ((use >> i) & 1) idxs.push(i);
+  idxs.sort((a, b) => rows[a].triples.length - rows[b].triples.length);
+
+  const unit = model.classes.map((c) => c.items.map(itemPart));
+  const caps = counts.slice();
+  const memo = new Map();
+  let nodes = 0;
+  let overflow = false;
+
+  // A count past what the club actually owns is a "what if we had one more",
+  // which `shortfalls` asks to work out which slot ran out. Such a piece rigs
+  // like the rest of its class and is worth nothing on condition or rating,
+  // since there is no real item to have an opinion about.
+  const partOf = (c, j) => unit[c][j] ?? 0;
+
+  const gainOf = (t) => BIG + t.part
+    + partOf(t.m, counts[t.m] - caps[t.m])
+    + partOf(t.e, counts[t.e] - caps[t.e])
+    + partOf(t.b, counts[t.b] - caps[t.b]);
+
+  function value(k) {
+    if (k === idxs.length) return 0;
+    const key = `${k}|${caps.join(',')}`;
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+    if (++nodes > budget) { overflow = true; return 0; }
+
+    let best = value(k + 1); // leave this sail short: a shortfall line, not a shared mast
+    for (const t of rows[idxs[k]].triples) {
+      if (caps[t.m] <= 0 || caps[t.e] <= 0 || caps[t.b] <= 0) continue;
+      const gain = gainOf(t);
+      caps[t.m]--; caps[t.e]--; caps[t.b]--;
+      const v = gain + value(k + 1);
+      caps[t.m]++; caps[t.e]++; caps[t.b]++;
+      if (v > best) best = v;
+    }
+    memo.set(key, best);
+    return best;
+  }
+
+  const total = value(0);
+
+  // Replay the decisions to recover the assignment itself. Every memo entry is
+  // already warm, so this walk is free.
+  const plan = [];
+  for (let k = 0; k < idxs.length; k++) {
+    const target = value(k);
+    let took = null;
+    for (const t of rows[idxs[k]].triples) {
+      if (caps[t.m] <= 0 || caps[t.e] <= 0 || caps[t.b] <= 0) continue;
+      const gain = gainOf(t);
+      const units = { m: counts[t.m] - caps[t.m], e: counts[t.e] - caps[t.e], b: counts[t.b] - caps[t.b] };
+      caps[t.m]--; caps[t.e]--; caps[t.b]--;
+      if (Math.abs(gain + value(k + 1) - target) < 1e-6) { took = { t, units, gain: gain - BIG }; break; }
+      caps[t.m]++; caps[t.e]++; caps[t.b]++;
+    }
+    if (took) plan.push({ sailIdx: idxs[k], ...took });
+  }
+
+  return { rigs: plan.length, part: total - plan.length * BIG, plan, exact: !overflow };
+}
+
+/**
+ * Can every sail in `mask` be rigged at once off this trailer? A yes/no, which
+ * is a much cheaper question than `solve`'s: there is no skip branch and no
+ * score to maximise, so the first complete assignment found ends it and a dead
+ * branch is abandoned the moment a sail has nowhere to go.
+ *
+ * This is the hot path. Section 5 asks it once per group of sails, and the
+ * outer search asks section 5 once per candidate trailer.
+ */
+function allRiggable(model, counts, mask) {
+  const rows = model.rows;
+  const idxs = [];
+  for (let i = 0; i < rows.length; i++) if ((mask >> i) & 1) idxs.push(i);
+  if (!idxs.length) return true;
+
+  // Cheap rejects first: a sail nothing fits, or more sails than there are
+  // masts, extensions or booms of any use to them.
+  const kinds = { mast: 0, ext: 0, boom: 0 };
+  model.classes.forEach((c, i) => { kinds[c.kind] += counts[i]; });
+  if (idxs.length > Math.min(kinds.mast, kinds.ext, kinds.boom)) return false;
+  for (const i of idxs) if (!rows[i].triples.length) return false;
+
+  idxs.sort((a, b) => rows[a].triples.length - rows[b].triples.length);
+  const caps = counts.slice();
+  const dead = new Set();
+
+  function rec(k) {
+    if (k === idxs.length) return true;
+    const key = `${k}|${caps.join(',')}`;
+    if (dead.has(key)) return false;
+    for (const t of rows[idxs[k]].triples) {
+      if (caps[t.m] <= 0 || caps[t.e] <= 0 || caps[t.b] <= 0) continue;
+      caps[t.m]--; caps[t.e]--; caps[t.b]--;
+      const ok = rec(k + 1);
+      caps[t.m]++; caps[t.e]++; caps[t.b]++;
+      if (ok) return true;
+    }
+    dead.add(key);
+    return false;
+  }
+  return rec(0);
+}
+
+/* ======================================================== 5. scoring a P */
+
+const DEFAULT_WEIGHTS = {
+  // One full unit of flexibility (every qualifying group of sails riggable)
+  // is worth 100. One unit of perfect kit matching is worth 30, so matching
+  // never outranks being able to rig at all.
+  flex: 100,
+  match: 30,
+  // Charged per piece on the trailer. At 2.0 a piece has to buy 2% of the
+  // flexibility count, or two thirds of a sail's worth of match quality, to
+  // earn its place. Raise it for a smaller trailer, drop it for a fuller one.
+  light: 2,
+};
+
+/**
+ * The flexibility term, exactly as specified: how many groups of at least
+ * `minRigs` sails can be rigged simultaneously off this trailer, out of all the
+ * groups there are.
+ *
+ * Counting that naively is 2^|S| assignments. It is cheap here because
+ * riggability is **downward closed**: if a group can all stand up at once, so
+ * can any part of it. So a group is worth testing only when every group one
+ * smaller is already known to work, which is the Apriori join below and prunes
+ * the search to a small fraction of the lattice.
+ */
+function flexibility(model, counts, minRigs) {
+  const n = model.rows.length;
+  let total = 0;
+  for (let k = Math.max(1, minRigs); k <= n; k++) total += choose(n, k);
+  if (!total) return { count: 0, total: 0, frac: 0, bySize: [] };
+
+  let level = [];
+  for (let i = 0; i < n; i++) if (allRiggable(model, counts, 1 << i)) level.push(1 << i);
+
+  const bySize = [];
+  let count = minRigs <= 1 ? level.length : 0;
+  bySize[1] = level.length;
+
+  for (let k = 2; k <= n && level.length; k++) {
+    const prev = new Set(level);
+    const next = [];
+    const seen = new Set();
+    for (const a of level) {
+      for (let i = 0; i < n; i++) {
+        if (a & (1 << i)) continue;
+        const m = a | (1 << i);
+        if (seen.has(m)) continue;
+        seen.add(m);
+        let ok = true;
+        for (let j = 0; j < n && ok; j++) if (m & (1 << j)) ok = prev.has(m ^ (1 << j));
+        if (ok && allRiggable(model, counts, m)) next.push(m);
+      }
+    }
+    level = next;
+    bySize[k] = next.length;
+    if (k >= minRigs) count += next.length;
+  }
+
+  return { count, total, frac: count / total, bySize };
+}
+
+function choose(n, k) {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+  return Math.round(r);
+}
+
+/**
+ * How good a packing list is, as three terms in their own units plus the
+ * weighted sum the search actually maximises.
+ *
+ *   score(P) = w_flex  * (qualifying groups riggable / qualifying groups)
+ *            + w_match * (mean kit-match quality over the rigged sails)
+ *            - w_light * (pieces on the trailer)
+ *
+ * The first two are on 0..1 by construction, so the weights read as "how many
+ * points is this worth", and the third is a flat charge per piece.
+ */
+function scoreP(model, counts, opts = {}) {
+  const weights = { ...DEFAULT_WEIGHTS, ...(opts.weights || {}) };
+  const minRigs = opts.minRigs ?? 1;
+
+  const full = solve(model, counts);
+  const flex = flexibility(model, counts, minRigs);
+  const pieces = counts.reduce((a, b) => a + b, 0);
+
+  let match = 0;
+  for (const row of full.plan) {
+    const ceil = model.ceiling[row.sailIdx];
+    match += ceil > 0 ? Math.min(1, row.gain / ceil) : 1;
+  }
+  match = full.plan.length ? match / full.plan.length : 0;
+
+  const terms = {
+    flex: weights.flex * flex.frac,
+    match: weights.match * match,
+    light: -weights.light * pieces,
+  };
+  return {
+    counts: counts.slice(),
+    rigs: full.rigs, plan: full.plan, exact: full.exact,
+    flex, match, pieces, weights, terms,
+    total: terms.flex + terms.match + terms.light,
+  };
+}
+
+/* ==================================================== 6. choosing the P */
+
+/**
+ * The starting trailer: walk the sails and give each one a rig.
+ *
+ * This exists because a marginal-gain greedy has nothing to climb from an empty
+ * trailer. A mast on its own rigs nothing, and neither does a mast and a boom,
+ * so every single-piece move scores exactly zero and the search never starts.
+ * The smallest move that changes anything is a whole mast, extension and boom
+ * at once, which is what this adds.
+ *
+ * Sails are served most-constrained-first, so the sail only one mast in the
+ * club fits gets that mast rather than losing it to a sail anything would have
+ * done for. Kit already on the trailer (anything pinned, or spare capacity from
+ * an earlier sail's class) is spent before anything new is added, which is how
+ * a pinned extension ends up with rigs built around it rather than beside it.
+ */
+function seedTrailer(model) {
+  const { floor, cap, rows } = model;
+  const counts = floor.slice();
+  const spare = floor.slice();
+
+  const order = rows.map((r, i) => i)
+    .sort((a, b) => rows[a].triples.length - rows[b].triples.length);
+
+  for (const i of order) {
+    const t = rows[i].triples.find((x) =>
+      [x.m, x.e, x.b].every((c) => spare[c] > 0 || counts[c] < cap[c]));
+    if (!t) continue; // a shortfall the club's rack cannot answer
+    for (const c of [t.m, t.e, t.b]) {
+      if (spare[c] > 0) spare[c]--;
+      else counts[c]++;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Build the trailer.
+ *
+ * Three passes, each fixing the one before:
+ *
+ *  1. **Seed.** Give every sail a rig (above), so there is something to climb from.
+ *  2. **Greedy.** Add the single piece with the best marginal gain, until
+ *     nothing pays for itself. This is where a second 430 gets taken because it
+ *     turns a dozen more groups of sails riggable, and where it does not.
+ *  3. **Local search.** Greedy commits early and cannot undo, so drop and swap
+ *     moves run until nothing improves. A swap is what rescues the case where
+ *     one 430 was worth taking only if a 460 was not.
+ *
+ * `--exact` in the CLI runs `exhaustive` as well, which walks the whole lattice
+ * and proves whether these three found the optimum.
+ */
+function chooseTrailer(model, opts = {}) {
+  const { floor, cap, classes } = model;
+  const counts = seedTrailer(model);
+
+  // Local search revisits the same trailer many times over, so score each
+  // distinct one once.
+  const seen = new Map();
+  const at = () => {
+    const key = counts.join(',');
+    let s = seen.get(key);
+    if (!s) { s = scoreP(model, counts, opts); seen.set(key, s); }
+    return s;
+  };
+
+  let cur = at();
+  const trace = [{
+    move: 'seed',
+    label: `${cur.pieces} pieces, one rig per sail`,
+    total: cur.total, rigs: cur.rigs,
+  }];
+
+  for (;;) {
+    let bestI = -1;
+    let best = cur;
+    for (let i = 0; i < counts.length; i++) {
+      if (counts[i] >= cap[i]) continue;
+      counts[i]++;
+      const s = at();
+      counts[i]--;
+      if (s.total > best.total + EPS) { best = s; bestI = i; }
+    }
+    if (bestI < 0) break;
+    counts[bestI]++;
+    cur = best;
+    trace.push({ move: 'add', label: classLabel(classes[bestI]), total: cur.total, rigs: cur.rigs });
+  }
+
+  for (;;) {
+    let moved = false;
+    for (let i = 0; i < counts.length && !moved; i++) {
+      if (counts[i] <= floor[i]) continue;
+      counts[i]--;
+      const s = at();
+      if (s.total > cur.total + EPS) {
+        cur = s; moved = true;
+        trace.push({ move: 'drop', label: classLabel(classes[i]), total: cur.total, rigs: cur.rigs });
+      } else counts[i]++;
+    }
+    // Swaps stay within a kind. How many masts to take is what the add and drop
+    // passes decide; a swap is only ever answering "which 430", and trading a
+    // mast for a boom is both of those moves at once rather than a third one.
+    for (let i = 0; i < counts.length && !moved; i++) {
+      if (counts[i] <= floor[i]) continue;
+      for (let j = 0; j < counts.length && !moved; j++) {
+        if (i === j || classes[i].kind !== classes[j].kind || counts[j] >= cap[j]) continue;
+        counts[i]--; counts[j]++;
+        const s = at();
+        if (s.total > cur.total + EPS) {
+          cur = s; moved = true;
+          trace.push({
+            move: 'swap', total: cur.total, rigs: cur.rigs,
+            label: `${classLabel(classes[i])} to ${classLabel(classes[j])}`,
+          });
+        } else { counts[i]++; counts[j]--; }
+      }
+    }
+    if (!moved) break;
+  }
+
+  return { ...cur, trace, evaluated: seen.size };
+}
+
+/**
+ * The whole lattice, with a bound. Only for checking the search above on small
+ * instances, but that check is the point: the bound is sound because
+ * flexibility and match quality can only go up as kit is added, while weight
+ * only goes up too. So the best a branch could do is the flexibility and match
+ * of taking everything still on the table, paying only for what it has already
+ * committed to.
+ */
+function exhaustive(model, opts = {}) {
+  const { floor, cap } = model;
+  const weights = { ...DEFAULT_WEIGHTS, ...(opts.weights || {}) };
+  const n = model.classes.length;
+  const counts = floor.slice();
+  let best = null;
+  let nodes = 0;
+
+  const tailFloor = [];
+  for (let i = n - 1; i >= 0; i--) tailFloor[i] = (tailFloor[i + 1] || 0) + floor[i];
+
+  function rec(i, committed) {
+    nodes++;
+    if (i === n) {
+      const s = scoreP(model, counts, opts);
+      if (!best || s.total > best.total + EPS) best = s;
+      return;
+    }
+    const ceilCounts = counts.slice();
+    for (let j = i; j < n; j++) ceilCounts[j] = cap[j];
+    const top = scoreP(model, ceilCounts, opts);
+    const bound = top.terms.flex + top.terms.match - weights.light * (committed + tailFloor[i]);
+    if (best && bound <= best.total + EPS) return;
+
+    for (let v = cap[i]; v >= floor[i]; v--) {
+      counts[i] = v;
+      rec(i + 1, committed + v);
+    }
+    counts[i] = floor[i];
+  }
+
+  rec(0, 0);
+  return { ...best, nodes };
+}
+
+/* ================================================= 7. reading the answer */
+
+/** The chosen packing list as actual items, grouped by class. */
+function packingList(model, counts) {
+  const out = [];
+  model.classes.forEach((c, i) => {
+    for (let j = 0; j < counts[i]; j++) out.push(c.items[j]);
+  });
+  return out;
+}
+
+/** Who ended up on what, and what each extension has to be wound out to. */
+function rigSheet(model, result) {
+  return result.plan.map((row) => {
+    const sail = model.rows[row.sailIdx].sail;
+    const mast = model.classes[row.t.m].items[row.units.m];
+    const ext = model.classes[row.t.e].items[row.units.e];
+    const boom = model.classes[row.t.b].items[row.units.b];
+    const ceil = model.ceiling[row.sailIdx];
+    return {
+      sailIdx: row.sailIdx, sail, mast, ext, boom,
+      setting: extSetting(sail, mast),
+      quality: ceil > 0 ? Math.min(1, row.gain / ceil) : 1,
+    };
+  });
+}
+
+/**
+ * The sails that did not get a rig, and which slot ran out.
+ *
+ * "Kit all taken" is not much use at seven in the morning at a trailer. What
+ * the kit sec needs is which of the three slots to go and find another of, and
+ * whether the club even owns one, so each shortfall is answered by trying one
+ * more of each kind and seeing which of them buys the rig back.
+ */
+const SLOT_OF = { mast: 'm', ext: 'e', boom: 'b' };
+
+function shortfalls(model, result, counts) {
+  const got = new Set(result.plan.map((p) => p.sailIdx));
+
+  return model.rows
+    .map((row, i) => ({ row, i }))
+    .filter(({ i }) => !got.has(i))
+    .map(({ row }) => {
+      if (!row.triples.length) {
+        return { sail: row.sail, slot: null, inStock: false, why: 'nothing in the club fits it' };
+      }
+      // A rig is three pieces, so an extra rig always wants a mast *and* an
+      // extension *and* a boom. Probing one kind at a time therefore always
+      // comes back "no", which is why this adds one of every class the sail
+      // could use and then asks which of the three the club is actually out of.
+      const usable = {};
+      for (const [kind, field] of Object.entries(SLOT_OF)) {
+        usable[kind] = [...new Set(row.triples.map((t) => t[field]))];
+      }
+
+      const probe = counts.slice();
+      Object.values(usable).flat().forEach((c) => { probe[c]++; });
+      if (solve(model, probe).rigs <= result.rigs) {
+        return { sail: row.sail, slot: null, out: [], why: 'kit all taken by other sails' };
+      }
+
+      const stocked = (c) => counts[c] < model.classes[c].items.length;
+      const out = Object.keys(usable).filter((kind) => !usable[kind].some(stocked));
+
+      if (!out.length) {
+        return {
+          sail: row.sail, slot: null, out,
+          why: 'left off to save weight: a mast, extension and boom are all still on the rack',
+        };
+      }
+      const owned = out.map((kind) =>
+        `${usable[kind].reduce((a, c) => a + model.classes[c].items.length, 0)} ${kind}s`);
+      return {
+        sail: row.sail, slot: out[0], out,
+        why: `the club owns ${owned.join(' and ')} that fit it, all on other sails`,
+      };
+    });
+}
+
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------- state */
+
+  var state = {
+    sails: SAILS.map(function (s) { return s.id; }),
+    pinned: [],
+    out: [],
+    minRigs: 3,
+    weights: { flex: 100, match: 30, light: 2 },
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var has = function (list, id) { return list.indexOf(id) !== -1; };
+  var toggle = function (list, id) {
+    var i = list.indexOf(id);
+    if (i === -1) list.push(id); else list.splice(i, 1);
+  };
+  var esc = function (s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  };
+  var n1 = function (v) { return (Math.round(v * 10) / 10).toFixed(1); };
+  var n2 = function (v) { return (Math.round(v * 100) / 100).toFixed(2); };
+
+  var specOf = function (p) {
+    if (p.kind === 'mast') return p.len + ' ' + p.diam;
+    if (p.kind === 'ext') return p.min + '-' + p.max + ' ' + p.diam;
+    return p.min + '-' + p.max;
+  };
+  var sailName = function (s) { return s.m2.toFixed(1) + 'm²'; };
+
+  /* --------------------------------------------------------- the rail */
+
+  function drawRail() {
+    $('sail-picker').innerHTML = SAILS.map(function (s) {
+      return '<button class="chip" data-sail="' + s.id + '" aria-pressed="' +
+        has(state.sails, s.id) + '">' + esc(sailName(s)) +
+        (s.cams ? ' ◆' : '') + '</button>';
+    }).join('');
+    $('sail-count').textContent = state.sails.length + ' of ' + SAILS.length +
+      ' · ◆ cammed';
+
+    var n = Math.max(1, state.sails.length);
+    var slider = $('min-rigs');
+    slider.max = String(n);
+    if (state.minRigs > n) state.minRigs = n;
+    slider.value = String(state.minRigs);
+    $('min-rigs-out').textContent = state.minRigs + ' or more';
+
+    $('w-flex').value = String(state.weights.flex);
+    $('w-flex-out').textContent = state.weights.flex;
+    $('w-match').value = String(state.weights.match);
+    $('w-match-out').textContent = state.weights.match;
+    $('w-light').value = String(state.weights.light);
+    $('w-light-out').textContent = state.weights.light;
+  }
+
+  /* --------------------------------------------------------- the rack */
+
+  var KINDS = [
+    { k: 'mast', label: 'Masts' },
+    { k: 'ext', label: 'Extensions' },
+    { k: 'boom', label: 'Booms' },
+  ];
+
+  function drawRack(packedIds) {
+    $('rack').innerHTML = KINDS.map(function (g) {
+      var pieces = KIT.filter(function (p) { return p.kind === g.k; }).map(function (p) {
+        var cls = 'piece';
+        if (has(state.out, p.id)) cls += ' is-out';
+        else if (has(state.pinned, p.id)) cls += ' is-pinned';
+        else if (packedIds && packedIds[p.id]) cls += ' is-packed';
+        var title = has(state.out, p.id) ? 'Off site. Click to bring it back.'
+          : has(state.pinned, p.id) ? 'Pinned. Click to unpin.'
+          : 'Click to pin this piece to the list.';
+        return '<span class="' + cls + '">' +
+          '<button class="body" data-pin="' + p.id + '" title="' + title + '">' +
+            '<span class="id">' + esc(p.id) + ' · ' + esc(p.mfr) + '</span>' +
+            '<span class="spec">' + esc(specOf(p)) + '</span>' +
+          '</button>' +
+          '<button class="drop" data-out="' + p.id + '" title="Take this piece off site" ' +
+            'aria-label="Take ' + esc(p.id) + ' off site">×</button>' +
+        '</span>';
+      }).join('');
+      return '<div class="rack-group"><h3>' + g.label + '</h3><div class="rack">' + pieces + '</div></div>';
+    }).join('');
+  }
+
+  /* -------------------------------------------------------- the chart */
+
+  function drawChart(model, result, sails) {
+    if (!sails.length) { $('chart').innerHTML = ''; $('chart-note').textContent = ''; return; }
+
+    var lo = 340, hi = 530;
+    var W = 820, padL = 74, padR = 18, rowH = 26, top = 30;
+    var H = top + sails.length * rowH + 24;
+    var x = function (cm) { return padL + (cm - lo) / (hi - lo) * (W - padL - padR); };
+
+    var assignedBySail = {};
+    result.plan.forEach(function (p) {
+      assignedBySail[model.rows[p.sailIdx].sail.id] = model.classes[p.t.m].rep.len;
+    });
+
+    var parts = [];
+
+    // The centimetre axis, at the top, on the 30cm mast grid.
+    for (var cm = 360; cm <= 520; cm += 20) {
+      parts.push('<line x1="' + x(cm) + '" y1="' + (top - 8) + '" x2="' + x(cm) +
+        '" y2="' + (H - 20) + '" stroke="var(--line-soft)" stroke-width="1"/>');
+      parts.push('<text x="' + x(cm) + '" y="' + (top - 14) +
+        '" text-anchor="middle" font-family="var(--f-mono)" font-size="10" fill="var(--muted)">' +
+        cm + '</text>');
+    }
+
+    sails.forEach(function (sail, i) {
+      var y = top + i * rowH + rowH / 2;
+      var row = model.rows[model.sails.indexOf(sail)];
+      var w0 = sail.luff - 50;
+      var w1 = sail.luff + (sail.topExt || 0);
+      var got = assignedBySail[sail.id];
+
+      parts.push('<text x="' + (padL - 10) + '" y="' + (y + 4) +
+        '" text-anchor="end" font-family="var(--f-mono)" font-size="11.5" ' +
+        'fill="' + (got ? 'var(--ink)' : 'var(--short)') + '">' +
+        sail.m2.toFixed(1) + (sail.cams ? '◆' : '') + '</text>');
+
+      // The window of mast lengths this sail accepts.
+      parts.push('<rect x="' + x(w0) + '" y="' + (y - 7) + '" width="' + (x(w1) - x(w0)) +
+        '" height="14" rx="2" fill="var(--accent-wash)" stroke="var(--accent)" ' +
+        'stroke-width="1" opacity="' + (got ? 1 : 0.45) + '"/>');
+
+      // Every length the club owns that this sail could actually take.
+      var lens = {};
+      row.triples.forEach(function (t) { lens[model.classes[t.m].rep.len] = true; });
+      Object.keys(lens).forEach(function (L) {
+        var len = Number(L);
+        if (len === got) return;
+        parts.push('<line x1="' + x(len) + '" y1="' + (y - 6) + '" x2="' + x(len) +
+          '" y2="' + (y + 6) + '" stroke="var(--muted)" stroke-width="2" opacity="0.55"/>');
+      });
+
+      // The one it got.
+      if (got !== undefined) {
+        parts.push('<rect x="' + (x(got) - 3.5) + '" y="' + (y - 9) +
+          '" width="7" height="18" rx="1.5" fill="var(--accent)"/>');
+      }
+
+      // The luff itself: where the extension is wound all the way in.
+      parts.push('<line x1="' + x(sail.luff) + '" y1="' + (y - 9) + '" x2="' + x(sail.luff) +
+        '" y2="' + (y + 9) + '" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 2" opacity="0.45"/>');
+    });
+
+    parts.push('<text x="' + (W - padR) + '" y="' + (H - 6) +
+      '" text-anchor="end" font-family="var(--f-mono)" font-size="10" fill="var(--muted)">' +
+      'mast length, cm</text>');
+
+    $('chart').innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+      'aria-label="Mast lengths each sail accepts, and the one it was given">' +
+      parts.join('') + '</svg>';
+
+    $('chart-note').textContent = 'dashed line is the luff · the bar reaches 50cm below it, ' +
+      'the whole travel of an extension';
+  }
+
+  /* ------------------------------------------------------- the results */
+
+  function drawSummary(result, sails) {
+    var all = result.rigs === sails.length && sails.length > 0;
+    $('summary').innerHTML = [
+      '<div class="stat ' + (all ? 'is-full' : 'is-short') + '"><div class="k">Rigs at once</div>' +
+        '<div class="v">' + result.rigs + '<small> / ' + sails.length + '</small></div></div>',
+      '<div class="stat"><div class="k">Pieces packed</div><div class="v">' + result.pieces + '</div></div>',
+      '<div class="stat"><div class="k">Flexibility</div><div class="v">' +
+        Math.round(result.flex.frac * 100) + '<small>%</small></div></div>',
+      '<div class="stat"><div class="k">Kit matching</div><div class="v">' +
+        Math.round(result.match * 100) + '<small>%</small></div></div>',
+      '<div class="stat"><div class="k">Score</div><div class="v">' + n1(result.total) + '</div></div>',
+    ].join('');
+  }
+
+  function drawRigs(model, result, counts) {
+    var sheet = rigSheet(model, result);
+    var rows = sheet.map(function (r) {
+      return '<tr>' +
+        '<td class="mono">' + r.sail.m2.toFixed(1) + '<span class="dim">m²</span> ' +
+          '<span class="dim">' + esc(r.sail.mfr) + '</span></td>' +
+        '<td class="mono">' + r.mast.len + ' ' + esc(r.mast.diam) +
+          ' <span class="dim">' + esc(r.mast.id) + '</span></td>' +
+        '<td class="mono">set to +' + r.setting + '<span class="dim">cm</span> ' +
+          '<span class="dim">' + esc(r.ext.id) + '</span></td>' +
+        '<td class="mono">' + r.boom.min + '-' + r.boom.max +
+          ' <span class="dim">' + esc(r.boom.id) + '</span></td>' +
+        '<td class="bar-cell"><div class="minibar"><i style="width:' +
+          (r.quality * 100).toFixed(0) + '%"></i></div></td>' +
+        '<td class="num mono">' + Math.round(r.quality * 100) + '%</td>' +
+      '</tr>';
+    }).join('');
+
+    var table = sheet.length
+      ? '<table><thead><tr><th>Sail</th><th>Mast</th><th>Extension</th><th>Boom</th>' +
+        '<th colspan="2" class="num">Kit match</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      : '<p class="hint" style="margin:0">Nothing rigs. Bring some kit back on site, or pick fewer sails.</p>';
+
+    var short = shortfalls(model, result, counts).map(function (s) {
+      return '<div class="shortfall"><b>' + s.sail.m2.toFixed(1) + 'm² ' + esc(s.sail.mfr) +
+        ' ' + esc(s.sail.model) + '</b> <span>' + esc(s.why) + '</span></div>';
+    }).join('');
+
+    $('rigs').innerHTML = table + (short ? '<div style="margin-top:14px">' + short + '</div>' : '');
+    $('rig-note').textContent = sheet.length
+      ? 'every extension setting is the head kept shut' : '';
+  }
+
+  function drawScore(result) {
+    var w = result.weights, t = result.terms;
+    $('score').innerHTML = '<table class="maths"><tbody>' +
+      '<tr><td class="term">Flexibility</td>' +
+        '<td class="detail">' + result.flex.count + ' of ' + result.flex.total +
+          ' groups of ' + state.minRigs + ' or more sails can rig at once</td>' +
+        '<td class="calc">' + n2(result.flex.frac) + ' × ' + w.flex + '</td>' +
+        '<td class="out">' + n1(t.flex) + '</td></tr>' +
+      '<tr><td class="term">Kit matching</td>' +
+        '<td class="detail">each rigged sail averages ' + Math.round(result.match * 100) +
+          '% of the best kit it could have had</td>' +
+        '<td class="calc">' + n2(result.match) + ' × ' + w.match + '</td>' +
+        '<td class="out">' + n1(t.match) + '</td></tr>' +
+      '<tr><td class="term">Lightness</td>' +
+        '<td class="detail">' + result.pieces + ' pieces on the trailer</td>' +
+        '<td class="calc">' + result.pieces + ' × −' + w.light + '</td>' +
+        '<td class="out">' + n1(t.light) + '</td></tr>' +
+      '<tr class="total"><td class="term">Score</td><td class="detail"></td>' +
+        '<td class="calc"></td><td class="out">' + n1(result.total) + '</td></tr>' +
+    '</tbody></table>';
+  }
+
+  function choose(n, k) {
+    if (k < 0 || k > n) return 0;
+    var r = 1;
+    for (var i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+    return Math.round(r);
+  }
+
+  function drawHist(result, n) {
+    var rows = [];
+    var maxTotal = 1;
+    for (var k = 1; k <= n; k++) maxTotal = Math.max(maxTotal, choose(n, k));
+
+    for (var k2 = 1; k2 <= n; k2++) {
+      var got = result.flex.bySize[k2] || 0;
+      var tot = choose(n, k2);
+      var counted = k2 >= state.minRigs;
+      rows.push('<div class="hist-row ' + (counted ? 'counted' : '') + '">' +
+        '<span class="lab">' + k2 + ' at once</span>' +
+        '<span class="hist-track">' +
+          '<i style="width:' + (got / maxTotal * 100) + '%"></i>' +
+          '<i class="miss" style="width:' + ((tot - got) / maxTotal * 100) + '%"></i>' +
+        '</span>' +
+        '<span class="val">' + got + ' / ' + tot + '</span>' +
+      '</div>');
+    }
+    $('hist').innerHTML = rows.join('');
+    $('hist-note').textContent = 'Rows at or above ' + state.minRigs +
+      ' count toward flexibility. A group is only tested once every group one smaller has ' +
+      'worked, which is what keeps this off 2ⁿ assignments.';
+  }
+
+  function drawTrace(result) {
+    $('trace').innerHTML = '<table><thead><tr><th>Move</th><th>Piece</th>' +
+      '<th class="num">Rigs</th><th class="num">Score</th></tr></thead><tbody>' +
+      result.trace.map(function (m) {
+        return '<tr><td>' + esc(m.move) + '</td><td class="mono">' + esc(m.label) +
+          '</td><td class="num mono">' + m.rigs + '</td><td class="num mono">' +
+          n1(m.total) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  /* ---------------------------------------------------------- the run */
+
+  var timer = null;
+
+  function schedule() {
+    drawRail();
+    if (timer) clearTimeout(timer);
+    $('chart-note').innerHTML = '<span class="working">solving…</span>';
+    timer = setTimeout(run, 60);
+  }
+
+  function run() {
+    var sails = SAILS.filter(function (s) { return has(state.sails, s.id); });
+    var kit = KIT.filter(function (p) { return !has(state.out, p.id); });
+    var pins = state.pinned.filter(function (id) { return !has(state.out, id); });
+
+    if (!sails.length) {
+      drawRack({});
+      $('summary').innerHTML = '<div class="stat"><div class="k">Rigs at once</div>' +
+        '<div class="v">0</div></div>';
+      $('chart').innerHTML = '';
+      $('chart-note').textContent = '';
+      $('rigs').innerHTML = '<p class="hint" style="margin:0">Pick at least one sail.</p>';
+      $('score').innerHTML = '';
+      $('hist').innerHTML = '';
+      $('hist-note').textContent = '';
+      $('trace').innerHTML = '';
+      $('footnote').textContent = '';
+      return;
+    }
+
+    var t0 = performance.now();
+    var model = buildModel(sails, kit, pins);
+    var result = chooseTrailer(model, { minRigs: state.minRigs, weights: state.weights });
+    var ms = performance.now() - t0;
+
+    var packed = {};
+    packingList(model, result.counts).forEach(function (p) { packed[p.id] = true; });
+
+    drawRack(packed);
+    drawSummary(result, sails);
+    drawChart(model, result, sails);
+    drawRigs(model, result, result.counts);
+    drawScore(result);
+    drawHist(result, sails.length);
+    drawTrace(result);
+
+    $('footnote').innerHTML = 'Solved in <code>' + Math.round(ms) + 'ms</code>, scoring <code>' +
+      result.evaluated + '</code> candidate trailers. Each one is an exact assignment plus a full ' +
+      'count of riggable groups, and the count is the expensive half: it grows as 2ⁿ in the ' +
+      'number of sails, because the measure is literally how many groups work. That is why eight ' +
+      'sails is comfortable here and fifteen would not be.';
+  }
+
+  /* ----------------------------------------------------------- events */
+
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.sail) { toggle(state.sails, b.dataset.sail); schedule(); }
+    else if (b.dataset.pin) {
+      if (has(state.out, b.dataset.pin)) toggle(state.out, b.dataset.pin);
+      else toggle(state.pinned, b.dataset.pin);
+      schedule();
+    } else if (b.dataset.out) {
+      var id = b.dataset.out;
+      if (has(state.pinned, id)) toggle(state.pinned, id);
+      toggle(state.out, id);
+      schedule();
+    } else if (b.id === 'reset') {
+      state.sails = SAILS.map(function (s) { return s.id; });
+      state.pinned = [];
+      state.out = [];
+      state.minRigs = 3;
+      state.weights = { flex: 100, match: 30, light: 2 };
+      schedule();
+    }
+  });
+
+  [['min-rigs', 'minRigs'], ['w-flex', 'flex'], ['w-match', 'match'], ['w-light', 'light']]
+    .forEach(function (pair) {
+      $(pair[0]).addEventListener('input', function (e) {
+        var v = Number(e.target.value);
+        if (pair[1] === 'minRigs') state.minRigs = v;
+        else state.weights[pair[1]] = v;
+        schedule();
+      });
+    });
+
+  schedule();
+}());
+</script>

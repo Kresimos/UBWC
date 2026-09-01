@@ -18,11 +18,12 @@
  *   --exact         also walk the whole lattice and say whether the search found it
  *   --explain       show the scoring arithmetic term by term
  *   --trace         show every move the search made
+ *   --ways          list every way the packed trailer rigs the same group
  *   --list          print the fixture rack's item ids and exit
  */
 
 import {
-  buildModel, chooseTrailer, exhaustive, packingList, rigSheet,
+  buildModel, chooseTrailer, exhaustive, packingList, rigSheet, arrangements,
   shortfalls, fragileKinds, DEFAULT_WEIGHTS,
 } from './pack.mjs';
 import { SAILS, KIT, sailsBySize } from './pack.fixtures.mjs';
@@ -174,6 +175,27 @@ if (short.length) {
     waiting.forEach(({ s, got }) => console.log(
       `  ${s.sail.m2}m2 ${s.sail.mfr} ${s.sail.model}: rigs in a group of ${got}, just not in this one`));
   }
+}
+
+/* --------------------------------------------------------- the ways */
+
+if (args.flags.has('ways')) {
+  const ways = arrangements(model, best, best.counts, { limit: 40 });
+  head(`Ways to rig this group  (${ways.capped ? ways.count + '+' : ways.count})`);
+  console.log('Which mast each sail gets is the whole of the choice; the extension');
+  console.log('follows the mast and the boom is fitted for the best match.');
+  ways.list.forEach((sheet, n) => {
+    const mean = Math.round(100 * sheet.reduce((a, r) => a + r.quality, 0) / sheet.length);
+    console.log();
+    console.log(`  ${n + 1}.  ${mean}% mean match${n === 0 ? '   (as scored above)' : ''}`);
+    table(sheet.map((r) => [
+      `    ${r.sail.m2}m2 ${r.sail.mfr}`,
+      `${r.mast.len} ${r.mast.diam} ${r.mast.id}`,
+      `${r.ext.id} +${r.setting}`,
+      `${r.boom.min}-${r.boom.max} ${r.boom.id}`,
+      `${Math.round(100 * r.quality)}%`,
+    ]), ['l', 'l', 'l', 'l', 'r']);
+  });
 }
 
 /* ----------------------------------------------------------- the score */

@@ -1005,6 +1005,150 @@ export function rigSheet(model, result) {
 }
 
 /**
+ * Every distinct way the packed trailer stands the same group of sails up at
+ * once. `rigSheet` shows one; which mast lands on which sail is a real question
+ * at the trailer, and a trailer with a length to spare usually answers it more
+ * than one way.
+ *
+ * An arrangement is a **mast** per sail: a mast length and, for a cammed sail, a
+ * diameter class, drawn from what was packed. That is the whole of the choice.
+ * The extension follows from the mast (its setting is just luff minus length),
+ * and the boom is independent of both, so among the extensions and booms that
+ * fit, one is as riggable as another; each sail is handed the best-rated
+ * extension and boom still free once the masts are settled. Two 430 RDM masts
+ * are one choice, not two.
+ *
+ * Ranked by mean kit-match, so `list[0]` is the arrangement the score panel
+ * describes, and capped at `opts.limit` (24). `count` is how many there are;
+ * `capped` is true only if the walk was cut off (`opts.cap`) first. The group is
+ * the one `rigSheet` shows (`result.plan`), not every same-size group the
+ * trailer could rig instead.
+ */
+export function arrangements(model, result, counts, opts = {}) {
+  const limit = opts.limit ?? 24;
+  const cap = opts.cap ?? 4000;
+  const seedMasts = result.plan.map((p) => ({ sailIdx: p.sailIdx, m: p.t.m }));
+  if (!seedMasts.length) return { list: [], count: 0, capped: false };
+
+  const kindCounts = (kind) => counts.map((n, i) => (model.classes[i].kind === kind ? n : 0));
+  const mastAvail = kindCounts('mast');
+  const extAvail = kindCounts('ext');
+  const boomAvail = kindCounts('boom');
+
+  // The distinct mast classes each sail could take, most constrained sail first.
+  const walk = seedMasts.map((p) => p.sailIdx);
+  const mastOpts = walk.map((si) => [...new Set(model.rows[si].triples.map((t) => t.m))]);
+  const order = walk.map((_, k) => k).sort((a, b) => mastOpts[a].length - mastOpts[b].length);
+
+  const left = mastAvail.slice();
+  const mastCombos = [];
+  let count = 0;
+  let capped = false;
+
+  (function rec(j, bySail) {
+    if (capped) return;
+    if (j === order.length) {
+      count++;
+      mastCombos.push(bySail.slice());
+      if (count >= cap) capped = true;
+      return;
+    }
+    const k = order[j];
+    for (const mc of mastOpts[k]) {
+      if (left[mc] <= 0) continue;
+      left[mc]--;
+      bySail[k] = mc;
+      rec(j + 1, bySail);
+      left[mc]++;
+    }
+  }(0, walk.map(() => -1)));
+
+  // Fit extensions then booms around a settled set of masts: the sail with the
+  // fewest classes open to it picks first, taking the best-rated piece still
+  // free. Null if the packed kit cannot actually dress every mast (the packing
+  // list is built so it can, a hand-forced one might not).
+  const fitKind = (mastBySail, avail, fits, part) => {
+    const stock = avail.slice();
+    const seats = walk.map((si, k) => {
+      const sail = model.rows[si].sail;
+      const mast = model.classes[mastBySail[k]].rep;
+      const open = model.classes
+        .map((c, i) => ({ i, c }))
+        .filter(({ c, i }) => stock[i] > 0 && fits(sail, mast, c));
+      return { si, k, sail, mast, open };
+    }).sort((a, b) => a.open.length - b.open.length);
+
+    const out = walk.map(() => -1);
+    for (const seat of seats) {
+      let best = -1;
+      let bestVal = -Infinity;
+      for (const { i, c } of seat.open) {
+        if (stock[i] <= 0) continue;
+        const v = part(seat.sail, seat.mast, c.rep) + itemPart(c.items[0]);
+        if (v > bestVal) { bestVal = v; best = i; }
+      }
+      if (best < 0) return null;
+      stock[best]--;
+      out[seat.k] = best;
+    }
+    return out;
+  };
+  const extFor = (m) => fitKind(m, extAvail,
+    (sail, mast, c) => c.kind === 'ext' && extFits(sail, mast, c.rep),
+    (sail, mast, rep) => extPart(sail, mast, rep));
+  const boomFor = (m) => fitKind(m, boomAvail,
+    (sail, _m, c) => c.kind === 'boom' && boomFits(sail, c.rep),
+    (sail, _m, rep) => boomPart(sail, rep));
+
+  const sheetOf = (mastBySail, exts, booms) => {
+    const take = counts.map(() => 0);
+    return walk.map((si, k) => ({ si, k }))
+      .sort((a, b) => model.rows[a.si].sail.m2 - model.rows[b.si].sail.m2)
+      .map(({ si, k }) => {
+        const sail = model.rows[si].sail;
+        const mast = model.classes[mastBySail[k]].items[take[mastBySail[k]]++];
+        const ext = model.classes[exts[k]].items[take[exts[k]]++];
+        const boom = model.classes[booms[k]].items[take[booms[k]]++];
+        const ceil = model.ceiling[si];
+        const gain = mastPart(sail, mast) + extPart(sail, mast, ext) + boomPart(sail, boom)
+          + itemPart(mast) + itemPart(ext) + itemPart(boom);
+        return {
+          sailIdx: si, sail, mast, ext, boom,
+          setting: extSetting(sail, mast),
+          quality: ceil > 0 ? Math.min(1, gain / ceil) : 1,
+        };
+      });
+  };
+
+  const sig = (mastBySail) => mastBySail.map((mc, k) => walk[k] + ':' + mc).join('|');
+  const seedBySail = walk.map((si, k) => seedMasts.find((p) => p.sailIdx === si).m);
+
+  const seen = new Set();
+  const cand = [seedBySail, ...mastCombos];
+  const scored = [];
+  for (const m of cand) {
+    const s = sig(m);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    const exts = extFor(m);
+    const booms = boomFor(m);
+    if (!exts || !booms) continue;
+    const sheet = sheetOf(m, exts, booms);
+    scored.push({ sheet, mean: sheet.reduce((a, r) => a + r.quality, 0) / sheet.length });
+  }
+
+  // The canonical arrangement keeps the front; the rest run best match first.
+  const [first, ...rest] = scored;
+  rest.sort((a, b) => b.mean - a.mean);
+
+  return {
+    list: [first, ...rest].slice(0, limit).map((s) => s.sheet),
+    count: scored.length,
+    capped,
+  };
+}
+
+/**
  * The sails that did not get a rig, and which slot ran out.
  *
  * "Kit all taken" is not much use at seven in the morning at a trailer. What

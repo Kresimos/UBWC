@@ -302,6 +302,27 @@ td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabu
 .minibar { height: 5px; background: var(--sunk); border-radius: 2px; overflow: hidden; }
 .minibar i { display: block; height: 100%; background: var(--accent); }
 
+/* --------------------------------------------------------- arrangements */
+
+.arr { margin-bottom: 20px; }
+.arr:last-child { margin-bottom: 0; }
+.arr-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px 14px; flex-wrap: wrap; margin: 0 0 7px;
+  font-family: var(--f-display); font-weight: 700; font-size: 10.5px;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+}
+.arr-head .arr-q {
+  font-family: var(--f-mono); font-weight: 400; letter-spacing: 0;
+  text-transform: none; font-size: 11.5px;
+}
+/* The value that differs from the first arrangement, so a wall of near-identical
+   sheets reads as "the 6.5 and the 5.5 trade masts" at a glance. */
+.vary { color: var(--accent); font-weight: 600; }
+.arr-more { margin-top: 16px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+.arr-more[open] { padding-bottom: 4px; }
+.arr-more > .arr:first-of-type { margin-top: 14px; }
+
 /* ------------------------------------------------------------ shortfall */
 
 .shortfall, .waiting {
@@ -1569,6 +1590,150 @@ function rigSheet(model, result) {
 }
 
 /**
+ * Every distinct way the packed trailer stands the same group of sails up at
+ * once. `rigSheet` shows one; which mast lands on which sail is a real question
+ * at the trailer, and a trailer with a length to spare usually answers it more
+ * than one way.
+ *
+ * An arrangement is a **mast** per sail: a mast length and, for a cammed sail, a
+ * diameter class, drawn from what was packed. That is the whole of the choice.
+ * The extension follows from the mast (its setting is just luff minus length),
+ * and the boom is independent of both, so among the extensions and booms that
+ * fit, one is as riggable as another; each sail is handed the best-rated
+ * extension and boom still free once the masts are settled. Two 430 RDM masts
+ * are one choice, not two.
+ *
+ * Ranked by mean kit-match, so `list[0]` is the arrangement the score panel
+ * describes, and capped at `opts.limit` (24). `count` is how many there are;
+ * `capped` is true only if the walk was cut off (`opts.cap`) first. The group is
+ * the one `rigSheet` shows (`result.plan`), not every same-size group the
+ * trailer could rig instead.
+ */
+function arrangements(model, result, counts, opts = {}) {
+  const limit = opts.limit ?? 24;
+  const cap = opts.cap ?? 4000;
+  const seedMasts = result.plan.map((p) => ({ sailIdx: p.sailIdx, m: p.t.m }));
+  if (!seedMasts.length) return { list: [], count: 0, capped: false };
+
+  const kindCounts = (kind) => counts.map((n, i) => (model.classes[i].kind === kind ? n : 0));
+  const mastAvail = kindCounts('mast');
+  const extAvail = kindCounts('ext');
+  const boomAvail = kindCounts('boom');
+
+  // The distinct mast classes each sail could take, most constrained sail first.
+  const walk = seedMasts.map((p) => p.sailIdx);
+  const mastOpts = walk.map((si) => [...new Set(model.rows[si].triples.map((t) => t.m))]);
+  const order = walk.map((_, k) => k).sort((a, b) => mastOpts[a].length - mastOpts[b].length);
+
+  const left = mastAvail.slice();
+  const mastCombos = [];
+  let count = 0;
+  let capped = false;
+
+  (function rec(j, bySail) {
+    if (capped) return;
+    if (j === order.length) {
+      count++;
+      mastCombos.push(bySail.slice());
+      if (count >= cap) capped = true;
+      return;
+    }
+    const k = order[j];
+    for (const mc of mastOpts[k]) {
+      if (left[mc] <= 0) continue;
+      left[mc]--;
+      bySail[k] = mc;
+      rec(j + 1, bySail);
+      left[mc]++;
+    }
+  }(0, walk.map(() => -1)));
+
+  // Fit extensions then booms around a settled set of masts: the sail with the
+  // fewest classes open to it picks first, taking the best-rated piece still
+  // free. Null if the packed kit cannot actually dress every mast (the packing
+  // list is built so it can, a hand-forced one might not).
+  const fitKind = (mastBySail, avail, fits, part) => {
+    const stock = avail.slice();
+    const seats = walk.map((si, k) => {
+      const sail = model.rows[si].sail;
+      const mast = model.classes[mastBySail[k]].rep;
+      const open = model.classes
+        .map((c, i) => ({ i, c }))
+        .filter(({ c, i }) => stock[i] > 0 && fits(sail, mast, c));
+      return { si, k, sail, mast, open };
+    }).sort((a, b) => a.open.length - b.open.length);
+
+    const out = walk.map(() => -1);
+    for (const seat of seats) {
+      let best = -1;
+      let bestVal = -Infinity;
+      for (const { i, c } of seat.open) {
+        if (stock[i] <= 0) continue;
+        const v = part(seat.sail, seat.mast, c.rep) + itemPart(c.items[0]);
+        if (v > bestVal) { bestVal = v; best = i; }
+      }
+      if (best < 0) return null;
+      stock[best]--;
+      out[seat.k] = best;
+    }
+    return out;
+  };
+  const extFor = (m) => fitKind(m, extAvail,
+    (sail, mast, c) => c.kind === 'ext' && extFits(sail, mast, c.rep),
+    (sail, mast, rep) => extPart(sail, mast, rep));
+  const boomFor = (m) => fitKind(m, boomAvail,
+    (sail, _m, c) => c.kind === 'boom' && boomFits(sail, c.rep),
+    (sail, _m, rep) => boomPart(sail, rep));
+
+  const sheetOf = (mastBySail, exts, booms) => {
+    const take = counts.map(() => 0);
+    return walk.map((si, k) => ({ si, k }))
+      .sort((a, b) => model.rows[a.si].sail.m2 - model.rows[b.si].sail.m2)
+      .map(({ si, k }) => {
+        const sail = model.rows[si].sail;
+        const mast = model.classes[mastBySail[k]].items[take[mastBySail[k]]++];
+        const ext = model.classes[exts[k]].items[take[exts[k]]++];
+        const boom = model.classes[booms[k]].items[take[booms[k]]++];
+        const ceil = model.ceiling[si];
+        const gain = mastPart(sail, mast) + extPart(sail, mast, ext) + boomPart(sail, boom)
+          + itemPart(mast) + itemPart(ext) + itemPart(boom);
+        return {
+          sailIdx: si, sail, mast, ext, boom,
+          setting: extSetting(sail, mast),
+          quality: ceil > 0 ? Math.min(1, gain / ceil) : 1,
+        };
+      });
+  };
+
+  const sig = (mastBySail) => mastBySail.map((mc, k) => walk[k] + ':' + mc).join('|');
+  const seedBySail = walk.map((si, k) => seedMasts.find((p) => p.sailIdx === si).m);
+
+  const seen = new Set();
+  const cand = [seedBySail, ...mastCombos];
+  const scored = [];
+  for (const m of cand) {
+    const s = sig(m);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    const exts = extFor(m);
+    const booms = boomFor(m);
+    if (!exts || !booms) continue;
+    const sheet = sheetOf(m, exts, booms);
+    scored.push({ sheet, mean: sheet.reduce((a, r) => a + r.quality, 0) / sheet.length });
+  }
+
+  // The canonical arrangement keeps the front; the rest run best match first.
+  const [first, ...rest] = scored;
+  rest.sort((a, b) => b.mean - a.mean);
+
+  return {
+    list: [first, ...rest].slice(0, limit).map((s) => s.sheet),
+    count: scored.length,
+    capped,
+  };
+}
+
+/**
  * The sails that did not get a rig, and which slot ran out.
  *
  * "Kit all taken" is not much use at seven in the morning at a trailer. What
@@ -1815,27 +1980,69 @@ function shortfalls(model, result, counts) {
   }
 
   function drawRigs(model, result, counts) {
-    var sheet = rigSheet(model, result);
-    var rows = sheet.map(function (r) {
+    var ways = arrangements(model, result, counts, { limit: 16 });
+    var sheets = ways.list;
+
+    var rowHtml = function (r, base) {
+      var b = base && base[r.sailIdx];
+      // Highlight whichever part of a rig differs from the first arrangement: the
+      // spec when a length or setting moved, the item id when the club swapped
+      // one piece of a class for another.
+      var vary = function (v, on) { return on ? '<span class="vary">' + v + '</span>' : v; };
+      var mastSpec = b && (b.mast.len !== r.mast.len || b.mast.diam !== r.mast.diam);
+      var mastItem = b && !mastSpec && b.mast.id !== r.mast.id;
+      var extSet = b && b.setting !== r.setting;
+      var extItem = b && !extSet && b.ext.id !== r.ext.id;
+      var boomSpec = b && (b.boom.min !== r.boom.min || b.boom.max !== r.boom.max);
+      var boomItem = b && !boomSpec && b.boom.id !== r.boom.id;
       return '<tr>' +
         '<td class="mono">' + r.sail.m2.toFixed(1) + '<span class="dim">m²</span> ' +
           '<span class="dim">' + esc(r.sail.mfr) + '</span></td>' +
-        '<td class="mono">' + r.mast.len + ' ' + esc(r.mast.diam) +
-          ' <span class="dim">' + esc(r.mast.id) + '</span></td>' +
-        '<td class="mono">set to +' + r.setting + '<span class="dim">cm</span> ' +
-          '<span class="dim">' + esc(r.ext.id) + '</span></td>' +
-        '<td class="mono">' + r.boom.min + '-' + r.boom.max +
-          ' <span class="dim">' + esc(r.boom.id) + '</span></td>' +
+        '<td class="mono">' + vary(r.mast.len + ' ' + esc(r.mast.diam), mastSpec) +
+          ' <span class="dim">' + vary(esc(r.mast.id), mastItem) + '</span></td>' +
+        '<td class="mono">' + vary('set to +' + r.setting, extSet) + '<span class="dim">cm</span> ' +
+          '<span class="dim">' + vary(esc(r.ext.id), extItem) + '</span></td>' +
+        '<td class="mono">' + vary(r.boom.min + '-' + r.boom.max, boomSpec) +
+          ' <span class="dim">' + vary(esc(r.boom.id), boomItem) + '</span></td>' +
         '<td class="bar-cell"><div class="minibar"><i style="width:' +
           (r.quality * 100).toFixed(0) + '%"></i></div></td>' +
         '<td class="num mono">' + Math.round(r.quality * 100) + '%</td>' +
       '</tr>';
-    }).join('');
+    };
 
-    var table = sheet.length
-      ? '<table><thead><tr><th>Sail</th><th>Mast</th><th>Extension</th><th>Boom</th>' +
-        '<th colspan="2" class="num">Kit match</th></tr></thead><tbody>' + rows + '</tbody></table>'
-      : '<p class="hint" style="margin:0">Nothing rigs. Bring some kit back on site, or pick fewer sails.</p>';
+    var tableFor = function (sheet, base) {
+      var by = base ? base.reduce(function (m, r) { m[r.sailIdx] = r; return m; }, {}) : null;
+      return '<table><thead><tr><th>Sail</th><th>Mast</th><th>Extension</th><th>Boom</th>' +
+        '<th colspan="2" class="num">Kit match</th></tr></thead><tbody>' +
+        sheet.map(function (r) { return rowHtml(r, by); }).join('') + '</tbody></table>';
+    };
+
+    var meanQ = function (sheet) {
+      return sheet.reduce(function (a, r) { return a + r.quality; }, 0) / sheet.length;
+    };
+    var block = function (sheet, n, base) {
+      return '<div class="arr"><div class="arr-head">' +
+        '<span>Arrangement ' + n + (n === 1 ? ' · as scored above' : '') + '</span>' +
+        '<span class="arr-q">' + Math.round(meanQ(sheet) * 100) + '% mean match</span>' +
+        '</div>' + tableFor(sheet, base) + '</div>';
+    };
+
+    var table;
+    if (!sheets.length) {
+      table = '<p class="hint" style="margin:0">Nothing rigs. Bring some kit back on site, or pick fewer sails.</p>';
+    } else if (sheets.length === 1) {
+      table = tableFor(sheets[0], null);
+    } else {
+      var base = sheets[0];
+      var shown = [block(sheets[0], 1, null), block(sheets[1], 2, base)];
+      var rest = sheets.slice(2).map(function (s, i) { return block(s, i + 3, base); });
+      table = shown.join('') + (rest.length
+        ? '<details class="arr-more"><summary>' + rest.length +
+          ' more ' + (rest.length === 1 ? 'arrangement' : 'arrangements') + '</summary>' +
+          rest.join('') + '</details>'
+        : '');
+    }
+    var sheet = sheets[0] || [];
 
     // A sail missing from the biggest single session is not necessarily a
     // failure. The promise is that it rigs in a group of `minRigs`, not that it
@@ -1854,8 +2061,18 @@ function shortfalls(model, result, counts) {
     }).join('');
 
     $('rigs').innerHTML = table + (short ? '<div style="margin-top:14px">' + short + '</div>' : '');
-    $('rig-note').textContent = sheet.length
-      ? 'every extension setting is the head kept shut' : '';
+
+    if (!sheet.length) {
+      $('rig-note').textContent = '';
+    } else if (sheets.length === 1) {
+      $('rig-note').textContent = 'the only way to rig these ' + sheet.length +
+        ' · every extension setting is the head kept shut';
+    } else {
+      $('rig-note').textContent = (ways.capped ? ways.count + '+' : ways.count) +
+        ' ways to rig these ' + sheet.length +
+        (ways.count > sheets.length ? ' · best ' + sheets.length + ' shown' : '') +
+        ' · accent marks what changed from the first';
+    }
   }
 
   function drawScore(result, fragile) {

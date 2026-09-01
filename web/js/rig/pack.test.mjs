@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import {
   buildModel, solve, allRiggable, chooseTrailer, exhaustive, scoreP,
-  packingList, rigSheet, shortfalls, itemPart, reachVector,
+  packingList, rigSheet, arrangements, shortfalls, itemPart, reachVector,
   mastFits, extFits, boomFits, extSetting,
 } from './pack.mjs';
 import { SAILS, KIT } from './pack.fixtures.mjs';
@@ -204,6 +204,69 @@ const full = (model) => model.cap.slice();
   eq(best.rigs, 1, 'the second rig is not worth its weight');
   ok(/save weight/.test(shortfalls(model, best, best.counts)[0].why),
      'and it says so, rather than claiming the club is out');
+}
+
+// Every arrangement is a legal, non-sharing way to stand the same group up, and
+// the first one is the best-matching.
+{
+  const sails = [sail('a', 430, 180), sail('b', 460, 190)];
+  // Two 430s and a 460: the 460-luff sail can take either length, so its group
+  // of two stands up more than one way.
+  const kit = [mast('m1', 430), mast('m2', 430), mast('m3', 460),
+               ext('e1', 0, 50), ext('e2', 0, 50), ext('e3', 0, 50),
+               boom('b1', 140, 210), boom('b2', 140, 210), boom('b3', 140, 210)];
+  const model = buildModel(sails, kit);
+  const counts = full(model);
+  const r = solve(model, counts);
+  eq(r.rigs, 2, 'both sails rig');
+
+  const ways = arrangements(model, r, counts);
+  ok(ways.count >= 2, `the 460 sail can take a 430 or the 460, so >= 2 arrangements (got ${ways.count})`);
+  ok(!ways.capped, 'a rack this small is not capped');
+
+  ways.list.forEach((sheet, n) => {
+    eq(sheet.length, r.rigs, `arrangement ${n}: covers the whole group`);
+    const ids = sheet.flatMap((x) => [x.mast.id, x.ext.id, x.boom.id]);
+    eq(new Set(ids).size, ids.length, `arrangement ${n}: no piece handed out twice`);
+    sheet.forEach((x) => {
+      ok(mastFits(x.sail, x.mast), `arrangement ${n}: legal mast`);
+      ok(extFits(x.sail, x.mast, x.ext), `arrangement ${n}: legal extension`);
+      ok(boomFits(x.sail, x.boom), `arrangement ${n}: legal boom`);
+    });
+  });
+
+  const key = (sheet) => sheet
+    .map((x) => `${x.sailIdx}:${x.mast.id}-${x.ext.id}-${x.boom.id}`)
+    .sort().join('|');
+  eq(new Set(ways.list.map(key)).size, ways.list.length, 'the arrangements shown are distinct');
+
+  // The first arrangement is the one rigSheet shows, class for class.
+  const cls = (x) => `${x.sailIdx}:${x.mast.len}${x.mast.diam}/${x.ext.min}-${x.ext.max}/${x.boom.min}-${x.boom.max}`;
+  const canon = rigSheet(model, r).map(cls).sort().join('|');
+  eq(ways.list[0].map(cls).sort().join('|'), canon, 'arrangement 1 is the canonical rig sheet');
+
+  // The rest run best mean kit-match first.
+  const means = ways.list.slice(1).map((sheet) =>
+    sheet.reduce((a, x) => a + x.quality, 0) / sheet.length);
+  for (let i = 1; i < means.length; i++) {
+    ok(means[i] <= means[i - 1] + 1e-9, 'arrangements after the first are ordered best kit-match first');
+  }
+}
+
+// One rigid group has exactly one arrangement.
+{
+  // The 490 must have the 460 (the 430 cannot reach even at +50), which leaves
+  // the 460-luff sail on the 430; one extension class and one boom class, so
+  // nothing else is open to choose.
+  const sails = [sail('a', 490, 200), sail('b', 460, 190)];
+  const kit = [mast('m430', 430), mast('m460', 460),
+               ext('e1', 0, 50), ext('e2', 0, 50),
+               boom('b1', 140, 210), boom('b2', 140, 210)];
+  const model = buildModel(sails, kit);
+  const counts = full(model);
+  const r = solve(model, counts);
+  eq(r.rigs, 2, 'both rig, but only one way round');
+  eq(arrangements(model, r, counts).count, 1, 'so there is a single arrangement');
 }
 
 /* =========================== 3. differential tests against brute force */

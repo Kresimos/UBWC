@@ -575,16 +575,18 @@ function randomInstance() {
     const model = buildModel(sails, kit);
     const counts = model.floor.slice();
     for (let i = 0; i < model.classes.length; i++) counts[i] = int(0, model.cap[i]);
-    const before = scoreP(model, counts, { minRigs: 1 });
+    const before = scoreP(model, counts, { minRigs: 3 });
     const i = int(0, model.classes.length - 1);
     if (counts[i] >= model.cap[i]) continue;
     counts[i]++;
-    const after = scoreP(model, counts, { minRigs: 1 });
+    const after = scoreP(model, counts, { minRigs: 3 });
     ok(after.rigs >= before.rigs, `case ${n}: an extra piece lost a rig`);
     after.reaches.forEach((r, s) => {
       ok(r >= before.reaches[s], `case ${n}: an extra piece shortened a sail's reach`);
     });
     ok(after.shortBy <= before.shortBy, `case ${n}: an extra piece broke the promise further`);
+    ok(after.sessions >= before.sessions - 1e-9,
+       `case ${n}: an extra piece lowered session coverage`);
   }
   console.log('  monotonicity:              adding kit never rigs fewer sails');
 }

@@ -440,6 +440,14 @@ export const DEFAULT_WEIGHTS = {
   match: 30,
   // Charged per piece on the trailer. Raise it for a smaller trailer.
   light: 2,
+  // The reward, on a 0..1 scale: the fraction of small sail-groups (pairs, then
+  // triples, up to the promise) that actually stand up at once. The promise
+  // above only asks that every sail is in *some* qualifying group; this asks
+  // that *every* small group is one, which is what stops a trailer that rigs
+  // three at a time but not this particular three. At 15 it takes every gap the
+  // search can close without adding a piece; raise it to chase the last few at a
+  // point or two of brand match, lower it toward 0 for the old behaviour.
+  sessions: 15,
 };
 
 /**
@@ -593,7 +601,67 @@ export function spareByKind(model, counts, datum) {
 }
 
 /**
- * How good a packing list is, as four terms in their own units plus the
+ * The fraction of small sail-groups that actually stand up at once — pairs,
+ * then triples, up to `kMax`. Riggability is downward closed (a subset of a
+ * riggable group rigs), so a group with a failing pair inside it fails too and
+ * is scored 0 without a search. Weighted toward the small groups, since a pair
+ * that will not rig is a worse surprise than a five that will not.
+ *
+ * Monotone in the packing list: every `allRiggable` is, so more kit can only
+ * raise this. That is what lets `scoreP` add it and `exhaustive` bound with it.
+ */
+export function sessionCoverage(model, counts, kMax) {
+  const n = model.rows.length;
+  const k = Math.min(kMax, n);
+  if (k < 2 || n < 2) return 1;
+
+  const pair = Array.from({ length: n }, () => new Array(n).fill(false));
+  let pairs = 0;
+  let pairGood = 0;
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) {
+      const ok = allRiggable(model, counts, (1 << a) | (1 << b));
+      pair[a][b] = ok;
+      pairs += 1;
+      if (ok) pairGood += 1;
+    }
+  }
+
+  let num = pairs ? pairGood / pairs : 1;
+  let den = 1;
+
+  for (let size = 3; size <= k; size++) {
+    const w = 1 / (size - 1);
+    let total = 0;
+    let good = 0;
+    const idx = [];
+    for (let i = 0; i < size; i++) idx.push(i);
+    for (;;) {
+      total += 1;
+      let ok = true;
+      for (let i = 0; i < size && ok; i++) {
+        for (let j = i + 1; j < size; j++) if (!pair[idx[i]][idx[j]]) { ok = false; break; }
+      }
+      if (ok) {
+        let mask = 0;
+        for (const i of idx) mask |= 1 << i;
+        if (allRiggable(model, counts, mask)) good += 1;
+      }
+      let p = size - 1;
+      while (p >= 0 && idx[p] === n - size + p) p -= 1;
+      if (p < 0) break;
+      idx[p] += 1;
+      for (let q = p + 1; q < size; q++) idx[q] = idx[q - 1] + 1;
+    }
+    num += w * (total ? good / total : 1);
+    den += w;
+  }
+
+  return num / den;
+}
+
+/**
+ * How good a packing list is, as five terms in their own units plus the
  * weighted sum the search actually maximises.
  *
  *   score(P) = w_spare * (mean over the three kinds of a concave count of spares)
@@ -657,11 +725,18 @@ export function scoreP(model, counts, opts = {}) {
   }
   match = full.plan.length ? match / full.plan.length : 0;
 
+  // Fraction of the small groups the promise cares about that actually rig. The
+  // ceiling is a constant given the trip and the whole rack, so this term stays
+  // monotone in the packing list.
+  const kMax = Math.min(minRigs, Math.max(0, ...model.possible));
+  const sessions = kMax >= 2 ? sessionCoverage(model, counts, kMax) : 1;
+
   const terms = {
     spare: weights.spare * spare,
     short: -weights.short * shortBy,
     match: weights.match * match,
     light: -weights.light * pieces,
+    sessions: weights.sessions * sessions,
   };
 
   return {
@@ -671,8 +746,8 @@ export function scoreP(model, counts, opts = {}) {
     depth, shortBy, stranded, impossible, keptPromise: shortBy === 0,
     minReach: counted ? Math.min(...reaches.filter((_, i) => model.possible[i] > 0)) : 0,
     spare, slack, datum,
-    match, pieces, weights, terms,
-    total: terms.spare + terms.short + terms.match + terms.light,
+    match, sessions, pieces, weights, terms,
+    total: terms.spare + terms.short + terms.match + terms.light + terms.sessions,
   };
 }
 
@@ -904,7 +979,11 @@ export function chooseTrailer(model, opts = {}) {
     trace.push({ move: move.kind, label: move.label, total: cur.total, rigs: cur.rigs });
   }
 
-  for (;;) {
+  // Drop what does not pay for itself, then swap within a kind, until nothing
+  // improves. Run once after the greedy pass and once more after the gap pass
+  // below, to trim whatever that made redundant.
+  const polish = () => {
+   for (;;) {
     let moved = false;
     for (let i = 0; i < counts.length && !moved; i++) {
       if (counts[i] <= floor[i]) continue;
@@ -954,6 +1033,39 @@ export function chooseTrailer(model, opts = {}) {
       }
     }
     if (!moved) break;
+   }
+  };
+  polish();
+
+  // Gap-closing pass. The score rewards small groups that all rig, but the move
+  // that closes one is often a coordinated cross-class swap — a 460 RDM to a 460
+  // SDM *and* its extension — that the local search does not make in one step.
+  // So for each group the list still cannot stand up, raise the counts to what
+  // that group needs and keep the change if the score holds; `polish` then trims
+  // whatever went redundant, and often lands back on the same piece count.
+  for (const group of unriggableGroups(model, counts, { maxSize: minRigs, limit: 30, budget: 4000 })) {
+    let mask = 0;
+    for (const i of group) mask |= 1 << i;
+    const g = solve(model, cap, { mask, require: mask });
+    if (!g.plan.length) continue;
+    const need = counts.map(() => 0);
+    g.plan.forEach((r) => { need[r.t.m]++; need[r.t.e]++; need[r.t.b]++; });
+
+    const before = counts.slice();
+    let raised = false;
+    need.forEach((v, c) => { if (v > counts[c]) { counts[c] = v; raised = true; } });
+    if (!raised) continue;
+
+    if (at().total >= cur.total - EPS) {
+      cur = at();
+      trace.push({
+        move: 'close-gap', total: cur.total, rigs: cur.rigs,
+        label: `${group.map((i) => rows[i].sail.m2).join('+')} rigs`,
+      });
+      polish();
+    } else {
+      before.forEach((v, c) => { counts[c] = v; });
+    }
   }
 
   return { ...cur, trace, evaluated: seen.size };
@@ -987,11 +1099,12 @@ export function exhaustive(model, opts = {}) {
     const ceilCounts = counts.slice();
     for (let j = i; j < n; j++) ceilCounts[j] = cap[j];
     const top = scoreP(model, ceilCounts, opts);
-    // Spare and match only rise as kit is added and the shortfall only falls,
-    // so taking everything still on the table gives the best any completion of
-    // this branch could reach on those three. Weight is the one term that can
-    // only get worse, so it is charged on what the branch has already committed.
-    const bound = top.terms.spare + top.terms.match + top.terms.short
+    // Spare, match and session coverage only rise as kit is added and the
+    // shortfall only falls, so taking everything still on the table gives the
+    // best any completion of this branch could reach on those. Weight is the one
+    // term that can only get worse, so it is charged on what the branch has
+    // already committed.
+    const bound = top.terms.spare + top.terms.match + top.terms.short + top.terms.sessions
       - weights.light * (committed + tailFloor[i]);
     if (best && bound <= best.total + EPS) return;
 

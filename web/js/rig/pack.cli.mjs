@@ -15,6 +15,7 @@
  *   --w-short N     penalty per sail-slot short of it     (default 25)
  *   --w-match N     weight on kit matching                (default 30)
  *   --w-light N     charge per piece of kit               (default 2)
+ *   --w-sessions N  reward for small groups that all rig  (default 12)
  *   --exact         also walk the whole lattice and say whether the search found it
  *   --explain       show the scoring arithmetic term by term
  *   --trace         show every move the search made
@@ -98,6 +99,7 @@ const weights = {
   short: num('w-short', DEFAULT_WEIGHTS.short),
   match: num('w-match', DEFAULT_WEIGHTS.match),
   light: num('w-light', DEFAULT_WEIGHTS.light),
+  sessions: num('w-sessions', DEFAULT_WEIGHTS.sessions),
 };
 
 const known = new Set(KIT.map((p) => p.id));
@@ -163,10 +165,10 @@ table([['sail', 'mast', 'extension', 'boom', 'match'],
 // sails a wide spread on a day, so scattered is fine; "these two won't rig
 // together" is the mistake worth catching.
 {
-  const fails = unriggableGroups(model, best.counts);
+  const fails = unriggableGroups(model, best.counts, { maxSize: minRigs });
   head(`Groups that won't rig together  (${fails.length})`);
   if (!fails.length) {
-    console.log(`Every group of up to ${best.rigs} sails the trailer could stand up rigs.`);
+    console.log(`Every group of up to ${Math.min(minRigs, best.rigs)} sails rigs at once.`);
   } else {
     fails.forEach((g) => console.log('  ' + g.map((i) => `${sails[i].m2}`).join(' + ')
       + `   (--must ${g.map((i) => sails[i].m2).join(',')} to pack for it)`));
@@ -245,6 +247,8 @@ table([
    `${best.shortBy} x -${weights.short}`, `= ${n1(t.short)}`],
   ['kit matching', `mean ${Math.round(best.match * 100)}% of each sail's best possible kit`,
    `${n2(best.match)} x ${weights.match}`, `= ${n1(t.match)}`],
+  ['sessions', `${Math.round(best.sessions * 100)}% of the small groups up to ${minRigs} all rig`,
+   `${n2(best.sessions)} x ${weights.sessions}`, `= ${n1(t.sessions)}`],
   ['lightness', `${best.pieces} pieces on the trailer`,
    `${best.pieces} x -${weights.light}`, `= ${n1(t.light)}`],
   ['', '', 'total', `= ${n1(best.total)}`],

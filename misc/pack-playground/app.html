@@ -456,6 +456,17 @@ details[open] summary { margin-bottom: 12px; }
 
       <div class="field">
         <div class="top">
+          <label for="w-sessions">Every small group rigs</label>
+          <output id="w-sessions-out"></output>
+        </div>
+        <input type="range" id="w-sessions" min="0" max="60" step="1">
+        <p class="why">Reward for the fraction of pairs and triples that all stand
+          up at once, not just each sail in some group. Higher chases the last
+          gaps at a little brand match; 0 is the old behaviour.</p>
+      </div>
+
+      <div class="field">
+        <div class="top">
           <label for="w-light">Charge per piece</label>
           <output id="w-light-out"></output>
         </div>
@@ -531,7 +542,7 @@ details[open] summary { margin-bottom: 12px; }
     out: [],
     minRigs: 3,
     mustRig: [],   // sessions the kit sec insists the trailer can stand up: arrays of sail ids
-    weights: { spare: 45, short: 25, match: 30, light: 2 },
+    weights: { spare: 45, short: 25, match: 30, sessions: 15, light: 2 },
   };
 
   // Sail ids ticked into the session checker. Transient: never re-solves, and
@@ -587,6 +598,8 @@ details[open] summary { margin-bottom: 12px; }
     $('w-short-out').textContent = state.weights.short;
     $('w-match').value = String(state.weights.match);
     $('w-match-out').textContent = state.weights.match;
+    $('w-sessions').value = String(state.weights.sessions);
+    $('w-sessions-out').textContent = state.weights.sessions;
     $('w-light').value = String(state.weights.light);
     $('w-light-out').textContent = state.weights.light;
   }
@@ -715,6 +728,9 @@ details[open] summary { margin-bottom: 12px; }
       '<div class="stat"><div class="k">Pieces packed</div><div class="v">' + result.pieces + '</div></div>',
       '<div class="stat"><div class="k">Kit matching</div><div class="v">' +
         Math.round(result.match * 100) + '<small>%</small></div></div>',
+      '<div class="stat ' + (result.sessions > 0.999 ? 'is-full' : '') +
+        '"><div class="k">Small groups rig</div><div class="v">' +
+        Math.round(result.sessions * 100) + '<small>%</small></div></div>',
       '<div class="stat"><div class="k">Score</div><div class="v">' + n1(result.total) + '</div></div>',
     ].join('');
   }
@@ -828,8 +844,10 @@ details[open] summary { margin-bottom: 12px; }
         (pick.indexOf(s.id) !== -1) + '">' + s.m2.toFixed(1) + (s.cams ? ' ◆' : '') + '</button>';
     }).join('') + '</div>';
 
-    // Combinations the packing list cannot stand up at once.
-    var fails = unriggableGroups(model, counts, { limit: 12 });
+    // Small sail groups the packing list cannot stand up at once. Capped at the
+    // promise: a bigger group is a different question, set the slider for it.
+    var kMax = Math.min(state.minRigs, result.rigs);
+    var fails = unriggableGroups(model, counts, { limit: 12, maxSize: state.minRigs });
     var failsHtml = fails.length
       ? '<div class="fails">' + fails.map(function (g) {
           var ids = g.map(function (i) { return model.sails[i].id; });
@@ -837,8 +855,8 @@ details[open] summary { margin-bottom: 12px; }
             '</span><button class="chip pack" data-pack="' + esc(ids.join(',')) +
             '">Repack for this</button></div>';
         }).join('') + '</div>'
-      : '<p class="hint" style="margin:0">Every group the trailer could stand up ' +
-        '(up to ' + result.rigs + ' at once) rigs.</p>';
+      : '<p class="hint" style="margin:0">Every group of up to ' + kMax +
+        ' sails rigs at once.</p>';
 
     $('rigs').innerHTML =
       mustPills +
@@ -851,8 +869,9 @@ details[open] summary { margin-bottom: 12px; }
     renderVerdict();
 
     $('rig-note').textContent = fails.length
-      ? fails.length + ' group' + (fails.length === 1 ? '' : 's') + ' the trailer can\'t stand up'
-      : 'every group up to ' + result.rigs + ' rigs' +
+      ? fails.length + ' group' + (fails.length === 1 ? '' : 's') + ' of ' + kMax +
+        ' or fewer won\'t rig'
+      : 'every group of up to ' + kMax + ' rigs' +
         (state.mustRig.length ? ' · packed for ' + state.mustRig.length + ' set' +
           (state.mustRig.length === 1 ? '' : 's') : '');
   }
@@ -872,6 +891,9 @@ details[open] summary { margin-bottom: 12px; }
       ['Kit matching', 'each rigged sail averages ' + Math.round(result.match * 100) +
         '% of the best kit it could have had',
        n2(result.match) + ' \u00d7 ' + w.match, n1(t.match)],
+      ['Small groups', Math.round(result.sessions * 100) +
+        '% of the pairs and triples up to ' + state.minRigs + ' all rig at once',
+       n2(result.sessions) + ' \u00d7 ' + w.sessions, n1(t.sessions)],
       ['Lightness', result.pieces + ' pieces on the trailer',
        result.pieces + ' \u00d7 \u2212' + w.light, n1(t.light)],
     ];
@@ -1056,13 +1078,13 @@ details[open] summary { margin-bottom: 12px; }
       state.minRigs = 3;
       state.mustRig = [];
       pick = [];
-      state.weights = { spare: 45, short: 25, match: 30, light: 2 };
+      state.weights = { spare: 45, short: 25, match: 30, sessions: 15, light: 2 };
       schedule();
     }
   });
 
   [['min-rigs', 'minRigs'], ['w-spare', 'spare'], ['w-short', 'short'],
-   ['w-match', 'match'], ['w-light', 'light']]
+   ['w-match', 'match'], ['w-sessions', 'sessions'], ['w-light', 'light']]
     .forEach(function (pair) {
       $(pair[0]).addEventListener('input', function (e) {
         var v = Number(e.target.value);

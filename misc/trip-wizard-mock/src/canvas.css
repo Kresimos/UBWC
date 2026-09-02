@@ -1,0 +1,138 @@
+/* ============================================================================
+   THE MOCKUP CANVAS: the wall the one handset is pinned to.
+
+   Everything below exists only to present the frame. It never reaches inside
+   `.screen`, so nothing here can flatter the design being reviewed. The one
+   thing it must undo is tokens.css pinning the page to the viewport and
+   centring a single handset in it; this page also carries a masthead and
+   notes, so it has to grow.
+
+   The wall follows the reader's theme; the handset never does. A phone is a
+   lit object and the app it runs has no dark mode.
+   ========================================================================== */
+:root {
+  --cv-bg: #E7ECEC;
+  --cv-panel: #FFFFFF;
+  --cv-ink: #141D1C;
+  --cv-muted: #55696A;
+  --cv-faint: #7B8D8D;
+  --cv-rule: #D2DBDB;
+  --cv-accent: #10788A;      /* inherited from the app, not invented */
+  --cv-on-accent: #FFFFFF;
+  --cv-warn: #B5761A;
+  --cv-ok: #2E7D5B;
+  --cv-code: #EDF2F2;
+}
+:root:not([data-theme="light"]) { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cv-bg: #101918;
+    --cv-panel: #182423;
+    --cv-ink: #E8EFEE;
+    --cv-muted: #A2B4B4;
+    --cv-faint: #7D9291;
+    --cv-rule: #2A3937;
+    --cv-accent: #4FC3D4;
+    --cv-on-accent: #06201F;
+    --cv-warn: #E0A24B;
+    --cv-ok: #5CB88A;
+    --cv-code: #1E2C2B;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --cv-bg: #101918;
+  --cv-panel: #182423;
+  --cv-ink: #E8EFEE;
+  --cv-muted: #A2B4B4;
+  --cv-faint: #7D9291;
+  --cv-rule: #2A3937;
+  --cv-accent: #4FC3D4;
+  --cv-on-accent: #06201F;
+  --cv-warn: #E0A24B;
+  --cv-ok: #5CB88A;
+  --cv-code: #1E2C2B;
+  color-scheme: dark;
+}
+
+/* tokens.css pins html/body to the viewport and centres one handset. This page
+   is taller than that. */
+html, body { height: auto !important; min-height: 100%; }
+body {
+  display: block !important;
+  align-items: initial !important;
+  justify-content: initial !important;
+  padding: 0 !important;
+  background: var(--cv-bg) !important;
+}
+.canvas {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  color: var(--cv-ink);
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 44px 28px 96px;
+}
+.canvas h1, .canvas h2 { font-family: "Archivo", -apple-system, sans-serif; }
+.canvas code, .mono {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  background: var(--cv-code); padding: 1.5px 5px; border-radius: 4px; font-size: .88em;
+}
+/* the handset keeps the app's own system face whatever the wall is set in */
+.phone { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; }
+
+/* ------------------------------------------------------------------ masthead */
+.masthead { max-width: 62ch; margin-bottom: 34px; }
+.masthead .eyebrow {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--cv-accent); margin: 0 0 12px;
+}
+.masthead h1 {
+  font-size: clamp(28px, 4vw, 42px); font-weight: 800; letter-spacing: -.035em;
+  line-height: 1.03; margin: 0 0 16px; text-wrap: balance;
+}
+.masthead p { font-size: 15px; line-height: 1.62; color: var(--cv-muted); margin: 0 0 12px; }
+.masthead strong { color: var(--cv-ink); font-weight: 600; }
+
+/* --------------------------------------------------------------- stage layout */
+.stage { display: flex; flex-wrap: wrap; gap: 40px 44px; align-items: flex-start; }
+
+.holder { flex: none; }
+.holder .phone {
+  width: 390px; height: 812px; margin: 0; padding: 13px; border-radius: 52px;
+  background: #0B0F0F; flex: none;
+  box-shadow: 0 1px 0 #3a4443 inset, 0 30px 60px -24px rgba(6, 26, 30, .5),
+              0 8px 22px -12px rgba(6, 26, 30, .38);
+}
+.holder .screen { border-radius: 40px; }
+.holder .caption {
+  margin: 0 4px 14px; font-size: 12.5px; line-height: 1.5; color: var(--cv-muted);
+  max-width: 390px;
+}
+.holder .caption b { color: var(--cv-ink); font-weight: 700; }
+
+/* the notes column beside the phone */
+.notes { flex: 1; min-width: 280px; max-width: 440px; display: flex; flex-direction: column; gap: 14px; }
+.note {
+  padding: 14px 16px; border-radius: 12px;
+  background: var(--cv-panel); border: 1px solid var(--cv-rule);
+  border-left: 3px solid var(--cv-accent);
+  font-size: 12.5px; line-height: 1.6; color: var(--cv-muted);
+}
+.note h3 {
+  margin: 0 0 6px; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--cv-ink);
+}
+.note p { margin: 0 0 7px; }
+.note p:last-child { margin: 0; }
+.note b { color: var(--cv-ink); font-weight: 600; }
+.note.ok { border-left-color: var(--cv-ok); }
+.note.warn { border-left-color: var(--cv-warn); }
+
+.foot {
+  margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--cv-rule);
+  font-size: 12px; line-height: 1.6; color: var(--cv-faint); max-width: 74ch;
+}
+.foot code { background: var(--cv-code); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (max-width: 900px) { .canvas { padding: 26px 16px 72px; } }

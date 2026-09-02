@@ -1,0 +1,56 @@
+/* ============================================================================
+   THE KNOBS: the only file most retunes need.
+
+   Nothing here is app CSS. These are the numbers the wizard mockup was tuned
+   with: how the screen moves when the solver re-runs, how hard the two
+   combination bands are tinted, and what the three "how full to pack" presets
+   mean in the solver's own weights. Change a value, run `node build.mjs`,
+   republish (see README.md). Keep the comments true if a value's meaning shifts.
+   ========================================================================== */
+:root {
+
+  /* --- motion -------------------------------------------------------------
+     The screen answers a combinatorial search, so a control change moves
+     several numbers and two lists at once. These pace that. */
+  --wz-roll-ms: 440ms;        /* count-up: how long a headline number takes to reach its new value */
+  --wz-roll-ease: cubic-bezier(.22,1,.36,1);   /* ease-out, lands soft */
+  --wz-recompute-ms: 200ms;   /* the results panel's dip while the solver runs */
+  --wz-recompute-dim: .5;     /* how far it dips (1 = no dip) */
+  --wz-recompute-debounce: 90; /* ms held before a solve fires (a leant-on + shouldn't strobe); read by JS */
+  --wz-tint-ms: 300ms;        /* hero green <-> amber crossfade */
+  --wz-row-ms: 260ms;         /* a combination row entering or leaving a band */
+  --wz-row-ease: cubic-bezier(.4,0,.2,1);
+  --wz-chip-ms: 200ms;        /* a test-combination size fading to green/amber */
+
+  /* --- the two combination highlights ---------------------------------
+     Not cards and not a band: each mix is a pale tinted row, green for
+     Requested (kit-sec asked, solver delivered), amber for Currently
+     incompatible (one more piece would fix it), the same --ok-tint /
+     --warn-tint the hero uses (wired straight to those tokens in wizard.css,
+     so a palette change carries). Only the row's padding is a knob. */
+  --wz-band-pad: 10px;        /* a highlight row's vertical padding */
+
+  /* --- the hero ---------------------------------------------------------- */
+  --wz-hero-fig: 44px;        /* the RIGS AT ONCE number */
+  --wz-hero-pad: 13px;
+
+  /* --- "how full to pack" presets --------------------------------------
+     Five numbers each, in solver-weight order:  spare  short  match  sessions  light
+     (read by JS via getComputedStyle). Standard is DEFAULT_WEIGHTS from
+     pack.mjs. Light charges more per piece and rewards spares less, for the
+     smallest trailer that still keeps the promise; Generous does the reverse.
+     Only `spare` and `light` move between presets; short/match/sessions are
+     what the promise and the rig quality are worth, and that doesn't change
+     with how much slack you want. */
+  --wz-preset-light:    22 25 30 15 4;
+  --wz-preset-standard: 45 25 30 15 2;
+  --wz-preset-generous: 75 25 30 15 1;
+
+  /* --- opening scenario ------------------------------------------------
+     Which fixture sails are on the trip, and where the two controls start.
+     Sails are m² values from pack.fixtures.mjs (4.5 5 5.5 6 6.5 7 7.8 8.5);
+     7.8 and 8.5 are cammed. minRigs is the RIGS AT ONCE stepper. (read by JS) */
+  --wz-start-sails: 4.5 5 5.5 6 6.5 7 7.8 8.5;
+  --wz-start-minrigs: 5;
+  --wz-start-preset: standard;
+}

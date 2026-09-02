@@ -1,0 +1,123 @@
+
+<!-- ==========================================================================
+     PART 2: the mockup canvas. The one handset, and the notes a picture can't
+     make. build.mjs has already spliced in the app CSS, this file's own
+     <style> partner is in head.html, and canvas.css sits between them.
+     ========================================================================== -->
+</style>
+
+<div class="canvas">
+
+  <header class="masthead">
+    <p class="eyebrow">UBWC Kit · Trips</p>
+    <h1>The rigging wizard</h1>
+    <p>The kit sec has chosen the sails. This screen is where the app works out
+      the masts, extensions and booms that go with them, and it re-runs the
+      whole search on every touch, so <strong>watch it move</strong>: press the
+      stepper, flip the preset, pack a mix, and the numbers roll and the two
+      lists reshuffle to the new answer.</p>
+    <p>It is live. The real solver (<code>web/js/rig/pack.mjs</code>) is running
+      in the page against the fixture rack, so nothing here is a drawn number.</p>
+  </header>
+
+  <div class="stage">
+
+    <div class="holder">
+      <p class="caption"><b>Cheddar Reservoir, Saturday.</b> Eight sails on the
+        trip, the two cammed ones marked ◆. Opens on five rigs at once, a
+        Standard pack.</p>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="statusbar">
+            <span>9:41</span>
+            <span class="dots">
+              <svg class="sig" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1"/></svg>
+              <span class="batt"></span>
+            </span>
+          </div>
+          <div class="app" data-screen="trip">
+            <div class="appbar">
+              <div class="row">
+                <button class="backbtn" aria-label="Back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
+                </button>
+                <span class="ttl sm">Working it out</span>
+              </div>
+            </div>
+            <div class="body" data-wzbody></div>
+            <div class="packbar rise">
+              <button class="askbtn" data-start>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+                Start packing
+              </button>
+            </div>
+          </div>
+          <div class="home-ind"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>Two controls, the rest is the answer</h3>
+        <p><b>Rigs at once</b> is the stepper and the headline in one: the
+          busiest moment the trip has to cover. <b>How full to pack</b> is a
+          single dial over the solver's spare-kit and per-piece weights; the raw
+          weights and the score never show.</p>
+        <p>Everything below the dial is <b>outcome</b>: pieces on the trailer,
+          spares beyond the one set the target needs, and how well each rig is
+          brand-matched.</p>
+      </div>
+      <div class="note ok">
+        <h3>The hero tint</h3>
+        <p>Green while the trailer can stand up the number asked for, amber the
+          moment the club's kit can't reach it. That crossfade is the whole
+          readout: no sentence spelling out the algorithm underneath it.</p>
+      </div>
+      <div class="note">
+        <h3>The combination highlights</h3>
+        <p>No umbrella heading, no lead paragraph: the screen drops from the
+          pack dial straight into the mixes. <b>Currently incompatible</b>
+          (amber) is the small size-mixes the current trailer can't rig all at
+          once, found automatically, each one a pale highlight in the same green
+          and amber the hero uses. Tap <b>Pack</b> and the solver repacks to
+          protect that mix; the row turns green under <b>Requested</b>.</p>
+        <p><b>Test a combination</b> checks any set you tick, a dense list of
+          sails so two of one size stay apart. The rows settle green or amber,
+          and a failure names the one piece that would fix it.</p>
+      </div>
+      <div class="note warn">
+        <h3>Motion</h3>
+        <p>Headline numbers <b>count</b> to their new value (~0.4s); the results
+          dip while the search runs; highlight rows animate in and out; the hero
+          tint crossfades. All of it is off under Reduce Motion. Timings live in
+          <code>src/design.css</code>.</p>
+      </div>
+      <div class="note">
+        <h3>Where this goes</h3>
+        <p>It replaces the static report at
+          <code>renderWizard()</code> in <code>web/js/screens/trip.js</code>.
+          <code>src/wizard.css</code> is written to drop into
+          <code>web/css/screens.css</code> unchanged.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="foot">
+    Built page: <code>misc/trip-wizard-mock/trip-wizard-mock.html</code>.
+    <code>node misc/trip-wizard-mock/build.mjs</code> splices
+    <code>web/css/tokens.css</code>, <code>web/css/screens.css</code> and
+    <code>web/js/icons.js</code> from this branch, plus <code>pack.mjs</code> +
+    <code>pack.fixtures.mjs</code> from the <code>trip-packer-solver</code>
+    worktree, verbatim. Retune via <code>src/design.css</code> or
+    <code>/trip-wizard-mock</code>. Republish to the URL in
+    <code>README.md</code>.
+  </p>
+
+</div>
+
+<script>
+/*__SOLVER__*/
+</script>

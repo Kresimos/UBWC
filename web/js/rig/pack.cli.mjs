@@ -20,12 +20,13 @@
  *   --trace         show every move the search made
  *   --ways          list every way the packed trailer rigs the same group
  *   --group a,b,c   check whether this exact set of sail sizes rigs at once
+ *   --must a,b;c,d   force the trailer to be able to stand up these sessions
  *   --list          print the fixture rack's item ids and exit
  */
 
 import {
   buildModel, chooseTrailer, exhaustive, packingList, rigSheet, arrangements,
-  spanReport, checkGroup, classLabel, fragileKinds, DEFAULT_WEIGHTS,
+  unriggableGroups, checkGroup, classLabel, fragileKinds, DEFAULT_WEIGHTS,
 } from './pack.mjs';
 import { SAILS, KIT, sailsBySize } from './pack.fixtures.mjs';
 
@@ -106,8 +107,15 @@ if (unknownPins.length) {
   process.exit(1);
 }
 
-const opts = { minRigs, weights };
 const model = buildModel(sails, KIT, pins);
+
+// --must 5.5,6.0;7.0,7.8 -> sessions that have to be riggable at once
+const mustRig = (args.opt.must ? String(args.opt.must).split(';') : [])
+  .map((g) => g.split(',').map((s) => s.trim()).filter(Boolean).map(Number))
+  .filter((g) => g.length >= 2)
+  .map((g) => sailsBySize(g).map((w) => sails.indexOf(w)));
+
+const opts = { minRigs, weights, mustRig };
 
 console.log();
 console.log(`Sails      ${sails.map((s) => `${s.m2}`).join(', ')}  (${sails.length})`);
@@ -115,6 +123,8 @@ console.log(`Promise    every sail rigs, in a group of at least ${minRigs}`);
 console.log(`Weights    spare ${weights.spare}, short ${weights.short}, `
   + `match ${weights.match}, ${weights.light} per piece`);
 if (pins.length) console.log(`Pinned     ${pins.join(', ')}`);
+if (mustRig.length) console.log(`Must rig   ${mustRig
+  .map((g) => g.map((i) => sails[i].m2).join('+')).join(', ')}`);
 
 const t0 = Date.now();
 const best = chooseTrailer(model, opts);
@@ -149,33 +159,18 @@ table([['sail', 'mast', 'extension', 'boom', 'match'],
          `${Math.round(100 * r.quality)}%`,
        ])], ['l', 'l', 'l', 'l', 'r']);
 
-// Same-day fleets: for every size-contiguous run of sails, whether they all
-// stand up at once. A "group of three" only counts if the three are sizes
-// somebody would sail in the same wind, so the question skips scattered groups.
-const span = spanReport(model, best.counts, opts);
+// The smallest sail groups the packing list cannot stand up at once. A club
+// sails a wide spread on a day, so scattered is fine; "these two won't rig
+// together" is the mistake worth catching.
 {
-  const lab = span.ord.map((i) => `${sails[i].m2}${sails[i].cams ? 'c' : ''}`);
-  const w = lab.reduce((m, s) => Math.max(m, s.length), 3);
-  const cell = (s) => String(s).padStart(w + 1);
-  head('Same-day fleets that rig at once  (run of sizes, small to large)');
-  console.log(' '.repeat(w + 2) + lab.map(cell).join(''));
-  span.ord.forEach((_, a) => {
-    let row = cell(lab[a]) + ' ';
-    for (let b = 0; b < span.ord.length; b++) {
-      row += cell(b < a ? '' : b === a ? '-' : span.grid[a][b] ? '#' : '.');
-    }
-    console.log(row);
-  });
-  const s = (p) => `${sails[span.ord[p]].m2}m2 ${sails[span.ord[p]].mfr} ${sails[span.ord[p]].model}`;
-  const rng = span.widest;
-  console.log();
-  console.log(rng.len >= 2
-    ? `Widest fleet up at once: ${rng.len} sails, ${sails[span.ord[rng.a]].m2}-${sails[span.ord[rng.b]].m2}m2`
-    : 'No two neighbouring sails rig at once.');
-  span.dead.forEach((p) => console.log(`  ! ${s(p)}: nothing in the club rigs it`));
-  span.short.forEach((p) => console.log(
-    `  ? ${s(p)}: only rigs alongside ${span.band[p].len - 1} neighbour`
-    + `${span.band[p].len === 2 ? '' : 's'}, short of a same-day ${minRigs}`));
+  const fails = unriggableGroups(model, best.counts);
+  head(`Groups that won't rig together  (${fails.length})`);
+  if (!fails.length) {
+    console.log(`Every group of up to ${best.rigs} sails the trailer could stand up rigs.`);
+  } else {
+    fails.forEach((g) => console.log('  ' + g.map((i) => `${sails[i].m2}`).join(' + ')
+      + `   (--must ${g.map((i) => sails[i].m2).join(',')} to pack for it)`));
+  }
 }
 
 if (args.opt.group) {

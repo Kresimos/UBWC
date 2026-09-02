@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import {
   buildModel, solve, allRiggable, chooseTrailer, exhaustive, scoreP,
-  packingList, rigSheet, arrangements, spanReport, checkGroup, reachGroup,
+  packingList, rigSheet, arrangements, unriggableGroups, checkGroup, reachGroup,
   shortfalls, itemPart, reachVector,
   mastFits, extFits, boomFits, extSetting,
 } from './pack.mjs';
@@ -270,47 +270,64 @@ const full = (model) => model.cap.slice();
   eq(arrangements(model, r, counts).count, 1, 'so there is a single arrangement');
 }
 
-// spanReport only ever asks about size-contiguous bands, and reads the grid right.
+// unriggableGroups returns minimal failing sets and no supersets of them.
 {
-  // Five sails on a 30cm ladder; kit for three rigs at a time. So a run of three
-  // neighbours rigs, a run of four does not.
-  const sails = [sail('s1', 400, 150), sail('s2', 415, 158), sail('s3', 430, 166),
-                 sail('s4', 445, 175), sail('s5', 460, 183)];
-  const kit = [mast('m1', 400), mast('m2', 430), mast('m3', 460),
-               ext('e1', 0, 50), ext('e2', 0, 50), ext('e3', 0, 50),
-               boom('b1', 140, 200), boom('b2', 140, 200), boom('b3', 150, 210)];
+  // Three 430-luff sails, one mast: any pair fails, so all three triples must be
+  // absent from the report (they are supersets of a failing pair).
+  const sails = [sail('a', 430, 180), sail('b', 430, 180), sail('c', 430, 180)];
+  const kit = [mast('m1', 430), ext('e1', 0, 50), ext('e2', 0, 50), ext('e3', 0, 50),
+               boom('b1', 140, 200), boom('b2', 140, 200), boom('b3', 140, 200)];
   const model = buildModel(sails, kit);
   const counts = full(model);
-  const rep = spanReport(model, counts, { minRigs: 3 });
+  const fails = unriggableGroups(model, counts);
+  // One mast rigs one sail, so the trailer rigs 1 — nothing of size >= 2 is even
+  // asked about, since it fails trivially.
+  eq(fails.length, 0, 'a size-2 group cannot fail "surprisingly" on a one-rig trailer');
+}
+{
+  // Three cammed SDM sails but only two SDM masts, plus two camless sails on
+  // their own RDM masts. Four rig at once, so a failing *triple* is a surprise
+  // worth reporting; the trio of cammed sails is that triple.
+  const sails = [
+    sail('a', 460, 190, { cams: 1, diam: 'SDM' }),
+    sail('b', 460, 190, { cams: 1, diam: 'SDM' }),
+    sail('c', 460, 190, { cams: 1, diam: 'SDM' }),
+    sail('d', 430, 180), sail('e', 430, 180),
+  ];
+  const kit = [
+    mast('m1', 460, 'SDM'), mast('m2', 460, 'SDM'),
+    mast('m3', 430, 'RDM'), mast('m4', 430, 'RDM'),
+    ext('x1', 0, 50, 'SDM'), ext('x2', 0, 50, 'SDM'),
+    ext('r1', 0, 50, 'RDM'), ext('r2', 0, 50, 'RDM'),
+    boom('b1', 140, 210), boom('b2', 140, 210), boom('b3', 140, 210),
+    boom('b4', 140, 210), boom('b5', 140, 210),
+  ];
+  const model = buildModel(sails, kit);
+  const counts = full(model);
+  eq(solve(model, counts).rigs, 4, 'four rig at once — only two SDM masts');
 
-  eq(rep.ord.length, 5, 'every sail is placed on the size ladder');
-  for (let a = 0; a < 5; a++) {
-    ok(rep.grid[a][a], `sail ${a} rigs on its own`);
-    eq(rep.grid[a].slice(0, a).every((x) => x === false), true, 'grid is upper-triangular');
-  }
-  // The grid agrees with allRiggable on the contiguous bands it covers.
-  for (let a = 0; a < 5; a++) {
-    for (let b = a; b < 5; b++) {
-      let mask = 0;
-      for (let k = a; k <= b; k++) mask |= 1 << rep.ord[k];
-      eq(rep.grid[a][b], allRiggable(model, counts, mask), `grid[${a}][${b}] matches allRiggable`);
-    }
-  }
-  ok(rep.widest.len >= 3 && rep.widest.len < 5, `widest band is a run of three or four (got ${rep.widest.len})`);
-  ok(rep.band.every((x, p) => x.a <= p && p <= x.b), 'each sail sits inside its own band');
-  eq(rep.dead.length, 0, 'nothing is dead here');
+  const fails = unriggableGroups(model, counts);
+  const key = (g) => g.slice().sort((x, y) => x - y).join(',');
+  ok(fails.some((g) => key(g) === '0,1,2'), 'the three cammed sails cannot all rig — reported');
+  ok(!fails.some((g) => g.length > 3 && [0, 1, 2].every((i) => g.includes(i))),
+    'and no superset of that failure is also reported');
+  fails.forEach((g) => ok(
+    !allRiggable(model, counts, g.reduce((m, i) => m | (1 << i), 0)),
+    `reported group ${key(g)} really cannot rig`));
 }
 
-// A sail nothing rigs shows up in `dead`, not `short`.
+// A group in mustRig comes off the search riggable, whatever it costs.
 {
-  const sails = [sail('ok', 430, 180), sail('ok2', 445, 185), sail('nope', 650, 300)];
-  const kit = [mast('m1', 430), mast('m2', 460), ext('e1', 0, 50), ext('e2', 0, 50),
-               boom('b1', 140, 210), boom('b2', 140, 210)];
+  // Two 430 sails, one mast by default: normally only one rigs. Forcing the pair
+  // makes the search pack the second mast.
+  const sails = [sail('a', 430, 180), sail('b', 430, 180)];
+  const kit = [mast('m1', 430), mast('m2', 430), ext('e1', 0, 50), ext('e2', 0, 50),
+               boom('b1', 140, 200), boom('b2', 140, 200)];
   const model = buildModel(sails, kit);
-  const rep = spanReport(model, buildModel(sails, kit).cap, { minRigs: 2 });
-  const nopePos = rep.ord.indexOf(2);
-  ok(rep.dead.includes(nopePos), 'the 650-luff sail is dead');
-  ok(!rep.short.includes(nopePos), 'and not merely short');
+  const loose = chooseTrailer(model, { minRigs: 1, weights: { light: 40 } });
+  ok(loose.rigs < 2, 'left alone, the heavy per-piece charge keeps it to one rig');
+  const forced = chooseTrailer(model, { minRigs: 1, weights: { light: 40 }, mustRig: [[0, 1]] });
+  ok(allRiggable(model, forced.counts, 0b11), 'with the pair in mustRig, both rig');
 }
 
 // checkGroup rigs a good set, and names the piece that would rescue a bad one.

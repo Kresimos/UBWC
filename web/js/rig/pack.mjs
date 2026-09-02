@@ -762,10 +762,29 @@ function seedTrailer(model) {
  *
  * `--exact` in the CLI runs `exhaustive` as well, which walks the whole lattice
  * and proves whether these found the optimum.
+ *
+ * `opts.mustRig` is a list of sail-index groups the kit sec has insisted must be
+ * able to stand up at once (from the session checker). Each one raises the floor
+ * to whatever that group needs, so the search can trim and swap around it but
+ * never below it. A group only has to rig on its own, never alongside the other
+ * required groups, so the floor is the per-class max across them, not the sum.
  */
 export function chooseTrailer(model, opts = {}) {
-  const { floor, cap, classes, rows } = model;
-  const counts = seedTrailer(model);
+  const { cap, classes, rows } = model;
+
+  const floor = model.floor.slice();
+  for (const group of opts.mustRig ?? []) {
+    let mask = 0;
+    for (const i of group) mask |= 1 << i;
+    // Just this group on the table, all of it required: the kit is what those
+    // sails alone need, not the biggest session that happens to contain them.
+    const g = solve(model, cap, { mask, require: mask });
+    if (!g.plan.length) continue; // unsatisfiable — the checker says so itself
+    const need = floor.map(() => 0);
+    g.plan.forEach((r) => { need[r.t.m]++; need[r.t.e]++; need[r.t.b]++; });
+    need.forEach((v, c) => { if (v > floor[c]) floor[c] = v; });
+  }
+  const counts = seedTrailer({ ...model, floor });
 
   // Local search revisits the same trailer many times over, so score each
   // distinct one once.
@@ -1159,67 +1178,54 @@ export function arrangements(model, result, counts, opts = {}) {
 }
 
 /**
- * Which same-day fleets this trailer can stand up.
+ * The smallest sets of sails this packing list cannot stand up at once.
  *
- * A "group of three" only means something if the three are sizes somebody would
- * sail in the same wind: a 4.5 next to a 7.8 is two different days, not a
- * session. So the question is asked over **size-contiguous** bands only — the
- * sails sorted by area, and every run of neighbours from one size up to another.
+ * A club sails a wide spread on any given day — a heavy beginner on a big sail
+ * next to a light expert on a small one — so a scattered group is not a mistake.
+ * "These two won't rig together" is. This walks sail combinations from pairs
+ * upward, skips any superset of a set already known to fail, and returns the
+ * minimal failures: the groups where every smaller group inside them is fine.
  *
- * Returns, over `ord` (row indices sorted small to large):
- *  - `grid[a][b]` (b >= a) — the band `ord[a..b]` all rigs at once;
- *  - `band[p]` — `{ len, a, b }`, the widest riggable band containing sail `p`;
- *  - `widest` — the widest riggable band anywhere;
- *  - `short` — positions whose widest band is under `minRigs` (the realistic
- *    promise the trailer misses for that sail);
- *  - `dead` — positions nothing in the club rigs at all.
+ * Groups bigger than the trailer rigs at once are left out — they fail for the
+ * trivial reason and say nothing. `opts.limit` caps the list (20), `opts.budget`
+ * the combinations tried (20000). Each entry is a list of row indices.
  */
-export function spanReport(model, counts, opts = {}) {
-  const ord = model.rows.map((_, i) => i)
-    .sort((a, b) => model.rows[a].sail.m2 - model.rows[b].sail.m2);
-  const n = ord.length;
-  const ask = Math.min(opts.minRigs ?? 1, n);
+export function unriggableGroups(model, counts, opts = {}) {
+  const n = model.rows.length;
+  const rigs = solve(model, counts).rigs;
+  const maxSize = Math.min(opts.maxSize ?? rigs, rigs, n);
+  const limit = opts.limit ?? 20;
+  const budget = opts.budget ?? 20000;
 
-  const grid = [];
-  for (let a = 0; a < n; a++) {
-    grid[a] = new Array(n).fill(false);
-    let mask = 0;
-    for (let b = a; b < n; b++) {
-      mask |= 1 << ord[b];
-      grid[a][b] = allRiggable(model, counts, mask);
-    }
-  }
+  const fails = [];
+  const isSuper = (m) => fails.some((f) => (f.mask & m) === f.mask);
+  let tried = 0;
 
-  const band = ord.map((_, p) => {
-    let best = { len: grid[p][p] ? 1 : 0, a: p, b: p };
-    for (let a = 0; a <= p; a++) {
-      for (let b = p; b < n; b++) {
-        if (grid[a][b] && b - a + 1 > best.len) best = { len: b - a + 1, a, b };
+  for (let size = 2; size <= maxSize && fails.length < limit && tried < budget; size++) {
+    const idx = [];
+    for (let i = 0; i < size; i++) idx.push(i);
+    for (;;) {
+      let mask = 0;
+      for (const i of idx) mask |= 1 << i;
+      tried++;
+      if (!isSuper(mask) && !allRiggable(model, counts, mask)) {
+        fails.push({ mask, sails: idx.slice() });
+        if (fails.length >= limit) break;
       }
-    }
-    return best;
-  });
-
-  let widest = { len: 0, a: 0, b: 0 };
-  for (let a = 0; a < n; a++) {
-    for (let b = a; b < n; b++) {
-      if (grid[a][b] && b - a + 1 > widest.len) widest = { len: b - a + 1, a, b };
+      let k = size - 1;
+      while (k >= 0 && idx[k] === n - size + k) k -= 1;
+      if (k < 0) break;
+      idx[k] += 1;
+      for (let j = k + 1; j < size; j++) idx[j] = idx[j - 1] + 1;
     }
   }
 
-  const short = [];
-  const dead = [];
-  ord.forEach((_, p) => {
-    if (!grid[p][p]) dead.push(p);
-    else if (band[p].len < ask) short.push(p);
-  });
-
-  return { ord, grid, band, widest, short, dead, ask };
+  return fails.map((f) => f.sails);
 }
 
 /**
  * Can this exact set of sails rig at once, and if not, the one piece that would
- * let it. The interactive "can we also do X" check behind the span grid.
+ * let it. The check behind the session picker.
  *
  * `sailIdxs` are row indices, in any order. Returns `{ riggable, rigs, sheet,
  * missing, need }` — `sheet` is the best `rigSheet` for the set (all of it when

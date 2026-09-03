@@ -9,6 +9,11 @@
 # then deploy.
 fastapi==0.141.1
 uvicorn==0.52.4
+# Photo uploads: python-multipart is what lets FastAPI read a file field off a
+# form; Pillow re-decodes each upload, checks it really is an image, and
+# resizes it down before it ever touches the disk (misc/scale.md, "Photos").
+python-multipart==0.0.20
+Pillow==12.1.1
 # Only needed to (re)build kit.db from data/Kit Inventory.xlsx via migrate.py.
 # Kept in the deployed image so a first boot with UBWC_SEED=1 can build a
 # database from the sheet.

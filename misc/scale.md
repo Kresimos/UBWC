@@ -117,9 +117,11 @@ filesystem would not be, which is one more reason the disk is not negotiable.
 
 ## Photos
 
-`image_path` columns exist on items, faults and fault events, and nothing
-writes them yet. That is the one feature that would change the shape of this
-deployment, so it is worth deciding before building rather than after.
+Photo upload is **built** now (kit items, trips, faults and fixes, profile
+pictures, spot photos), along the three rules below. What is left is watching
+the number: photos are the one feature that can fill the volume and take the
+database down with it. The analysis that follows is why it was built this way,
+and where the ceiling is.
 
 **A Hobby volume is 5 GB.** That is the whole budget, shared with the database.
 
@@ -129,27 +131,35 @@ An iPhone photo is 2 to 5 MB. Stored as they come off the phone:
 - every fault report carrying a photo of the ding, over a few years, does not.
   A few thousand photos is the ceiling, and it arrives quietly.
 
-Three rules, in order of how much they matter:
+Three rules, in order of how much they matter — all three are in `server.py`
+now (`_store_photo`, `PHOTOS_DIR`, `MAX_UPLOAD_BYTES`):
 
 1. **Resize on upload, and never store the original.** The app draws a 390 px
    column. A 400 KB image at 1600 px wide is more than it can ever display,
    and it is **ten times smaller** than what the phone sends. This single
    decision moves the ceiling from around a thousand photos to twenty-odd
-   thousand, and it is much easier to do from the first upload than to
-   retrofit over a volume already full of 4 MB originals. It needs Pillow,
-   which is the first non-trivial dependency this app would take on.
-2. **Files on the volume, not blobs in SQLite.** `/data/photos/`, with
-   `image_path` holding the name. Blobs would work, but every one of them
-   would then be inside every backup and every `manage.py backup`, turning a
-   300 KB file you can email into a gigabyte you cannot, and the backup is the
-   thing that makes this whole hosting choice reversible.
-3. **Cap the upload size at the server**, and check the file really is an
-   image, because the disk is finite and shared with the database. A full
-   volume is not a failed upload; it is a database that cannot write.
+   thousand. Done twice over: the browser downscales to ~1920 px before it
+   uploads (a phone on lake wifi), and the server re-decodes and resizes to
+   1600 px as the authority. It needs Pillow, the first non-trivial dependency
+   this app takes on.
+2. **Files on the volume, not blobs in SQLite.** `<UBWC_DB dir>/photos/` (so
+   `/data/photos/` on Railway), with `image_path` holding the name. Blobs
+   would work, but every one of them would then be inside every backup and
+   every `manage.py backup`, turning a 300 KB file you can email into a
+   gigabyte you cannot, and the backup is the thing that makes this whole
+   hosting choice reversible.
+3. **Cap the upload size at the server** (15 MB), and check the file really is
+   an image (Pillow decodes it, not just its content-type), because the disk
+   is finite and shared with the database. A full volume is not a failed
+   upload; it is a database that cannot write.
 
-Serving them is the easy half: a `StaticFiles` mount over `/data/photos` with
-a long cache header. Images are already compressed, so gzip correctly skips
-them, and a phone re-opening the app fetches each photo once.
+Serving them is the easy half, and done: a `StaticFiles` mount over `/photos`
+with a one-year immutable cache header (the name is a random token, the bytes
+never change). Images are already compressed, so gzip correctly skips them,
+and a phone re-opening the app fetches each photo once.
+
+`manage.py reset` sweeps photo files no surviving row points at, so the
+one-time move to the real inventory does not leave the volume full of orphans.
 
 The moment photos exist, the backup story changes too: `kit.db` alone stops
 being the whole of the club's data. Either back up the photo directory

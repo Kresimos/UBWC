@@ -168,6 +168,17 @@ nothing at all when that file is not there, which is why it can just stay set.
    With that file, moving to any other host is an afternoon, which is what
    makes this decision reversible.
 
+   **Once photos are in use**, `kit.db` is no longer the whole of the club's
+   data: the images live beside it in `/data/photos/`. Pull the directory in
+   the same run, or accept in writing that photos are the losable half:
+
+   ```sh
+   railway volume files download /data/photos ~/…/UBWC\ 2026\ 2027/photos-$(date +%F)/
+   ```
+
+   `python manage.py where` prints the photo count and size, on the server or
+   against a downloaded copy.
+
 2. **Get the bill off your personal card.** A club app that outlives your
    committee should not be attached to your bank account. Railway supports
    changing the payment method on the account.

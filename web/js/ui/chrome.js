@@ -7,11 +7,12 @@
  * lit. The Log tab grows a dot when a session is waiting to be written up,
  * which is the one nudge the app makes on its own.
  */
-import { html, mount, initial } from '../dom.js';
+import { html, mount } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSite, setTrip, setIdentity, subscribe, emit } from '../store.js';
 import { chooser, formSheet, confirmSheet, toast } from './overlay.js';
+import { avatar } from './bits.js';
 import { go } from '../router.js';
 
 // Trips sits between Log and Add rather than in the middle: Add is the end of
@@ -141,6 +142,8 @@ export async function openIdentity() {
 
   const rows = [
     { value: 'profile', label: 'Your sailing', sub: 'The sizes you rig, and the kit you keep going back to' },
+    { value: 'photo', label: store.user.image_path ? 'Change photo' : 'Add a photo',
+      sub: 'Shown next to your name on notes and faults' },
     { value: 'name', label: 'Change display name', sub: store.user.display_name || store.user.username },
     { value: 'password', label: 'Change password', sub: 'Signs your other devices out' },
   ];
@@ -158,6 +161,7 @@ export async function openIdentity() {
   });
 
   if (choice === 'profile') { go('/me'); return store.user; }
+  if (choice === 'photo') return changeAvatar();
   if (choice === 'name') return changeName();
   if (choice === 'password') return changePassword();
   if (choice === 'members') return manageMembers();
@@ -211,6 +215,22 @@ export async function signUp() {
   if (result.alt) return signIn();
   setIdentity(result.user, result.committee);
   toast(`Welcome, ${result.user.display_name}.`);
+  return result.user;
+}
+
+async function changeAvatar() {
+  const result = await formSheet({
+    title: 'Your photo',
+    sub: 'Stands in for your initials on the app bar and next to your name on notes and faults.',
+    fields: [{ name: 'image_path', label: 'Photo', type: 'photo',
+               value: store.user.image_path || null,
+               hint: 'A clear headshot works best. Remove it to go back to initials.' }],
+    submitLabel: 'Save',
+    onSubmit: (values) => api.setAvatar(values.image_path || null),
+  });
+  if (!result) return store.user;
+  setIdentity(result.user, result.committee);
+  toast(result.user.image_path ? 'Photo saved.' : 'Photo removed.');
   return result.user;
 }
 
@@ -274,7 +294,7 @@ async function manageMembers() {
         `${member.n_sessions} sessions`,
         `${member.n_ratings} ratings`,
       ].filter(Boolean).join(' · '),
-      avatar: initial(member.display_name || member.username),
+      avatar: avatar(member.display_name || member.username, member.image_path),
       on: member.is_admin,
     })),
   });

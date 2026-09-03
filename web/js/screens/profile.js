@@ -22,7 +22,7 @@ import { html, mount, num, ago, onClick } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel } from '../store.js';
-import { starRow } from '../ui/bits.js';
+import { starRow, avatar } from '../ui/bits.js';
 import { openIdentity, pickSite } from '../ui/chrome.js';
 import { lightbox } from '../ui/overlay.js';
 import { go, back } from '../router.js';
@@ -80,7 +80,7 @@ function screen(data) {
 
     <div class="body">
       <button class="whocard" data-account>
-        <span class="av">${(name[0] || '?').toUpperCase()}</span>
+        <span class="av">${avatar(name, data.user.image_path)}</span>
         <span class="whomid">
           <b>${name}</b>
           <span>${data.user.is_admin ? 'Committee' : 'Member'} · ${data.user.username}</span>

@@ -125,6 +125,12 @@ def cmd_where(_args) -> None:
     print(f"size:     {size_kb:.0f} KB")
     print("holds:    " + ", ".join(f"{n} {t}" for t, n in counts.items()))
 
+    photos = db.DATA_DIR / "photos"
+    if photos.is_dir():
+        files = [p for p in photos.iterdir() if p.is_file()]
+        mb = sum(p.stat().st_size for p in files) / 1024 / 1024
+        print(f"photos:   {len(files)} files, {mb:.1f} MB in {photos}")
+
 
 def cmd_backup(args) -> None:
     """Copy the database out while the app is running.
@@ -263,9 +269,45 @@ def cmd_reset(args) -> None:
     finally:
         plain.close()
 
+    _sweep_photos()
+
     print()
     cmd_where(args)
     print("\nThe club's accounts are untouched. Add kit through the app.")
+
+
+def _referenced_photos() -> set:
+    """Every /photos/<name> the database still points at, across every table
+    that has an image_path (or spots, keyed by image_path too)."""
+    names = set()
+    with db.connect() as conn:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")]
+        for table in tables:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if "image_path" not in cols:
+                continue
+            for (value,) in conn.execute(
+                    f"SELECT image_path FROM {table} WHERE image_path IS NOT NULL"):
+                names.add(str(value).rsplit("/", 1)[-1])
+    return names
+
+
+def _sweep_photos() -> None:
+    """Delete photo files no surviving row points at. After a reset that is
+    every item, fault and trip photo; profile and spot photos stay because
+    their accounts and places do."""
+    photos = db.DATA_DIR / "photos"
+    if not photos.is_dir():
+        return
+    keep = _referenced_photos()
+    removed = 0
+    for path in photos.iterdir():
+        if path.is_file() and path.name not in keep:
+            path.unlink()
+            removed += 1
+    if removed:
+        print(f"Removed {removed} orphaned photo file(s).")
 
 
 def main() -> None:

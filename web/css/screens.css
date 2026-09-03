@@ -442,8 +442,10 @@
 [data-screen="item"] .rev .who {
   width: 26px; height: 26px; border-radius: 50%; background: var(--teal-tint);
   color: var(--teal-ink); font-size: 11px; font-weight: 700; display: flex;
-  align-items: center; justify-content: center; flex: none;
+  align-items: center; justify-content: center; flex: none; overflow: hidden;
 }
+[data-screen="item"] .rev .who.has { background: none; }
+[data-screen="item"] .rev .who img { width: 100%; height: 100%; object-fit: cover; }
 [data-screen="item"] .rev .name { font-size: 13.5px; font-weight: 650; }
 [data-screen="item"] .rev .when { font-size: 11.5px; color: var(--app-faint); margin-left: auto; }
 [data-screen="item"] .rev p { margin: 0; font-size: 13.5px; line-height: 1.5; }
@@ -484,6 +486,12 @@
 [data-screen="item"] .fhdot.reopened { background: var(--crit); }
 [data-screen="item"] .fhrow .fx b { font-size: 13px; }
 [data-screen="item"] .fhrow .fx .fw { font-size: 11.5px; color: var(--app-faint); margin-left: 6px; }
+[data-screen="item"] .fhrow .fx .fwav {
+  display: inline-block; width: 15px; height: 15px; border-radius: 50%; overflow: hidden;
+  vertical-align: -3px; margin-left: 6px;
+}
+[data-screen="item"] .fhrow .fx .fwav img { width: 100%; height: 100%; object-fit: cover; }
+[data-screen="item"] .fhrow .fx .fwav + .fw { margin-left: 4px; }
 [data-screen="item"] .fhrow .fx p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--app-muted); }
 [data-screen="item"] .calc { margin: 2px 2px 0; font-size: 11.5px; line-height: 1.45; color: var(--app-faint); }
 

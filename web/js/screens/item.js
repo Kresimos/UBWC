@@ -17,7 +17,7 @@
 import { html, mount, num, numFixed, ago, onClick, initial } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
-import { store, isCommittee } from '../store.js';
+import { store, isCommittee, spotImage, setSpots, avatarFor } from '../store.js';
 import { starRow, conditionClass } from '../ui/bits.js';
 import { needUser, needCommittee } from '../ui/chrome.js';
 import { formSheet, lightbox, toast } from '../ui/overlay.js';
@@ -28,9 +28,17 @@ export async function render(root, params) {
   let item = await api.item(id);
   let historyOpen = false;
 
-  function paint() {
+  // A repaint replaces `.body` wholesale, which would send the page back to the
+  // top. `keepScroll` holds the reader where they were — a thumb vote redraws
+  // the rating bar far down the page and should not move it.
+  function paint({ keepScroll = false } = {}) {
+    const y = keepScroll ? (root.querySelector('.body')?.scrollTop || 0) : 0;
     mount(root, screen(item, historyOpen));
     wire();
+    if (y) {
+      const body = root.querySelector('.body');
+      if (body) body.scrollTop = y;
+    }
   }
 
   function wire() {
@@ -40,12 +48,42 @@ export async function render(root, params) {
     if (edit) edit.addEventListener('click', () => go(`/edit/${id}`));
 
     onClick(root, 'data-spot', () => {
+      const canEdit = isCommittee() && item.site && item.spot;
       lightbox({
         title: `${item.spot || 'Location'} · ${item.site || ''}`.trim(),
+        image: spotImage(item.site, item.spot),
         sub: item.spot_description
-          || 'No description recorded for this spot yet. A committee member can add one when moving kit.',
+          || (canEdit
+            ? 'No description or photo yet. Add one so the next person can find it and put it back.'
+            : 'No description recorded for this spot yet. A committee member can add one.'),
+        action: canEdit ? { label: 'Edit spot', onClick: editSpot } : null,
       });
     });
+
+    async function editSpot() {
+      const values = await formSheet({
+        title: `${item.spot} · ${item.site}`,
+        sub: 'What the club sees when anyone taps this spot. Committee only.',
+        fields: [
+          { name: 'description', label: 'Where it is', type: 'textarea', rows: 2,
+            value: item.spot_description || '',
+            placeholder: 'Second bay in from the door, top rack.' },
+          { name: 'image_path', label: 'Photo', type: 'photo',
+            value: spotImage(item.site, item.spot),
+            hint: 'A shot of the rack, so kit goes back where it came from.' },
+        ],
+        submitLabel: 'Save the spot',
+      });
+      if (!values) return;
+      const data = await api.upsertSpot(item.site, item.spot, {
+        description: values.description || null,
+        image_path: values.image_path || null,
+      });
+      setSpots(data.spots);
+      item = await api.item(id);
+      paint();
+      toast('Spot updated.');
+    }
 
     // A trip tag in the chips row is a live link to the trip the piece is
     // packed for.
@@ -70,14 +108,18 @@ export async function render(root, params) {
       const values = await formSheet({
         title: 'Report a fix',
         sub: 'This flags the fault as repaired and waiting for committee sign-off. It does not close it.',
-        fields: [{
-          name: 'body', label: 'What did you do?', type: 'textarea', rows: 3, required: true,
-          placeholder: 'Re-seated the cam spring and packed the base collar.',
-        }],
+        fields: [
+          {
+            name: 'body', label: 'What did you do?', type: 'textarea', rows: 3, required: true,
+            placeholder: 'Re-seated the cam spring and packed the base collar.',
+          },
+          { name: 'image_path', label: 'Photo', type: 'photo',
+            hint: 'The repair, so committee can sign it off from the photo. Optional.' },
+        ],
         submitLabel: 'Report the fix',
       });
       if (!values) return;
-      await api.reportFix(Number(value), values.body);
+      await api.reportFix(Number(value), values.body, values.image_path);
       item = await api.item(id);
       historyOpen = true;
       paint();
@@ -100,7 +142,7 @@ export async function render(root, params) {
       // expected: the club's stars count your latest word on it, not every one.
       const next = item.rating.mine === Number(value) ? 0 : Number(value);
       item.rating = await api.vote(id, next);
-      paint();
+      paint({ keepScroll: true });
     });
 
     onClick(root, 'data-fav', async () => {
@@ -147,6 +189,8 @@ export async function render(root, params) {
               { value: 'out_of_action', label: 'Out of action (red flag, hidden from the rig picker)' },
             ],
           },
+          { name: 'image_path', label: 'Photo', type: 'photo',
+            hint: 'A shot of the damage helps whoever fixes it. Optional.' },
         ],
         submitLabel: 'Report it',
       });
@@ -382,8 +426,15 @@ function historyGroup(fault) {
           <span class="fhdot ${event.kind}"></span>
           <div class="fx">
             <b>${EVENT_LABELS[event.kind] || event.kind}</b>
+            ${avatarFor(event.author)
+              ? html`<span class="fwav"><img src="${avatarFor(event.author)}" alt=""></span>`
+              : ''}
             <span class="fw">${[event.author, ago(event.created_at)].filter(Boolean).join(' · ')}</span>
             ${event.body ? html`<p>${event.body}</p>` : ''}
+            ${event.image_path
+              ? html`<button class="photochip" data-fault-photo="${event.image_path}">
+                  ${icon('image')}Photo · View</button>`
+              : ''}
           </div>
         </div>`)}
       ${fault.awaiting_signoff ? html`
@@ -394,12 +445,20 @@ function historyGroup(fault) {
     </div>`;
 }
 
+/** A member's initials, or their profile photo if they have set one. */
+function whoMark(name) {
+  const src = avatarFor(name);
+  return src
+    ? html`<span class="who has"><img src="${src}" alt=""></span>`
+    : html`<span class="who">${initial(name || 'Someone')}</span>`;
+}
+
 function comment(entry) {
   const who = entry.user_name || entry.author || 'Someone';
   return html`
     <div class="rev">
       <div class="top">
-        <span class="who">${initial(who)}</span>
+        ${whoMark(who)}
         <span class="name">${who}</span>
         ${entry.kind && entry.kind !== 'note'
           ? html`<span class="tag">${entry.kind === 'usage' ? 'Session note' : entry.kind}</span>`

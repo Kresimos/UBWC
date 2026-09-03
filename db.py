@@ -23,6 +23,10 @@ from typing import Iterable, Optional, Union
 import migrate  # for DB_PATH and rebuild()
 
 DB_PATH = migrate.DB_PATH
+# The directory the database lives in, which is also where uploaded photos go
+# (migrate.DATA_DIR): one disk, one mount, one backup covers the club's data.
+# Re-exported here so server.py and manage.py reach it through db, not migrate.
+DATA_DIR = migrate.DATA_DIR
 
 # Terminal search commands -> the component_type(s) they list. Sails + Wings are
 # grouped together to mirror the sheet.
@@ -363,8 +367,20 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                 site        TEXT NOT NULL,
                 name        TEXT NOT NULL,
                 description TEXT,
+                image_path  TEXT,
                 UNIQUE (site, name)
             )""")
+    elif "image_path" not in _columns(conn, "spots"):
+        # A photo of the rack, so a newcomer can put kit back where it lives.
+        conn.execute("ALTER TABLE spots ADD COLUMN image_path TEXT")
+
+    # image_path arrived on faults, fault events and comments with the schema
+    # that first shipped them, so a database built from schema.sql already has
+    # it. A database older than that never got an in-place ALTER for it; add one
+    # now so a photo write cannot hit a missing column on an old host.
+    for table in ("faults", "fault_events", "comments"):
+        if table in tables and "image_path" not in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN image_path TEXT")
 
     # `setups` was a placeholder for saved favourites; it is now the active-rig
     # record. It is only ever dropped when it still has the old shape.
@@ -716,8 +732,13 @@ def _migrate_accounts(conn: sqlite3.Connection, tables: set) -> None:
     only do by rebuilding the table, so the rows are copied across; every
     existing vote survives as that member's latest one.
     """
-    if "last_seen_at" not in _columns(conn, "users"):
+    user_cols = _columns(conn, "users")
+    if "last_seen_at" not in user_cols:
         conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT")
+    if "image_path" not in user_cols:
+        # A profile photo. NULL means the member's initials stand in, which is
+        # every account until it sets one.
+        conn.execute("ALTER TABLE users ADD COLUMN image_path TEXT")
 
     if "auth_sessions" not in tables:
         conn.execute("""
@@ -1113,7 +1134,7 @@ def add_site(name: str) -> None:
 
 
 def get_spots(site: Optional[str] = None) -> list:
-    query = "SELECT site, name, description FROM spots"
+    query = "SELECT site, name, description, image_path FROM spots"
     params = []
     if site:
         query += " WHERE site = ?"
@@ -1134,14 +1155,39 @@ def spot_description(site: Optional[str], spot: Optional[str]) -> Optional[str]:
     return row["description"] if row else None
 
 
+def upsert_spot(site: str, name: str, description: Optional[str],
+                image_path: Optional[str]) -> None:
+    """Committee action: write (or overwrite) the note and photo for one spot.
+
+    Keyed by (site, name), the same pair `items.spot` points at by string. This
+    is the only way a spot's description or photo is set from the app; before
+    it, both were seed data only.
+    """
+    site = (site or "").strip()
+    name = (name or "").strip()
+    if not site or not name:
+        raise ValueError("A spot needs both a site and a name.")
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO spots (site, name, description, image_path) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (site, name) DO UPDATE SET "
+            "  description = excluded.description, "
+            "  image_path = excluded.image_path",
+            (site, name, (description or "").strip() or None, image_path or None),
+        )
+        conn.commit()
+
+
 # --------------------------------------------------------------------------- #
 # Users and accounts
 #
 # An account is username + password. The hash never leaves this module: every
 # function here returns the PUBLIC shape of a member (id, username,
-# display_name, is_admin), so no caller can leak a hash by forwarding a row.
+# display_name, is_admin, image_path), so no caller can leak a hash by
+# forwarding a row.
 # --------------------------------------------------------------------------- #
-PUBLIC_USER = "id, username, display_name, is_admin"
+PUBLIC_USER = "id, username, display_name, is_admin, image_path"
 
 # PBKDF2-HMAC-SHA256 from the standard library. No argon2/bcrypt dependency for
 # a club app that has to install from a laptop by a lake; the round count is
@@ -1296,6 +1342,37 @@ def set_display_name(user_id: int, display_name: str) -> Optional[dict]:
     return get_user(user_id)
 
 
+def set_avatar(user_id: int, image_path: Optional[str]) -> Optional[dict]:
+    """Set the member's profile photo, or clear it with None."""
+    with connect() as conn:
+        conn.execute("UPDATE users SET image_path = ? WHERE id = ?",
+                     (image_path or None, user_id))
+        conn.commit()
+    return get_user(user_id)
+
+
+def member_avatars() -> dict:
+    """`{display_name: image_path}` for the members who have set a photo.
+
+    How a member's picture reaches every place their name is shown (a comment,
+    a fault report) without threading a user id through each of those rows:
+    the name is matched to the photo on render. Two members with the same
+    display name would share an avatar; for a club roster that is rare and
+    low-stakes.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT display_name, username, image_path FROM users "
+            "WHERE image_path IS NOT NULL"
+        ).fetchall()
+    out = {}
+    for row in rows:
+        for key in (row["display_name"], row["username"]):
+            if key:
+                out[key] = row["image_path"]
+    return out
+
+
 def set_admin(user_id: int, is_admin: bool) -> Optional[dict]:
     """Make somebody committee, or stand them down.
 
@@ -1369,7 +1446,8 @@ def session_user(token: str) -> Optional[dict]:
     digest = _token_hash(token)
     with connect() as conn:
         row = conn.execute(
-            f"SELECT u.id, u.username, u.display_name, u.is_admin, a.id AS session_id "
+            f"SELECT u.id, u.username, u.display_name, u.is_admin, u.image_path, "
+            "a.id AS session_id "
             "FROM auth_sessions a JOIN users u ON u.id = a.user_id "
             "WHERE a.token_hash = ? AND a.expires_at > datetime('now')",
             (digest,),

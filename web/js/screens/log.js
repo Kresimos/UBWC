@@ -11,11 +11,11 @@
  *    until logged (there is no dismiss), because a save is always a deliberate
  *    act and the nudge is what turns a finished sail into one.
  */
-import { html, mount, num, numFixed, ago, clockTime, spanned, stampDate, onClick, initial } from '../dom.js';
+import { html, mount, num, numFixed, ago, clockTime, spanned, stampDate, onClick } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
-import { store, setSetup } from '../store.js';
-import { starIcons, wireWhoPill } from '../ui/bits.js';
+import { store, setSetup, avatarFor } from '../store.js';
+import { starIcons, wireWhoPill, avatar } from '../ui/bits.js';
 import { refreshSetup, needUser, openIdentity } from '../ui/chrome.js';
 import { confirmSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
@@ -207,7 +207,7 @@ function sessionCard(session) {
   return html`
     <article class="sess">
       <div class="who">
-        <span class="av">${initial(session.user_name)}</span>
+        <span class="av">${avatar(session.user_name, avatarFor(session.user_name))}</span>
         <span class="wn">
           <span class="nm">${session.user_name}</span>
           <span class="meta">${[clockTime(stamp) || ago(stamp), session.site].filter(Boolean).join(' · ')}</span>

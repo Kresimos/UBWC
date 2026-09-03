@@ -6,17 +6,21 @@ validation.py and rigkit.py) or any HTML (that lives in web/).
 
 Run it with:  python server.py        (or: uvicorn server:app --reload)
 """
+import io
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, ImageOps
+from PIL.Image import DecompressionBombError, UnidentifiedImageError
 
 import db
 import rigkit
@@ -26,6 +30,22 @@ import wind
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
+
+# Uploaded photos live next to the database, on the same disk, so one volume
+# and one backup cover the club's data (misc/scale.md, "Photos"). The name in
+# each image_path column is relative to here and served from /photos.
+PHOTOS_DIR = db.DATA_DIR / "photos"
+PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+# What the browser sends after its own downscale is a few hundred KB; anything
+# far above that is a client that skipped it or a wrong file, and the disk is
+# finite and shared with the database.
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+# The app never draws a photo wider than its ~390 px column at 2x, so a stored
+# edge longer than this is bytes that can never be shown. Resizing down here is
+# what moves the volume's ceiling from ~1,000 photos to ~20,000.
+PHOTO_MAX_EDGE = 1600
+PHOTO_QUALITY = 82
 
 # The cookie carries a session token; the account behind it is looked up on
 # every request (db.session_user), so signing out here signs out for real and a
@@ -111,6 +131,9 @@ def _bootstrap_admin() -> None:
 # expiry.
 CODE_CACHE = "no-cache"
 ASSET_CACHE = "public, max-age=604800"      # a week
+# A photo's name is a random token and its bytes never change, so a browser
+# that has one never needs to ask again.
+PHOTO_CACHE = "public, max-age=31536000, immutable"
 
 
 @app.middleware("http")
@@ -122,6 +145,8 @@ async def _cache_headers(request: Request, call_next):
     path = request.url.path
     if path.startswith("/assets/"):
         response.headers.setdefault("Cache-Control", ASSET_CACHE)
+    elif path.startswith("/photos/"):
+        response.headers.setdefault("Cache-Control", PHOTO_CACHE)
     elif path.startswith(("/js/", "/css/")):
         response.headers.setdefault("Cache-Control", CODE_CACHE)
     elif path.startswith("/api/"):
@@ -188,6 +213,50 @@ def require_committee(request: Request) -> dict:
     if not who["committee"]:
         raise HTTPException(403, "This one is committee only.")
     return who["user"]
+
+
+# --------------------------------------------------------------------------- #
+# API: photo uploads
+#
+# One endpoint for every photo in the app (a piece of kit, a trip, a fault, a
+# profile, a spot). It stores the file and hands back the path; attaching that
+# path to something is the job of the ordinary create/edit call that follows,
+# which is where the per-feature permissions live. The browser downscales
+# before it uploads; this is the authority that still checks.
+# --------------------------------------------------------------------------- #
+def _store_photo(raw: bytes) -> str:
+    """Verify raw bytes really are an image, resize down, save as JPEG.
+
+    Returns the public path (/photos/<name>.jpg). The original is never kept:
+    what lands on disk is at most PHOTO_MAX_EDGE on its long side, which is
+    already more than the app can display.
+    """
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "That photo is too big. Try one straight from "
+                                 "the camera roll rather than a full-res export.")
+    try:
+        probe = Image.open(io.BytesIO(raw))
+        probe.verify()                       # structural check; consumes probe
+        image = Image.open(io.BytesIO(raw))  # reopen to actually use it
+        image = ImageOps.exif_transpose(image)   # honour the phone's rotation
+        image = image.convert("RGB")
+        image.thumbnail((PHOTO_MAX_EDGE, PHOTO_MAX_EDGE))
+    except (UnidentifiedImageError, DecompressionBombError, OSError, ValueError):
+        raise HTTPException(422, "That file is not an image the app can read.")
+
+    name = f"{secrets.token_hex(16)}.jpg"
+    image.save(PHOTOS_DIR / name, "JPEG", quality=PHOTO_QUALITY, optimize=True)
+    return f"/photos/{name}"
+
+
+@app.post("/api/uploads")
+async def upload_photo(request: Request, file: UploadFile = File(...)):
+    """Take one image, store a resized copy, return {image_path}."""
+    require_user(request)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(422, "That upload was empty.")
+    return {"image_path": _store_photo(raw)}
 
 
 # --------------------------------------------------------------------------- #
@@ -354,6 +423,8 @@ def bootstrap(request: Request):
                   for t in db.get_trips()
                   if t["status"] in db.TRIP_AWAY_STAGES],
         "spots": db.get_spots(),
+        # display_name -> profile photo, for every place a member's name shows.
+        "avatars": db.member_avatars(),
         "types": [{"key": key, "label": db.COMPONENT_LABELS[key],
                    "count": counts.get(key, 0)} for key in db.CATALOGUE_TYPES],
         "conditions": db.FIELD_META["condition"]["choices"],
@@ -451,6 +522,15 @@ def change_display_name(request: Request, payload: dict = Body(...)):
         updated = db.set_display_name(user["id"], payload.get("display_name") or "")
     except db.AccountError as error:
         raise HTTPException(422, str(error))
+    return {"user": updated, "committee": bool(updated["is_admin"])}
+
+
+@app.post("/api/account/photo")
+def change_avatar(request: Request, payload: dict = Body(...)):
+    """Set my profile photo (image_path from /api/uploads), or clear it with
+    null. It then stands in for my initials everywhere my name is shown."""
+    user = require_user(request)
+    updated = db.set_avatar(user["id"], (payload.get("image_path") or "").strip() or None)
     return {"user": updated, "committee": bool(updated["is_admin"])}
 
 
@@ -591,6 +671,8 @@ def read_item(item_id: int, request: Request):
         "diameter": db.diameter_class(item),
         "fault_history": history,
         "comments": db.get_comments(item_id),
+        # So a commenter's or fault-reporter's photo shows next to their name.
+        "avatars": db.member_avatars(),
         "fields": db.COMPONENT_FIELDS[item["component_type"]],
         "raw": {k: item.get(k) for k in db.COMPONENT_FIELDS[item["component_type"]]},
     }
@@ -686,6 +768,22 @@ def move(request: Request, payload: dict = Body(...)):
     moved = db.move_items([int(i) for i in payload.get("item_ids") or []],
                           site, (payload.get("spot") or "").strip() or None)
     return {"moved": moved, "sites": db.get_sites()}
+
+
+@app.post("/api/spots")
+def edit_spot(request: Request, payload: dict = Body(...)):
+    """Committee: set the note and photo for one spot (keyed by site + name).
+
+    The only way either is written from the app. Returns the whole spot list so
+    the browser can refresh what it shows in the spot popup straight away.
+    """
+    require_committee(request)
+    try:
+        db.upsert_spot(payload.get("site") or "", payload.get("name") or "",
+                       payload.get("description"), payload.get("image_path"))
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return {"spots": db.get_spots()}
 
 
 @app.post("/api/items/{item_id}/vote")
@@ -1242,6 +1340,9 @@ def profile(request: Request, site: Optional[str] = Query(None)):
 app.mount("/assets", StaticFiles(directory=WEB / "assets"), name="assets")
 app.mount("/css", StaticFiles(directory=WEB / "css"), name="css")
 app.mount("/js", StaticFiles(directory=WEB / "js"), name="js")
+# Uploaded photos, from the volume rather than the repo. Already-compressed, so
+# gzip skips them; cached hard because each name is unique to its bytes.
+app.mount("/photos", StaticFiles(directory=PHOTOS_DIR), name="photos")
 
 
 @app.exception_handler(HTTPException)

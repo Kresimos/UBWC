@@ -18,7 +18,11 @@ the server. This is a handset UI, so test it on a phone: see
 demo it at the lake with no internet.
 
 `kit.db` builds itself on first run (from the example seed if present, or from
-`data/Kit Inventory.xlsx` via `migrate.py`).
+`data/Kit Inventory.xlsx` via `migrate.py`). Uploaded photos are resized on the
+way in and kept in a `photos/` directory **next to `kit.db`** (on a host, next
+to `UBWC_DB`), so one disk and one backup cover the club's data. This is the
+one place the app takes on non-trivial dependencies: Pillow (the resize) and
+python-multipart (reading the upload).
 
 Members sign up in the app with a username and a password. Committee is a flag
 on the account, not a shared PIN, so the first committee account is made from

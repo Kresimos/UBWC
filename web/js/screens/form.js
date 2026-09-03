@@ -21,6 +21,7 @@ import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { chooser, lightbox, toast } from '../ui/overlay.js';
+import { photoField, wirePhoto } from '../ui/photofield.js';
 import { go, back } from '../router.js';
 
 export async function render(root, params) {
@@ -33,6 +34,9 @@ export async function render(root, params) {
     const item = await api.item(Number(params.id));
     type = item.component_type;
     values = { ...item.raw };
+    // image_path is not one of a type's spec fields, so item.raw does not carry
+    // it; take it off the card so an edit keeps the existing photo.
+    values.image_path = item.image_path || null;
     // Only open faults are editable inline; cleared ones live in history.
     faults = item.fault_history
       .filter((f) => f.status === 'open')
@@ -122,11 +126,13 @@ export async function render(root, params) {
       input.addEventListener('input', () => { faults[Number(input.getAttribute('data-fdesc'))].description = input.value; });
     });
 
+    wirePhoto(root, values, 'image_path', paint);
+
     root.querySelector('[data-save]').addEventListener('click', save);
   }
 
   async function save() {
-    const record = { component_type: type };
+    const record = { component_type: type, image_path: values.image_path ?? null };
     fields.forEach((field) => {
       let value = values[field.name];
       if (field.kind === 'bool') value = values[field.name] ? 1 : 0;
@@ -181,11 +187,9 @@ function screen(type, editing, fields, required, values, faults) {
           ${editing ? '' : html`<span class="ch">Change type</span>`}
         </button>
 
-        <button class="photo" type="button">
-          <span class="cam">${icon('camera')}</span>
-          <span class="t">Add photo</span>
-          <span class="h">Shop-panel shot on a soft grey background. Optional for now.</span>
-        </button>
+        ${photoField(values.image_path, {
+          hint: 'Shop-panel shot on a soft grey background. Optional.',
+        })}
 
         ${renderFields(type, fields, required, values)}
 

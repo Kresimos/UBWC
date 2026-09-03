@@ -226,3 +226,9 @@ __marimo__/
 
 # Dev screenshots taken while iterating on the UI (kept out of the repo)
 /*.png
+
+# macOS
+.DS_Store
+
+# Agent worktrees (each is its own checkout of a branch, not content)
+.claude/worktrees/

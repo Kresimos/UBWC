@@ -52,6 +52,18 @@ export const building = {
 
   isSkipped: (key) => held.skipped.includes(key),
 
+  /**
+   * Back to unanswered: no pick, not skipped either. This is "Change" on Your
+   * rig undoing a Build pick, and Build itself dropping the skip when it sends
+   * a member back to a step they stepped past but still have to fill.
+   */
+  reopen(key) {
+    held[key] = null;
+    held.skipped = held.skipped.filter((k) => k !== key);
+    if (key === 'sail') held.slots = {};
+    save();
+  },
+
   /** The size the stepper is sitting on, remembered between visits. */
   target(key) { return held.targets[key] ?? null; },
   setTarget(key, value) { held.targets[key] = value; save(); },

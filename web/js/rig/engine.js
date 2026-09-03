@@ -291,6 +291,25 @@ function score(key, piece, picks, partner) {
   return total;
 }
 
+/* ------------------------------------------- the rules, for the solver */
+
+/**
+ * The three hard rules, named and exported so the trailer solver can ask them
+ * directly instead of restating them. `ranked` already applies all three; these
+ * are the same predicates without the ranking, for code that has to test a pair
+ * millions of times rather than sort a list once.
+ *
+ * `fitsExt` implies `fitsMast`: an extension can only bridge a gap that exists.
+ */
+export const fitsBoom = (sail, boom) => boomFits(sail, boom);
+export const fitsMast = (sail, mast) => extRange(sail, mast) !== null;
+export const fitsExt = (sail, mast, ext) => extFitsMast(ext, mast, sail);
+
+/** One piece's ranking score for one slot: the nudges `ranked` sorts on. */
+export function pieceScore(key, piece, picks) {
+  return score(key, piece, picks, key === 'fin' ? picks.board : picks.sail);
+}
+
 /* --------------------------------------------------------- trip packing */
 
 /**
@@ -373,6 +392,76 @@ export function packList(kit, chosen) {
   });
 
   return { assigned, short };
+}
+
+/**
+ * The board half of a trip's kit: one fin and one base per board, plus a few
+ * spares scaled by how full the kit sec wants to pack.
+ *
+ * The trailer solver (`web/js/rig/pack.js`) only reasons about the three rig
+ * slots; the board side has no combinatorics in it. A fin is either the right
+ * box for the board or it is not, so each board simply takes its top-ranked
+ * free fin through the same `ranked` the rig assistant uses, and a base has no
+ * rule at all, so it is only ever a count.
+ *
+ * `preset` is the wizard's "how full to pack" dial. `light` carries nothing
+ * spare; `standard` a fin and a base for the sizes people swap between;
+ * `generous` a couple more bases, since a UJ is small and cheap to over-pack.
+ * `usedIds` is everything the rig solve and any pinned kit already claimed, so
+ * nothing is handed out twice.
+ */
+const FIN_SPARES = { light: 0, standard: 1, generous: 2 };
+const UJ_SPARES = { light: 0, standard: 1, generous: 3 };
+
+export function packBoardKit(kit, boards, preset, usedIds = []) {
+  const used = new Set(usedIds);
+  const assigned = [];
+  const short = [];
+  if (!boards.length) return { assigned, short };
+
+  const free = (piece) => !used.has(piece.id);
+  const take = (role, piece, forPiece) => {
+    used.add(piece.id);
+    assigned.push({ role, piece, for: forPiece });
+  };
+  const bases = () => kit.filter((piece) => piece.kind === 'uj');
+
+  boards.forEach((board) => {
+    const finOptions = ranked(kit, 'fin', { board });
+    const fin = finOptions.find(free);
+    if (fin) take('fin', fin, board);
+    else short.push({ role: 'fin', for: board, noun: 'fin',
+                      why: finOptions.length ? 'all taken' : 'none fits' });
+
+    const base = bases().find(free);
+    if (base) take('uj', base, board);
+    else short.push({ role: 'uj', for: board, noun: 'base', why: 'all taken' });
+  });
+
+  // A handful of spares, never many. Fins for the box most of the boards use,
+  // bases for anyone.
+  const key = FIN_SPARES[preset] === undefined ? 'standard' : preset;
+  const commonBox = mode(boards.map((board) => board.box).filter(Boolean));
+  ranked(kit, 'fin', { board: { box: commonBox, vol: null } })
+    .filter(free).slice(0, FIN_SPARES[key])
+    .forEach((fin) => take('fin', fin, null));
+  bases().filter(free).slice(0, UJ_SPARES[key])
+    .forEach((base) => take('uj', base, null));
+
+  return { assigned, short };
+}
+
+/** The value that turns up most often in a list, or null for an empty one. */
+function mode(list) {
+  const seen = new Map();
+  let best = null;
+  let bestN = 0;
+  list.forEach((value) => {
+    const n = (seen.get(value) || 0) + 1;
+    seen.set(value, n);
+    if (n > bestN) { bestN = n; best = value; }
+  });
+  return best;
 }
 
 /* -------------------------------------------------------------- wording */

@@ -47,7 +47,7 @@ Nothing is hosted yet. The options, including AWS, are compared in
 | `validation.py` | the windsurfing compatibility rules (see repo-root `CLAUDE.md`) |
 | `suggest.py` | what sizes to open the rig wizard on, fitted to the member's own logbook |
 | `manage.py` | account admin from the server: make committee, reset a password |
-| `wind.py` | Open-Meteo wind lookup for the logbook |
+| `wind.py` | Open-Meteo wind lookup (logbook window + trips forecast) and place geocoding |
 | `schema.sql` / `migrate.py` | database schema and the xlsx importer |
 | `web/` | the front end: `index.html`, `css/`, `js/` (ES modules, no build step) |
 

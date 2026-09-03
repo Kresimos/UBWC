@@ -171,25 +171,82 @@ setup:
 - **Search/autocomplete ranking**: when a user has selected a sail, rank
   masts/extensions/booms that satisfy the exact-fit rules first, then
   same-brand items, then everything else.
-- **Trip packing** (Trips tab, open to everybody): the kit sec picks the boards,
-  sails, wings and foils a trip is taking and the app derives what those need —
-  **one mast, one extension and one boom per sail, one fin and one base per
-  board**. One each rather than a shared minimum set, because every rig on a
-  trip has to be able to stand up at the same time; a sail with no mast left is
-  reported as a shortfall rather than sharing one. The derivation must go
-  through the same rules as the rig wizard (`packList` calls `ranked` in
-  `web/js/rig/engine.js`) so a mast still reaches the sail's luff, an extension
-  still matches its mast's diameter and a fin still matches its board's box.
-  A trip **never changes `items.location`** — that column is the storage
-  location, always — so "away" is membership of an open trip (`db.away_item_ids`),
-  which is what hides kit from the rig picker and flags it in the catalogue.
-  Before it is packed, a trip can sit in `trips.status = 'voting'`: members vote
-  on the boards, sails, wings and foils it should take (`trip_votes`, one row per
-  member per piece), and the kit sec's first `set_trip_items` both picks the kit
-  and closes the vote. A vote **reserves nothing** — a voting trip is not an
-  open one, so `away_item_ids` skips it and voted-for kit is still rig-able —
-  and the tally is kept after packing as the record of what the club asked for.
-  Reading trips is open to everyone; every write except a vote is committee.
+- **Trips** (Trips tab, open to everybody): a trip walks **four stages**, and the
+  stage is the whole of what the tab needs to know about it, so the trips index
+  groups by it rather than putting a chip on each row.
+  `requesting -> packing -> active -> done`, plus `cancelled` for one called
+  off. A trip **never changes `items.location`** (that column is the storage
+  rack, always), so "away" is membership of a trip that is `packing` or
+  `active` (`db.away_item_ids`, `db.TRIP_AWAY_STAGES`), which is what hides kit
+  from the rig picker and flags it grey in the catalogue. Nothing is away while
+  a trip is only being asked about, and nothing is away once it is done.
+  - **A packing/active trip is a location you can pick** in the app-bar toggle
+    (`store.trip`, `pickSite` in `web/js/ui/chrome.js`, bootstrap `trips`). It
+    does not touch `store.site` (the home site you fall back to), but while it
+    is selected the Catalogue and the rig assistant (Build + Your rig) work off
+    that trip's kit alone — away flag ignored, `out_of_action` still hidden
+    (`rigkit.kit(only_ids=)`, `GET /api/rig/kit?trip=`). A rig built on a trip
+    stores `setups.trip_id`, so a de-rigged session auto-fills its wind from the
+    trip pin (`wind.for_window(..., coords=)`, `/api/wind?lat=&lon=`) even
+    though the destination has no `sites` row.
+  - **requesting**: any signed-in member asks for the specific kit they want
+    (`trip_votes`, one row per member per piece; asking for something nobody has
+    asked for yet *is* suggesting it). A request **reserves nothing**. The names
+    matter and not just the tally: they are drawn on the tile as a stack of
+    fading discs that opens into who, because "who asked for the 124?" is a real
+    question on the water.
+  - **Confirm the kit** (`renderConfirm`, `/trip/:id/confirm`): the kit sec's
+    way out of requests, reached from **Finalise kit**. A dense list of the
+    whole club's sails and boards (plus wings/foils if one was asked for),
+    requested pieces pre-ticked, tap to add or drop. There is **no decline** and
+    no per-request deck: a piece the kit sec does not want is removed off the
+    wishlist (committee long-press) or just left unticked here, and
+    `db.finalise_trip_kit` lets go of its `trip_votes` so it cannot come back as
+    pending. Kit that stays keeps its requesters (the disc stacks read them).
+    Everything else asked for rides through silently: requested rig kit
+    (mast/ext/boom/fin/uj) is **pinned** onto the trailer the wizard builds,
+    requested odds and ends go straight to the packing list. Continue calls
+    `/api/trips/{id}/finalise` and opens the wizard.
+  - **the wizard** (`renderWizard`, `/trip/:id/wizard`): re-runs the real
+    trailer solver (`web/js/rig/pack.js` - `buildModel` / `chooseTrailer`) on
+    every touch against `/api/trips/kit`, with the count-up rolls, the green
+    ⇄ amber hero crossfade and the two combination bands ported from
+    `misc/trip-wizard-mock`. Two controls: **rigs at once** (the stepper and the
+    headline in one) and **how full to pack** (light / standard / generous, over
+    the solver's spare and per-piece weights). The board half - **one fin and
+    one base per board**, plus a few spares by preset (`packBoardKit` in
+    `web/js/rig/engine.js`, fins `0/1/2`, bases `0/1/3`) - is a straight count,
+    since it has no combinatorics. **Start packing** saves the chosen kit
+    (`source: chosen`), the solved trailer and the board kit (`source: derived`)
+    and moves the trip to `packing`. `trip_items.declined` is a dead column now.
+  - **packing**: the same list as a checklist, ticked per piece
+    (`trip_items.packed`). The bar that moves the trip on only appears with the
+    last tick.
+  - **coming home is not a stage**. There is no unpacking checklist: the kit sec
+    presses **End trip** in the app bar (next to the edit pencil, committee only,
+    and only while a trip is `packing` or `active`), confirms, and `return_all`
+    hands every piece back at once. A second list to work through earned nothing
+    when the app never moved any of it: each piece goes back to the rack it never
+    left. `trip_items.returned` is set for the whole list at that moment and is
+    the record that it came home, not a tick anybody makes.
+  - **the forecast**: the summary above the rule carries a Windguru-style wind
+    strip, one stacked grid per day of the trip (up to 7 days, gust over mean,
+    no direction), from `wind.forecast(site, start, end, coords=)` via
+    `GET /api/trips/{id}/forecast`. Each day is headed "Today"/"Tomorrow"/
+    "Yesterday", else its weekday within the week, else a date like "18th
+    December" (`forecastDayName`); days Open-Meteo cannot reach get no column at
+    all. The pin is a `lat`/`lon`
+    on the trip, set in the form's **Pin the spot** search (Open-Meteo
+    geocoding, `GET /api/geocode`); it falls back to the destination site's own
+    `sites.lat`/`sites.lon`. No pin and no site coordinates means no strip, and
+    a forecast that cannot be had (dates out of range, no network) is never an
+    error. The logbook's auto-wind (`wind.for_window`) resolves coordinates the
+    same way, so it is no longer limited to the three seeded sites.
+  Reading trips is open to everyone; every write except a request is committee.
+  The screens are `web/js/screens/trips.js` (index), `trip.js` (one trip, all
+  four stages, plus Confirm the kit and the wizard) and `tripform.js` (new and
+  edit); the kit picker they share is `web/js/ui/kitpicker.js`, which is the
+  Catalogue's own filter sheet doing a second job.
 - **Item page "known faults"**: faults are per physical item, not per
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
   Location), matching the `faults` table and the Faults page spec. Each fault

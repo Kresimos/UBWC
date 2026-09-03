@@ -122,6 +122,10 @@ consistent snapshot even if something is writing, folds in anything still in
 the write-ahead log, and verifies the result before telling you it worked. It
 prints the item count: check it says 148, not 6.
 
+If that upload command has moved (the CLI changes), `railway volume browse /`
+opens the disk in a file browser in the terminal and can put the file there by
+hand. The destination name is what matters: `incoming.db`, in `/data`.
+
 The upload goes to `incoming.db`, a name the running app never opens. Then
 **Deploy** again from the dashboard (or `railway up`), and the logs say:
 

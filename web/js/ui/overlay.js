@@ -119,7 +119,7 @@ export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = f
       const wrap = node.querySelector(`[data-photowrap="${CSS.escape(field.name)}"]`);
       if (!wrap) return;
       mount(wrap, photoField(photos[field.name], { hint: field.hint }));
-      wirePhoto(wrap, photos, field.name, () => repaintPhoto(field));
+      wirePhoto(wrap, photos, field.name, () => repaintPhoto(field), { aspect: field.aspect || 1 });
     };
 
     const node = present(html`
@@ -154,7 +154,7 @@ export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = f
 
     fields.filter((field) => field.type === 'photo').forEach((field) => {
       const wrap = node.querySelector(`[data-photowrap="${CSS.escape(field.name)}"]`);
-      if (wrap) wirePhoto(wrap, photos, field.name, () => repaintPhoto(field));
+      if (wrap) wirePhoto(wrap, photos, field.name, () => repaintPhoto(field), { aspect: field.aspect || 1 });
     });
 
     const show = (message) => {
@@ -300,6 +300,178 @@ export function lightbox({ title, sub, image, glyph = 'camera', tone = '', actio
       action.onClick();
     });
   }
+}
+
+
+/**
+ * Crop and zoom a picked photo before it uploads. Resolves with a JPEG File of
+ * the framed region (at most `maxPx` on its long side), or null if the member
+ * backs out. `aspect` is width / height of the frame, chosen by the caller to
+ * match where the photo will be shown (square for a profile or a piece of kit,
+ * wide for a trip banner, 4:3 for a fault).
+ *
+ * It builds its own overlay rather than borrowing the shared #overlay layer,
+ * because it is opened FROM a sheet (the fault form, the spot editor) and must
+ * sit on top of it and clean up only itself when it closes.
+ *
+ * Vanilla: one <img> moved with a transform inside an overflow-hidden stage,
+ * pointer events for drag and pinch, a range input for a thumb or a mouse.
+ */
+export function cropSheet(file, { aspect = 1, maxPx = 1600,
+                                  title = 'Position the photo' } = {}) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    let settled = false;
+    let root = null;
+
+    const teardown = () => {
+      if (!root) return;
+      const node = root;
+      root = null;
+      if (reduceMotion()) { node.remove(); return; }
+      node.classList.add('closing');
+      setTimeout(() => node.remove(), 240);
+    };
+    const finish = (blob) => {
+      if (settled) return;
+      settled = true;
+      teardown();
+      URL.revokeObjectURL(url);
+      resolve(blob);
+    };
+
+    img.onerror = () => finish(file);   // can't decode it here; let the server try
+    img.onload = () => {
+      const stageW = Math.max(200, Math.min(320, window.innerWidth - 72));
+      const stageH = Math.max(120, Math.round(stageW / aspect));
+      const iw = img.naturalWidth || 1;
+      const ih = img.naturalHeight || 1;
+      // The scale at which the image exactly covers the stage; zoom multiplies it.
+      const cover = Math.max(stageW / iw, stageH / ih);
+
+      root = document.createElement('div');
+      root.className = 'overlay cropover';
+      mount(root, html`
+        <div class="sheet cropper" role="dialog" aria-label="${title}">
+          <span class="grip"></span>
+          <h2>${title}</h2>
+          <p class="sub">Drag to move it. Pinch, scroll or use the slider to zoom.</p>
+          <div class="cropstage" style="width:${stageW}px;height:${stageH}px">
+            <img class="cropimg" src="${url}" alt="" draggable="false">
+            <span class="cropgrid" aria-hidden="true"></span>
+          </div>
+          <input class="cropzoom" type="range" min="1" max="5" step="0.001" value="1"
+                 aria-label="Zoom">
+          <div class="foot">
+            <button class="bigbtn" data-crop-use>Use photo</button>
+            <button class="bigbtn ghost" data-crop-cancel>Cancel</button>
+          </div>
+        </div>`);
+      (layer().parentNode || document.body).append(root);
+      root.addEventListener('click', (e) => { if (e.target === root) finish(null); });
+
+      const node = root;
+      const stage = node.querySelector('.cropstage');
+      const el = node.querySelector('.cropimg');
+      const zoomInput = node.querySelector('.cropzoom');
+
+      let z = 1;              // zoom on top of cover
+      let ox = 0, oy = 0;     // image top-left, relative to the stage top-left
+      const scale = () => cover * z;
+
+      const clamp = () => {
+        const s = scale();
+        ox = Math.min(0, Math.max(stageW - iw * s, ox));
+        oy = Math.min(0, Math.max(stageH - ih * s, oy));
+      };
+      const render = () => {
+        const s = scale();
+        el.style.width = iw * s + 'px';
+        el.style.height = ih * s + 'px';
+        el.style.transform = `translate(${ox}px, ${oy}px)`;
+      };
+
+      ox = (stageW - iw * scale()) / 2;
+      oy = (stageH - ih * scale()) / 2;
+      render();
+
+      // Zoom about a point in stage coordinates, keeping that point over the
+      // same part of the image.
+      const setZoom = (nz, cx = stageW / 2, cy = stageH / 2) => {
+        nz = Math.min(5, Math.max(1, nz));
+        const before = scale();
+        const ix = (cx - ox) / before;
+        const iy = (cy - oy) / before;
+        z = nz;
+        const after = scale();
+        ox = cx - ix * after;
+        oy = cy - iy * after;
+        clamp();
+        render();
+        zoomInput.value = String(z);
+      };
+
+      zoomInput.addEventListener('input', () => setZoom(parseFloat(zoomInput.value)));
+
+      const pts = new Map();
+      let pinch = null;
+      stage.addEventListener('pointerdown', (e) => {
+        stage.setPointerCapture(e.pointerId);
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pts.size === 2) {
+          const [a, b] = [...pts.values()];
+          pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, z };
+        }
+      });
+      stage.addEventListener('pointermove', (e) => {
+        if (!pts.has(e.pointerId)) return;
+        const prev = pts.get(e.pointerId);
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pts.size === 1) {
+          ox += e.clientX - prev.x;
+          oy += e.clientY - prev.y;
+          clamp();
+          render();
+        } else if (pts.size === 2 && pinch) {
+          const [a, b] = [...pts.values()];
+          const rect = stage.getBoundingClientRect();
+          setZoom(pinch.z * (Math.hypot(a.x - b.x, a.y - b.y) / pinch.dist),
+                  (a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top);
+        }
+      });
+      const lift = (e) => {
+        pts.delete(e.pointerId);
+        if (pts.size < 2) pinch = null;
+      };
+      stage.addEventListener('pointerup', lift);
+      stage.addEventListener('pointercancel', lift);
+      stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = stage.getBoundingClientRect();
+        setZoom(z * (e.deltaY < 0 ? 1.12 : 0.89),
+                e.clientX - rect.left, e.clientY - rect.top);
+      }, { passive: false });
+
+      node.querySelector('[data-crop-cancel]').addEventListener('click', () => finish(null));
+      node.querySelector('[data-crop-use]').addEventListener('click', () => {
+        const s = scale();
+        const sw = stageW / s;
+        const sh = stageH / s;
+        const out = Math.min(1, maxPx / Math.max(sw, sh));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(sw * out));
+        canvas.height = Math.max(1, Math.round(sh * out));
+        canvas.getContext('2d').drawImage(
+          img, -ox / s, -oy / s, sw, sh, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          finish(blob ? new File([blob], 'photo.jpg', { type: 'image/jpeg' }) : file);
+        }, 'image/jpeg', 0.85);
+      });
+    };
+
+    img.src = url;
+  });
 }
 
 let toastTimer = null;

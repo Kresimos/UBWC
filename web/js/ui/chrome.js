@@ -222,7 +222,7 @@ async function changeAvatar() {
   const result = await formSheet({
     title: 'Your photo',
     sub: 'Stands in for your initials on the app bar and next to your name on notes and faults.',
-    fields: [{ name: 'image_path', label: 'Photo', type: 'photo',
+    fields: [{ name: 'image_path', label: 'Photo', type: 'photo', aspect: 1,
                value: store.user.image_path || null,
                hint: 'A clear headshot works best. Remove it to go back to initials.' }],
     submitLabel: 'Save',

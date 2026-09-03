@@ -346,7 +346,7 @@ export async function render(root, params) {
       values.requesting = !values.requesting;
       node.classList.toggle('on', values.requesting);
     });
-    wirePhoto(root, values, 'image_path', () => paint({ keepScroll: true }));
+    wirePhoto(root, values, 'image_path', () => paint({ keepScroll: true }), { aspect: 2 });
     onClick(root, 'data-pick', openPicker);
     onClick(root, 'data-item', async (value, _node, event) => {
       if (event.target.closest('[data-kitpicker]')) return;

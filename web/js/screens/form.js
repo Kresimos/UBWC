@@ -126,7 +126,7 @@ export async function render(root, params) {
       input.addEventListener('input', () => { faults[Number(input.getAttribute('data-fdesc'))].description = input.value; });
     });
 
-    wirePhoto(root, values, 'image_path', paint);
+    wirePhoto(root, values, 'image_path', paint, { aspect: 1 });
 
     root.querySelector('[data-save]').addEventListener('click', save);
   }

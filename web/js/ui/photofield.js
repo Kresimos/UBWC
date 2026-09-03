@@ -3,16 +3,17 @@
  * form, the trip form, the fault and fix sheets, the profile menu and the spot
  * editor.
  *
- * The flow is always the same: tap, pick from the camera or the roll, the
- * browser downscales it, it uploads, and the returned path is written onto
- * whatever object is about to be saved. The server resizes again and is the
- * authority — the downscale here is only so a phone on lake wifi sends a few
- * hundred KB instead of a four-megabyte original.
+ * The flow is always the same: tap, pick from the camera or the roll, frame
+ * it (drag and zoom) to the shape it will be shown in, it downscales, it
+ * uploads, and the returned path is written onto whatever is about to be
+ * saved. The server resizes again and is the authority — the work here is
+ * only so a phone on lake wifi sends a few hundred KB, framed the way the
+ * member wants it, instead of a four-megabyte original.
  */
 import { html } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
-import { toast } from './overlay.js';
+import { toast, cropSheet } from './overlay.js';
 
 /**
  * Shrink a picked image in the browser before it uploads. Best-effort: on any
@@ -68,11 +69,11 @@ export function photoField(path, { label = 'Add photo', hint = '' } = {}) {
  * `repaint()` re-renders so the preview swaps in. Safe to call again after a
  * repaint.
  */
-export function wirePhoto(root, state, key, repaint) {
+export function wirePhoto(root, state, key, repaint, { aspect = 1 } = {}) {
   root.querySelectorAll('[data-photo-pick]').forEach((button) => {
     button.addEventListener('click', (event) => {
       event.preventDefault();
-      pick(state, key, repaint, button.closest('[data-photofield]'));
+      pick(state, key, repaint, button.closest('[data-photofield]'), aspect);
     });
   });
   root.querySelectorAll('[data-photo-clear]').forEach((button) => {
@@ -84,7 +85,7 @@ export function wirePhoto(root, state, key, repaint) {
   });
 }
 
-function pick(state, key, repaint, field) {
+function pick(state, key, repaint, field, aspect) {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
@@ -95,9 +96,11 @@ function pick(state, key, repaint, field) {
     const file = input.files && input.files[0];
     input.remove();
     if (!file) return;
+    const framed = await cropSheet(file, { aspect });
+    if (!framed) return;                       // backed out of the crop step
     if (field) field.classList.add('busy');
     try {
-      const sized = await downscaleImage(file);
+      const sized = await downscaleImage(framed);
       state[key] = await api.uploadPhoto(sized);
       repaint();
     } catch (error) {

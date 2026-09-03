@@ -809,6 +809,13 @@ button:active, [role="button"]:active {
 }
 .overlay[hidden] { display: none; }
 .overlay.centred { align-items: center; padding: 26px; }
+/* The crop step opens from inside another sheet, so it rides above it.
+   Its own dimmer is lighter and unblurred so it does not stack into a
+   muddy double-blur over the sheet already there. */
+.overlay.cropover {
+  z-index: 50; background: rgba(9, 22, 25, .38);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
 
 /* Leaving: the backdrop clears and the card slides down (or, when centred,
    settles back a touch) before the node is removed. */
@@ -865,6 +872,54 @@ button:active, [role="button"]:active {
 .sheetrow .tick svg { width: 18px; height: 18px; }
 .sheetrow.on .tick { display: flex; }
 .sheet .foot { padding: 10px 20px 0; display: flex; flex-direction: column; gap: 9px; flex: none; }
+
+/* The crop-and-zoom step before a photo uploads (ui/overlay.js cropSheet). */
+.sheet.cropper { align-items: center; }
+.sheet.cropper h2, .sheet.cropper .sub, .sheet.cropper .foot { align-self: stretch; }
+.cropstage {
+  position: relative; overflow: hidden; border-radius: 14px; background: #0c0f0f;
+  margin: 2px 20px 12px; touch-action: none; cursor: grab; flex: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+}
+.cropstage:active { cursor: grabbing; }
+.cropimg {
+  position: absolute; top: 0; left: 0; transform-origin: 0 0;
+  user-select: none; -webkit-user-drag: none; pointer-events: none; max-width: none;
+}
+/* A rule-of-thirds guide, so a face can be centred by eye. */
+.cropgrid { position: absolute; inset: 0; pointer-events: none; opacity: .5; }
+.cropgrid::before, .cropgrid::after {
+  content: ""; position: absolute; inset: 0;
+  background-repeat: no-repeat;
+}
+.cropgrid::before {
+  background-image:
+    linear-gradient(rgba(255,255,255,.5), rgba(255,255,255,.5)),
+    linear-gradient(rgba(255,255,255,.5), rgba(255,255,255,.5));
+  background-size: 1px 100%, 1px 100%;
+  background-position: 33.33% 0, 66.66% 0;
+}
+.cropgrid::after {
+  background-image:
+    linear-gradient(rgba(255,255,255,.5), rgba(255,255,255,.5)),
+    linear-gradient(rgba(255,255,255,.5), rgba(255,255,255,.5));
+  background-size: 100% 1px, 100% 1px;
+  background-position: 0 33.33%, 0 66.66%;
+}
+.cropzoom {
+  -webkit-appearance: none; appearance: none; width: calc(100% - 40px);
+  margin: 0 20px 4px; height: 26px; background: transparent; cursor: pointer;
+}
+.cropzoom::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: var(--app-line); }
+.cropzoom::-moz-range-track { height: 4px; border-radius: 999px; background: var(--app-line); }
+.cropzoom::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px;
+  border-radius: 50%; background: var(--teal); border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(10, 89, 102, .4);
+}
+.cropzoom::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--teal); border: 2px solid #fff;
+}
 
 .sheet .field { padding: 4px 20px 10px; display: flex; flex-direction: column; gap: 7px; }
 .sheet label {

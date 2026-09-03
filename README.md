@@ -31,7 +31,14 @@ python manage.py password <username>         # reset a forgotten one
 python manage.py list                        # every account, and what it has done
 python manage.py where                       # which database this is, and what is in it
 python manage.py backup [file]               # safe copy, even while the app runs
+python manage.py reset                       # empty the kit, keep the accounts
 ```
+
+`reset` is the one-time move from the example data the app was built against to
+the club's real inventory: it clears the kit and everything that happened to it
+(faults, ratings, saved rigs, the logbook, trips) and keeps accounts, who is
+committee, and the sites and storage spots kit gets filed into. It shows what it
+will do, asks you to type `clear`, and takes a backup first regardless.
 
 ## Hosting
 

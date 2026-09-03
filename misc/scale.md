@@ -1,9 +1,10 @@
 # How this holds up: traffic, a bigger database, and photos
 
 Measured on 2026-09-03 rather than guessed, because "will it be fast enough"
-answered by opinion is worth nothing. Everything below was run against the real
-`kit.db` and against a synthetic copy inflated to fourteen times the club's
-current size, on one process, the way it will run on Railway.
+answered by opinion is worth nothing. Everything below was run against the
+example database the app is built against (148 items, roughly the size of the
+club's actual fleet) and against a synthetic copy inflated to fourteen times
+that, on one process, the way it will run on Railway.
 
 The short version: **at club size this is not close to a problem**, the thing
 that grows is the catalogue, and the only decision that could genuinely
@@ -12,6 +13,8 @@ overwhelm the app is photos.
 ## Where the app is today
 
 148 items, 22 faults, 17 accounts, 382 ratings, 21 trips: a 296 KB database.
+That is example data rather than a real count, but it is the right order of
+magnitude for a club fleet, which is what makes it worth measuring against.
 
 | Request | Time | On the wire |
 |---|---|---|

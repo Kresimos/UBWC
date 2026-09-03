@@ -17,6 +17,7 @@ and the club's data itself:
 
     python manage.py backup kit-2026-09-03.db    # safe copy of a live database
     python manage.py where                       # which file is being used
+    python manage.py reset                       # empty the kit, keep the people
 
 Passwords are asked for on the terminal rather than taken as an argument, so
 they do not end up in the shell history.
@@ -162,6 +163,111 @@ def cmd_backup(args) -> None:
         sys.exit("The copy did not verify. Do not treat it as a backup.")
 
 
+# What survives `reset`. Everything else in the database is kit or something
+# that happened to kit, and goes.
+#
+#   users, auth_sessions  the club. Nobody signs up twice or gets signed out
+#                         because the inventory was restarted, and committee
+#                         stays committee.
+#   sites, spots          places: the lakes the club sails at and the racks kit
+#                         is filed on. Configuration rather than inventory, and
+#                         what the add-kit form offers as locations, so keeping
+#                         them is what makes the first real item quick to add.
+#
+# Deliberately a keep-list rather than a clear-list: a table added later is
+# almost certainly more kit or more activity, and the failure mode of clearing
+# it is an empty table, while the failure mode of missing it is rows pointing
+# at items that no longer exist. The command prints both lists before it does
+# anything, so the assumption is checked by a human every time.
+RESET_KEEPS = ("users", "auth_sessions", "sites", "spots")
+
+
+def cmd_reset(args) -> None:
+    """Empty the inventory and everything that happened to it, keep the club.
+
+    This is the migration from the example data the app was built against to
+    the club's real inventory, entered piece by piece through Add kit. It is
+    not a repair tool and not something to reach for twice.
+    """
+    if not db.DB_PATH.exists():
+        sys.exit(f"No database at {db.DB_PATH}.")
+
+    with db.connect() as conn:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        counts = {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                  for t in tables}
+
+    keeps = [t for t in tables if t in RESET_KEEPS]
+    clears = [t for t in tables if t not in RESET_KEEPS]
+
+    print(f"database: {db.DB_PATH}\n")
+    print("  keeping:")
+    for t in keeps:
+        print(f"    {t:18s} {counts[t]:6d} rows")
+    print("  clearing:")
+    for t in clears:
+        print(f"    {t:18s} {counts[t]:6d} rows")
+    going = sum(counts[t] for t in clears)
+    if not going:
+        print("\nNothing to clear: the inventory is already empty.")
+        return
+
+    if not args.yes:
+        print(f"\n{going} rows will be deleted. This cannot be undone except "
+              "from a backup.")
+        if input('Type "clear" to go ahead: ').strip() != "clear":
+            sys.exit("Nothing was changed.")
+
+    # A backup first, always, unless explicitly waived: the one thing that
+    # makes an irreversible command survivable is that it was not irreversible.
+    if not args.no_backup:
+        target = Path(f"kit-before-reset-{datetime.now():%Y%m%d-%H%M%S}.db")
+        cmd_backup(argparse.Namespace(path=str(target)))
+
+    with db.connect() as conn:
+        # What was already broken before this ran. The example database carries
+        # six auth_sessions rows whose account no longer exists, so "there are
+        # dangling rows afterwards" is not by itself evidence that this command
+        # did damage. What matters is whether it added any.
+        before = len(conn.execute("PRAGMA foreign_key_check").fetchall())
+
+        # Off while deleting so the order of the tables cannot matter.
+        conn.execute("PRAGMA foreign_keys = OFF")
+        for table in clears:
+            conn.execute(f"DELETE FROM {table}")
+            # So the first real board is item 1 rather than item 149.
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+        # A session whose account is gone can sign nobody in (session_user
+        # joins users), so it is dead weight either way; while the point of
+        # this command is a clean start, it may as well go.
+        swept = conn.execute(
+            "DELETE FROM auth_sessions WHERE user_id NOT IN (SELECT id FROM users)"
+        ).rowcount
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
+
+        after = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if len(after) > before:
+            sys.exit(f"Refusing to finish: {len(after) - before} rows now point "
+                     "at something that is gone. Restore the backup.")
+        conn.commit()
+    if swept:
+        print(f"Swept {swept} sign-in(s) belonging to accounts that no longer exist.")
+
+    # Outside a transaction, and it is what actually gives the disk space back.
+    plain = sqlite3.connect(db.DB_PATH)
+    try:
+        plain.execute("VACUUM")
+    finally:
+        plain.close()
+
+    print()
+    cmd_where(args)
+    print("\nThe club's accounts are untouched. Add kit through the app.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     subs = parser.add_subparsers(dest="command", required=True)
@@ -174,6 +280,14 @@ def main() -> None:
     backup.add_argument("path", nargs="?",
                         help="where to write it (default: kit-YYYY-MM-DD.db here)")
     backup.set_defaults(fn=cmd_backup)
+
+    reset = subs.add_parser(
+        "reset", help="empty the inventory and its history, keep accounts and places")
+    reset.add_argument("--yes", action="store_true",
+                       help="skip the typed confirmation")
+    reset.add_argument("--no-backup", action="store_true",
+                       help="do not write a backup first (do not use this)")
+    reset.set_defaults(fn=cmd_reset)
 
     new = subs.add_parser("signup", help="create an account")
     new.add_argument("username")

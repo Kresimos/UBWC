@@ -42,8 +42,8 @@ settled.
    /data
    ```
 
-   This is the club's inventory. Everything else about the container is thrown
-   away and rebuilt on every deploy; only this survives. Hobby allows up to
+   This is where the club's inventory will live. Everything else about the
+   container is thrown away and rebuilt on every deploy; only this survives. Hobby allows up to
    5 GB, which is far more than a database needs (see [scale.md](scale.md) for
    when that stops being true, which is photos).
 
@@ -89,21 +89,30 @@ settled.
 6. **Delete `UBWC_SEED` and `UBWC_ADMIN_PASSWORD`** from Variables now.
 
    `UBWC_SEED` exists so that a missing database is a loud crash instead of a
-   silent rebuild from the sheet. Leaving it set would mean that the day the
-   disk fails to mount, the app comes back up looking healthy and fully stocked
-   while every rating, fault, session and trip the club entered is gone, and
-   nobody notices until somebody asks why their logbook is empty. It is a
-   two-second change that removes the worst failure this app has.
+   silent rebuild from the sheet. Leaving it set means that the day the disk
+   fails to mount, the app comes back up looking healthy and stocked with six
+   items while everything actually entered is gone, and nobody notices until
+   somebody asks where the kit went. That costs nothing today, when the data is
+   made up. It costs the club its inventory the week after somebody has spent
+   an afternoon counting boards into it, and by then nobody will remember this
+   variable is set. Turn it off now, while it is a two-second change.
 
    Leave `UBWC_ADMIN_USER`: it is harmless, and it means you can never be
    locked out of committee.
 
-## Part B: put the club's real inventory on it
+## Part B: put the example database on it
 
-The database in the repo is a 6-row stub. **The club's actual data (148 items,
-22 faults, 21 trips, everyone's ratings and logbooks) exists in exactly one
-place: this Mac**, at `~/Library/Application Support/UBWC/kit.db`. It is not in
-git and never has been.
+The database in the repo is a 6-row stub, which is not enough kit for the app
+to be worth looking at. **The example database the app has been built and
+tested against (148 items, 22 faults, 21 trips, ratings and logbooks) exists in
+one place: this Mac**, at `~/Library/Application Support/UBWC/kit.db`. It is not
+in git and never has been.
+
+This is made-up data, not the club's inventory, which has not been counted yet.
+That makes this step low-risk and worth doing anyway: a live app with a
+plausible fleet in it is one the committee can actually try, and it is what the
+first real kit gets added alongside. Clearing it out for the real inventory is
+"Later" below, and it is one command.
 
 You need the Railway CLI for this one step:
 
@@ -134,7 +143,7 @@ UBWC: restored /data/kit.db from /data/incoming.db (148 items); the previous
 database is kept at kit.db.replaced-20260903-031248
 ```
 
-Reload the app: the whole club's kit is there. `/api/health` in a browser
+Reload the app: the full example fleet is there. `/api/health` in a browser
 confirms it in one line.
 
 This is also, permanently, **how you restore a backup**: upload it to
@@ -145,9 +154,11 @@ nothing at all when that file is not there, which is why it can just stay set.
 
 ## Part C: before you tell any member the address
 
-1. **A backup that leaves Railway.** The volume is one disk in one region with
-   no replication, and Railway's own backups do not protect against the account
-   going away or somebody deleting the project. Once a week is plenty:
+1. **A backup that leaves Railway.** Not urgent while the data is made up, and
+   the thing to have working *before* somebody spends an afternoon counting
+   boards into it. The volume is one disk in one region with no replication, and
+   Railway's own backups do not protect against the account going away or
+   somebody deleting the project. Once a week is plenty:
 
    ```sh
    railway volume files download /data/kit.db ~/…/UBWC\ 2026\ 2027/kit-$(date +%F).db
@@ -166,12 +177,49 @@ nothing at all when that file is not there, which is why it can just stay set.
    whole handover, and it is why Railway was chosen over anything needing a
    Dockerfile.
 
+## Later: switching to the club's real inventory
+
+When the kit actually gets counted, the example data has to go, and the club
+has to stay. That is one command:
+
+```sh
+railway ssh
+python manage.py reset
+```
+
+It clears the inventory and everything that happened to it (items, faults and
+their timelines, comments, ratings, favourites, saved rigs, the logbook, trips
+and their requests) and keeps:
+
+- **accounts** — usernames, passwords, display names, and who is committee.
+  Nobody signs up twice, nobody is signed out, and you do not have to hand out
+  committee again.
+- **places** — the sites and the storage spots. Configuration rather than
+  inventory, and it is what the Add kit form offers as locations, so keeping
+  them is what makes entering the first real board quick.
+
+It prints exactly what it will keep and what it will clear, with row counts,
+and waits for you to type `clear`. It writes a backup next to itself first,
+whatever you answer, and it refuses to finish if the delete left anything
+pointing at a row that no longer exists. Afterwards the first item added is
+item 1 rather than item 149.
+
+Then add kit through the app, which is the point: **Add kit** validates as it
+goes (a mast and extension have to actually reach the sail's luff), so what
+goes in is right from the first row, which a spreadsheet import never
+guaranteed.
+
+If you would rather not use a shell, do it the other way round: run
+`python manage.py reset` against a copy here, then upload the result to
+`/data/incoming.db` and redeploy. Same outcome, and it has the advantage that
+you can look at the emptied database before it goes anywhere near the club.
+
 ## When something is wrong
 
 | What you see | What it is |
 |---|---|
 | Logs: `/data does not exist, so UBWC_DB points nowhere real` | The volume is not attached, or its mount path is not `/data`. Fix it in Settings → Volumes. |
-| Logs: `No database at /data/kit.db, and this is a host` | The disk mounted but is empty. Only correct on a first deploy: set `UBWC_SEED=1` for one deploy, then remove it. If this happens later, **stop** and work out where the data went before doing anything. |
+| Logs: `No database at /data/kit.db, and this is a host` | The disk mounted but is empty. Only correct on a first deploy: set `UBWC_SEED=1` for one deploy, then remove it. If this happens once real kit has been entered, **stop** and work out where the data went before doing anything. |
 | App loads but has **6 items** | It is serving the stub from the spreadsheet. Do Part B. |
 | `is not a usable kit database` | The upload was truncated or is not a database. Nothing was changed. Re-run `manage.py backup` and upload again. |
 | Signed out of your phone after a deploy | Should not happen: sessions are rows in the database, so they survive. If it did, the disk is not persisting, which is the first row of this table. |
@@ -220,4 +268,5 @@ quirks:
 - **Dependencies are pinned** and the Python version fixed at 3.13, so the
   build is the same today and in eighteen months.
 - `manage.py backup` and `manage.py where`, which are the two things you want
-  when a deploy looks wrong.
+  when a deploy looks wrong, and `manage.py reset` for the day the real
+  inventory replaces the example one.

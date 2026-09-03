@@ -1,6 +1,15 @@
-# The API server. The front end (web/) is plain static files — no build step,
+# The API server. The front end (web/) is plain static files: no build step and
 # no JS dependencies.
-fastapi>=0.115
-uvicorn>=0.30
+#
+# Pinned, because a host builds this from scratch on every deploy and an
+# unpinned ">=" means the club's app quietly ships on whatever was released
+# that morning. These versions are the ones the app is tested against on
+# Python 3.13 (see .python-version, which is what the host builds with).
+# Bump them deliberately: change a number, run ./run.sh and test_trips.py,
+# then deploy.
+fastapi==0.141.1
+uvicorn==0.52.4
 # Only needed to (re)build kit.db from data/Kit Inventory.xlsx via migrate.py.
-openpyxl>=3.1
+# Kept in the deployed image so a first boot with UBWC_SEED=1 can build a
+# database from the sheet.
+openpyxl==3.1.5

@@ -8,11 +8,13 @@ Run it with:  python server.py        (or: uvicorn server:app --reload)
 """
 import os
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -36,27 +38,113 @@ COOKIE = "ubwc_session"
 # never come back and nobody could stay signed in.
 SECURE_COOKIES = bool(os.environ.get("UBWC_HTTPS"))
 
-app = FastAPI(title="UBWC Kit", docs_url=None, redoc_url=None)
-
 # run.sh sets UBWC_DEV. Mobile Safari caches ES modules and stylesheets hard
 # enough that a phone will happily show yesterday's build after an edit, which
 # reads as "the change didn't work" rather than "the file is stale". While
-# testing, tell it to keep nothing; in production the ?v= query strings on the
-# stylesheets do the versioning instead.
+# testing, tell it to keep nothing; in production the cache headers below do
+# the same job without throwing away every file on every load.
 DEV = bool(os.environ.get("UBWC_DEV"))
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Open the database before the first request, and say where it is.
+
+    Printed rather than silent because on a host this line is the proof that
+    the disk mounted: a path under /data is the club's inventory, a path under
+    a home directory is a container-local file that dies with the next deploy.
+    """
+    db.ensure_db()
+    print(f"UBWC: database at {db.DB_PATH}", flush=True)
+    _bootstrap_admin()
+    yield
+
+
+app = FastAPI(title="UBWC Kit", docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+# The front end is ~800 KB of uncompressed JavaScript, CSS and JSON, and a
+# member on the lake is on a phone on mobile data. gzip takes the text roughly
+# a quarter of the size for a few milliseconds of CPU. Below 1 KB the header
+# overhead is worth more than the saving, and PNGs are already compressed
+# (Starlette skips anything already content-encoded).
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+def _bootstrap_admin() -> None:
+    """Make the first committee account from the environment, once.
+
+    manage.py is the way to do this on a laptop, but on a host there may be no
+    shell to run it in, and an app nobody can administer is not deployed. So
+    UBWC_ADMIN_USER + UBWC_ADMIN_PASSWORD create that account at boot, or
+    promote it if the name is already taken. Idempotent, and it never touches
+    an existing account's password: once you can sign in, delete both variables.
+    """
+    username = (os.environ.get("UBWC_ADMIN_USER") or "").strip()
+    password = os.environ.get("UBWC_ADMIN_PASSWORD") or ""
+    if not username:
+        return
+    try:
+        existing = db.get_user_by_username(username)
+        if existing:
+            if not existing["is_admin"]:
+                db.set_admin(existing["id"], True)
+                print(f"UBWC: promoted {username} to committee", flush=True)
+            return
+        if not password:
+            print("UBWC: UBWC_ADMIN_USER set without UBWC_ADMIN_PASSWORD; "
+                  "no account made", flush=True)
+            return
+        db.create_user(username, password, username, is_admin=True)
+        print(f"UBWC: made committee account {username}. Remove "
+              "UBWC_ADMIN_PASSWORD now.", flush=True)
+    except Exception as error:          # never let this stop the app booting
+        print(f"UBWC: could not bootstrap the committee account: {error}",
+              flush=True)
+
+
+# How long a browser may reuse a file before asking again. The front end has no
+# build step, so filenames never change and "cache forever" would strand a
+# member on an old app after a deploy. no-cache is not "do not cache": the file
+# is kept and revalidated, so an unchanged file costs one small 304 rather than
+# a re-download, and a deployed change is picked up on the next load. The
+# manifest and icons under /assets do have stable content, so they get a real
+# expiry.
+CODE_CACHE = "no-cache"
+ASSET_CACHE = "public, max-age=604800"      # a week
+
+
 @app.middleware("http")
-async def _no_cache_in_dev(request: Request, call_next):
+async def _cache_headers(request: Request, call_next):
     response = await call_next(request)
     if DEV:
         response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+    path = request.url.path
+    if path.startswith("/assets/"):
+        response.headers.setdefault("Cache-Control", ASSET_CACHE)
+    elif path.startswith(("/js/", "/css/")):
+        response.headers.setdefault("Cache-Control", CODE_CACHE)
+    elif path.startswith("/api/"):
+        # Member-specific and always live. Safari has been known to serve a
+        # cached GET to a signed-in member from before they signed in.
+        response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    db.ensure_db()
+@app.get("/api/health")
+def health():
+    """Is the app up and is its database the real one?
+
+    The host polls this after a deploy; a member never sees it. It reports the
+    database path so a bad mount is visible without a shell, and counts one row
+    so that "up" means "can read the inventory", not merely "answered a socket".
+    """
+    try:
+        with db.connect() as conn:
+            items = conn.execute("SELECT count(*) AS n FROM items").fetchone()["n"]
+    except Exception as error:
+        raise HTTPException(503, f"Database unavailable: {error}")
+    return {"ok": True, "items": items, "db": str(db.DB_PATH)}
 
 
 # --------------------------------------------------------------------------- #
@@ -114,23 +202,62 @@ _ATTEMPTS: dict = {}
 ATTEMPT_LIMIT = 8
 ATTEMPT_WINDOW_S = 15 * 60
 
+# Sign-up is open by design, but on a public address "open" also means a script
+# can make ten thousand accounts overnight. A dozen an hour from one address is
+# far more than a fresher's week ever needs and far less than that is worth.
+SIGNUP_LIMIT = 12
+SIGNUP_WINDOW_S = 60 * 60
 
-def _throttle(request: Request, username: str) -> None:
-    key = (request.client.host if request.client else "?", db.normalise_username(username))
-    now = time.time()
-    tries = [t for t in _ATTEMPTS.get(key, []) if now - t < ATTEMPT_WINDOW_S]
-    if len(tries) >= ATTEMPT_LIMIT:
-        wait = round((ATTEMPT_WINDOW_S - (now - tries[0])) / 60) or 1
+# The dict is keyed by (address, username), so a script working through a
+# username list would otherwise grow it forever. Everything older than the
+# window is dead weight, so sweep it when the dict gets big rather than on
+# every request.
+_ATTEMPTS_MAX_KEYS = 5000
+
+
+def _client(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+def _sweep(now: float) -> None:
+    if len(_ATTEMPTS) < _ATTEMPTS_MAX_KEYS:
+        return
+    oldest = max(ATTEMPT_WINDOW_S, SIGNUP_WINDOW_S)
+    for key, tries in list(_ATTEMPTS.items()):
+        if not tries or now - tries[-1] > oldest:
+            _ATTEMPTS.pop(key, None)
+
+
+def _limit(key: tuple, now: float, limit: int, window_s: int, message: str) -> None:
+    """Record one try against `key` and refuse once there are too many."""
+    tries = [t for t in _ATTEMPTS.get(key, []) if now - t < window_s]
+    if len(tries) >= limit:
+        wait = round((window_s - (now - tries[0])) / 60) or 1
         _ATTEMPTS[key] = tries
-        raise HTTPException(429, f"Too many tries. Wait {wait} minutes, or ask "
-                                 "the committee to reset your password.")
+        raise HTTPException(429, message.format(wait=wait))
     tries.append(now)
     _ATTEMPTS[key] = tries
 
 
+def _throttle(request: Request, username: str) -> None:
+    now = time.time()
+    _sweep(now)
+    _limit((_client(request), db.normalise_username(username)), now,
+           ATTEMPT_LIMIT, ATTEMPT_WINDOW_S,
+           "Too many tries. Wait {wait} minutes, or ask the committee to "
+           "reset your password.")
+
+
 def _throttle_clear(request: Request, username: str) -> None:
-    _ATTEMPTS.pop((request.client.host if request.client else "?",
-                   db.normalise_username(username)), None)
+    _ATTEMPTS.pop((_client(request), db.normalise_username(username)), None)
+
+
+def _throttle_signup(request: Request) -> None:
+    now = time.time()
+    _sweep(now)
+    _limit((_client(request), "\x00signup"), now, SIGNUP_LIMIT, SIGNUP_WINDOW_S,
+           "That is a lot of new accounts from one place. Wait {wait} minutes, "
+           "or ask a committee member.")
 
 
 # --------------------------------------------------------------------------- #
@@ -260,6 +387,7 @@ def signup(request: Request, response: Response, payload: dict = Body(...)):
     A new account is never committee: that is handed out by an existing
     committee member, or from the server with manage.py.
     """
+    _throttle_signup(request)
     try:
         user = db.create_user(payload.get("username") or "",
                               payload.get("password") or "",
@@ -1132,8 +1260,30 @@ def index(path: str):
 if __name__ == "__main__":
     import uvicorn
 
-    # Loopback by default. Set UBWC_HOST=0.0.0.0 to reach the app from a phone
-    # on the same network (including an offline iPhone hotspot).
-    host = os.environ.get("UBWC_HOST", "127.0.0.1")
-    port = int(os.environ.get("UBWC_PORT", "8000"))
-    uvicorn.run("server:app", host=host, port=port, reload=False)
+    # A host (Railway, Fly, anything container-shaped) hands the app a port in
+    # $PORT and expects it on every interface, because the process is talking
+    # to that platform's proxy rather than to the internet directly. On a
+    # laptop none of these is set, and the app stays on loopback until run.sh
+    # asks for more with UBWC_HOST=0.0.0.0 (the phone-on-the-same-wifi mode).
+    #
+    # Not $PORT alone: a platform that sniffs the listening port instead of
+    # setting one would leave the app bound to loopback and unreachable, which
+    # looks exactly like a broken deploy. Any of these markers means hosted.
+    hosted = any(os.environ.get(name) for name in
+                 ("PORT", "UBWC_HOSTED", "RAILWAY_ENVIRONMENT",
+                  "RAILWAY_PROJECT_ID", "FLY_APP_NAME"))
+    host = os.environ.get("UBWC_HOST") or ("0.0.0.0" if hosted else "127.0.0.1")
+    port = int(os.environ.get("UBWC_PORT") or os.environ.get("PORT") or "8000")
+
+    # Behind that proxy every request arrives from one address, so the
+    # sign-in throttle would count the whole club as a single guesser unless
+    # uvicorn is told to believe the forwarded-for header. Only trust it when
+    # hosted: on the club wifi anyone could set the header by hand and the
+    # real socket address is the honest one.
+    uvicorn.run("server:app", host=host, port=port, reload=False,
+                proxy_headers=hosted,
+                forwarded_allow_ips="*" if hosted else None,
+                # One process. kit.db is a file on one disk and two workers
+                # would be two apps fighting over it (and, on a platform that
+                # gives each replica its own disk, two diverging inventories).
+                workers=1)

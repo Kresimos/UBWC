@@ -29,7 +29,24 @@ def _data_dir() -> Path:
     return Path.home() / ".local" / "share" / "UBWC"
 
 
-DB_PATH = _data_dir() / "kit.db"
+def _db_path() -> Path:
+    """The database file.
+
+    On a laptop this is the per-user directory above. On a host it must be a
+    path on the mounted disk, because everything else in a container is thrown
+    away on the next deploy: set UBWC_DB=/data/kit.db there. db.ensure_db()
+    refuses to start if that path's directory is missing, so a disk that failed
+    to mount is a loud crash rather than a fresh empty inventory nobody notices.
+    """
+    override = os.environ.get("UBWC_DB")
+    return Path(override).expanduser() if override else _data_dir() / "kit.db"
+
+
+DB_PATH = _db_path()
+
+# Where photos and anything else file-shaped belongs: alongside the database,
+# on the same disk, so one mount (and one backup) covers the club's data.
+DATA_DIR = DB_PATH.parent
 SCHEMA_PATH = ROOT / "schema.sql"
 XLSX_PATH = ROOT / "data" / "Kit Inventory.xlsx"
 

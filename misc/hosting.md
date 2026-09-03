@@ -222,10 +222,14 @@ and the config-in-version-control story is genuinely nicer. See [fly.md](fly.md)
 That is a legitimate reason and I would not argue you out of it. Budget an
 afternoon for the initial setup and set a billing alarm on day one.
 
-Whichever of the three you pick, the same three code fixes are needed first
-(hardcoded database path, regenerated session key, silent reseed from the
-spreadsheet). They are listed in [fly.md](fly.md) but they are container
-problems, not Fly problems, and they apply equally to Railway.
+**Decided, and done: Railway.** The step-by-step is
+[deploy-railway.md](deploy-railway.md), and the code changes a host needs have
+been made (see the last section of that file). What this document called the
+three fixes needed first has been dealt with: the database path is an
+environment variable, sessions were already rows in the database rather than a
+signed cookie so they survive a deploy on their own, and a missing database now
+refuses to reseed itself from the spreadsheet instead of quietly replacing the
+club's records with it.
 
 Two things to do whichever way you go:
 

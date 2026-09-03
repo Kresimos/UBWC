@@ -29,13 +29,28 @@ python manage.py signup <username> --admin   # the first committee account
 python manage.py promote <username>          # hand committee to somebody else
 python manage.py password <username>         # reset a forgotten one
 python manage.py list                        # every account, and what it has done
+python manage.py where                       # which database this is, and what is in it
+python manage.py backup [file]               # safe copy, even while the app runs
 ```
 
-Set `UBWC_HTTPS=1` when the app is served over HTTPS, so the session cookie is
-marked Secure.
+## Hosting
 
-Nothing is hosted yet. The options, including AWS, are compared in
-[misc/hosting.md](misc/hosting.md).
+**[misc/deploy-railway.md](misc/deploy-railway.md) is the runbook**: what to
+click, what to paste, and what each variable is for. [misc/hosting.md](misc/hosting.md)
+is why Railway rather than Fly, AWS or a VPS, and [misc/scale.md](misc/scale.md)
+is what the app actually measures under load, at a bigger inventory, and what
+photos would cost.
+
+The app reads six environment variables, all optional on a laptop:
+
+| Variable | What it does |
+|---|---|
+| `UBWC_DB` | where `kit.db` lives. Set it on any host: it must be a path on a disk that survives a deploy. Unset, the database goes in the OS's per-user application data directory. |
+| `UBWC_RESTORE` | a database file to adopt at startup, verified first, replacing the current one and keeping it. How a backup goes back. |
+| `UBWC_SEED` | permission to build a database from the spreadsheet when there is none. Only ever set for a deliberate first boot: without it a missing database on a host is a crash rather than a silent, healthy-looking wipe. |
+| `UBWC_HTTPS` | marks the session cookie Secure. Set it wherever the app is served over HTTPS. |
+| `UBWC_ADMIN_USER` / `UBWC_ADMIN_PASSWORD` | make or promote a committee account at startup, for a host with no shell to run `manage.py` in. Never changes an existing account's password. |
+| `PORT` | the port to listen on. Its presence also means "hosted": bind every interface, and trust the proxy's forwarded-for header. |
 
 ## Layout
 

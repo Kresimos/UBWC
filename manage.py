@@ -13,12 +13,20 @@ hands out control of the kit list.
     python manage.py demote rachel
     python manage.py signout johnny              # end their sessions everywhere
 
+and the club's data itself:
+
+    python manage.py backup kit-2026-09-03.db    # safe copy of a live database
+    python manage.py where                       # which file is being used
+
 Passwords are asked for on the terminal rather than taken as an argument, so
 they do not end up in the shell history.
 """
 import argparse
 import getpass
+import sqlite3
 import sys
+from datetime import datetime
+from pathlib import Path
 
 import db
 
@@ -98,11 +106,74 @@ def cmd_signout(args) -> None:
     print(f"Signed out {db.end_all_sessions(user['id'])} device(s) for {user['username']}.")
 
 
+def cmd_where(_args) -> None:
+    """Which database is this, and does it look like the club's or a stub?
+
+    The first question to ask of a deploy that came up looking wrong: an app
+    serving six items is not broken, it is pointed at the seed instead of at
+    the club's real inventory.
+    """
+    print(f"database: {db.DB_PATH}")
+    if not db.DB_PATH.exists():
+        print("          (does not exist yet)")
+        return
+    size_kb = db.DB_PATH.stat().st_size / 1024
+    with db.connect() as conn:
+        counts = {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                  for t in ("items", "faults", "users", "sessions", "trips")}
+    print(f"size:     {size_kb:.0f} KB")
+    print("holds:    " + ", ".join(f"{n} {t}" for t, n in counts.items()))
+
+
+def cmd_backup(args) -> None:
+    """Copy the database out while the app is running.
+
+    Not `cp`: a plain copy of a database being written to can catch it
+    mid-write and produce a file that is silently a bit corrupt, which is the
+    worst possible property in a backup. sqlite3's own backup API takes a
+    consistent snapshot of a live database, and pulls in anything still
+    sitting in the write-ahead log rather than leaving it behind in the -wal
+    file a copy would miss.
+    """
+    if not db.DB_PATH.exists():
+        sys.exit(f"No database at {db.DB_PATH}. Nothing to back up.")
+    target = Path(args.path) if args.path else Path(
+        f"kit-{datetime.now().strftime('%Y-%m-%d')}.db")
+    if target.is_dir():
+        target = target / f"kit-{datetime.now().strftime('%Y-%m-%d')}.db"
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    source = sqlite3.connect(db.DB_PATH)
+    destination = sqlite3.connect(target)
+    try:
+        with destination:
+            source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
+
+    with sqlite3.connect(target) as check:
+        items = check.execute("SELECT count(*) FROM items").fetchone()[0]
+        ok = check.execute("PRAGMA integrity_check").fetchone()[0]
+    check.close()
+    size_kb = target.stat().st_size / 1024
+    print(f"Wrote {target} ({size_kb:.0f} KB, {items} items, integrity: {ok}).")
+    if ok != "ok":
+        sys.exit("The copy did not verify. Do not treat it as a backup.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     subs = parser.add_subparsers(dest="command", required=True)
 
     subs.add_parser("list", help="every account, and what it has done").set_defaults(fn=cmd_list)
+    subs.add_parser("where", help="which database file this is, and what is in it"
+                    ).set_defaults(fn=cmd_where)
+
+    backup = subs.add_parser("backup", help="safe copy of the database, live or not")
+    backup.add_argument("path", nargs="?",
+                        help="where to write it (default: kit-YYYY-MM-DD.db here)")
+    backup.set_defaults(fn=cmd_backup)
 
     new = subs.add_parser("signup", help="create an account")
     new.add_argument("username")

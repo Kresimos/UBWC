@@ -1,9 +1,64 @@
 # UBWC Kit App
 
-This repo is the University of Bristol Windsurfing Club's kit inventory app.
-Ground truth for kit data currently lives in a Google Sheet (downloaded copy at
-[data/Kit Inventory.xlsx](data/Kit Inventory.xlsx)), which is being migrated to
-a SQLite database. The app's UI/UX plan is in [misc/layout.txt](misc/layout.txt).
+This repo is the University of Bristol Windsurfing Club's kit inventory app: a
+FastAPI JSON API over a SQLite database, with a dependency-free static front
+end. The app's UI/UX plan is in [misc/layout.txt](misc/layout.txt).
+
+**Where the kit data actually is** (read this before touching the database, and
+do not infer it from the spreadsheet):
+
+- **The club's real inventory has not been counted yet.** The plan is to enter
+  it through the app's Add kit form once it has, because that validates a rig as
+  it is typed and an import never did.
+- **[data/Kit Inventory.xlsx](data/Kit Inventory.xlsx) is a 6-row stub**, not
+  ground truth. It was the Google Sheet the schema was designed from, and
+  `migrate.py` still seeds from it, so a fresh seed produces an app holding six
+  pieces of kit that looks entirely healthy.
+- **The working database is example data.** ~148 items, with faults, ratings,
+  trips and logbooks, in the OS's per-user application data directory (or
+  wherever `UBWC_DB` points). Right order of magnitude for a club fleet, useful
+  to demo and measure against, but nothing in it is real.
+
+So "rebuild from the sheet" is never the fix for anything. `python manage.py
+where` says which database is in use and what is in it.
+
+## Running it, and where it is hosted
+
+`./run.sh` on a laptop; hosted on Railway, one process against one disk. The
+runbook is [misc/deploy-railway.md](misc/deploy-railway.md), the platform
+comparison is [misc/hosting.md](misc/hosting.md), and what it measures under
+load (plus what photos would cost, which is the one decision that would change
+the deployment) is [misc/scale.md](misc/scale.md).
+
+Six environment variables, documented in [README.md](README.md). Two of them
+are safety interlocks and are worth understanding before changing anything near
+startup:
+
+- **`UBWC_SEED`** is the only thing that lets a missing database be rebuilt
+  from the stub. Without it, a missing database on a host is a crash with an
+  explanation, because the alternative is an app that comes back up looking
+  healthy and stocked while the club's records are gone. Never suggest setting
+  it as a fix for a startup error.
+- **`UBWC_RESTORE`** adopts a database uploaded to a path the running app never
+  opens, verifying it and keeping the one it replaces. That is how a backup
+  goes back and how a database gets onto a host at all; copying over a live
+  SQLite file next to its write-ahead log can corrupt it.
+
+`python manage.py` also does `backup` (SQLite's own backup, safe on a live
+database, verified) and `reset` (empty the kit and its whole history, keep
+accounts, committee flags, sites and spots: the one-time move to the real
+inventory).
+
+Two constraints that follow from SQLite on one disk: **exactly one process,
+never replicas** (Railway enforces this by refusing replicas alongside a
+volume), and connections open in WAL mode so a member writing does not block
+everyone else reading.
+
+One thing to know before adding to the catalogue's hot path: `/api/items`
+returns the **whole** catalogue in one call so the browser's filters are
+instant, which is right at this size and gets proportionally more expensive as
+the inventory grows. [misc/scale.md](misc/scale.md) has the numbers and the fix
+if it ever matters.
 
 This file documents the **windsurfing domain knowledge** needed to build any
 feature that suggests, validates, or filters "does this kit go together"

@@ -96,8 +96,15 @@ export function worstFault(faults) {
   return faults.find((f) => f.severity === 'out_of_action') || faults[0];
 }
 
-export function avatar(name) {
-  return initial(name);
+/**
+ * A member's initials, or their profile photo when one is passed. The caller
+ * gives it the photo (store.user.image_path, or store.avatars[name]) — this
+ * only decides which to draw.
+ */
+export function avatar(name, imagePath) {
+  return imagePath
+    ? html`<img class="avimg" src="${imagePath}" alt="">`
+    : initial(name);
 }
 
 /** The site pill in an app bar. Tapping it is how a member says where they are. */
@@ -109,17 +116,18 @@ export function whoPill({ compact = false } = {}) {
   const name = store.user && (store.user.display_name || store.user.username);
   // The Catalogue's bar already carries the club mark and the site, so there it
   // is the avatar alone. Everywhere else the pill says the name outright.
+  const photo = store.user && store.user.image_path;
   if (compact) {
     return html`<button class="whobtn dot ${store.user ? '' : 'out'}" data-identity
                         aria-label="${store.user ? `Signed in as ${name}` : 'Sign in'}">
-      <span class="av">${store.user ? avatar(name) : '?'}</span>
+      <span class="av">${store.user ? avatar(name, photo) : '?'}</span>
     </button>`;
   }
   if (!store.user) {
     return html`<button class="whobtn out" data-identity><span class="av">?</span>Sign in</button>`;
   }
   return html`<button class="whobtn" data-identity>
-    <span class="av">${avatar(name)}</span>
+    <span class="av">${avatar(name, photo)}</span>
     ${name}
     ${store.committee ? html`<span class="key">${icon('key')}</span>` : ''}
   </button>`;

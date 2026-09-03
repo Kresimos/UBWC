@@ -7,6 +7,7 @@
  */
 import { html, mount, raw, esc } from '../dom.js';
 import { icon } from '../icons.js';
+import { photoField, wirePhoto } from './photofield.js';
 
 const layer = () => document.getElementById('overlay');
 
@@ -108,18 +109,37 @@ export function chooser({ title, sub, rows, footer }) {
 export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = false,
                             onSubmit = null, alt = null, cancelLabel = 'Cancel' }) {
   return new Promise((resolve) => {
+    // A photo field uploads on pick rather than on submit, so its chosen path
+    // lives here and collect() reads it out alongside the text inputs.
+    const photos = {};
+    for (const field of fields) {
+      if (field.type === 'photo') photos[field.name] = field.value || null;
+    }
+    const repaintPhoto = (field) => {
+      const wrap = node.querySelector(`[data-photowrap="${CSS.escape(field.name)}"]`);
+      if (!wrap) return;
+      mount(wrap, photoField(photos[field.name], { hint: field.hint }));
+      wirePhoto(wrap, photos, field.name, () => repaintPhoto(field));
+    };
+
     const node = present(html`
       <div class="sheet" role="dialog" aria-label="${title}">
         <span class="grip"></span>
         <h2>${title}</h2>
         ${sub ? html`<p class="sub">${sub}</p>` : ''}
         <div class="list">
-          ${fields.map((field) => html`
-            <div class="field">
-              <label for="f-${field.name}">${field.label}</label>
-              ${raw(control(field))}
-              ${field.hint ? html`<span class="hint">${field.hint}</span>` : ''}
-            </div>`)}
+          ${fields.map((field) => field.type === 'photo'
+            ? html`
+              <div class="field">
+                <label>${field.label}</label>
+                <div data-photowrap="${field.name}">${photoField(field.value || null, { hint: field.hint })}</div>
+              </div>`
+            : html`
+              <div class="field">
+                <label for="f-${field.name}">${field.label}</label>
+                ${raw(control(field))}
+                ${field.hint ? html`<span class="hint">${field.hint}</span>` : ''}
+              </div>`)}
         </div>
         <div class="err" hidden></div>
         <div class="foot">
@@ -131,6 +151,11 @@ export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = f
 
     const error = node.querySelector('.err');
     const submit = node.querySelector('[data-submit]');
+
+    fields.filter((field) => field.type === 'photo').forEach((field) => {
+      const wrap = node.querySelector(`[data-photowrap="${CSS.escape(field.name)}"]`);
+      if (wrap) wirePhoto(wrap, photos, field.name, () => repaintPhoto(field));
+    });
 
     const show = (message) => {
       error.textContent = message;
@@ -151,6 +176,10 @@ export function formSheet({ title, sub, fields, submitLabel = 'Save', danger = f
     const collect = () => {
       const values = {};
       for (const field of fields) {
+        if (field.type === 'photo') {
+          values[field.name] = photos[field.name] ?? null;
+          continue;
+        }
         const input = node.querySelector(`#f-${CSS.escape(field.name)}`);
         if (input && input.type === 'checkbox') {
           values[field.name] = input.checked;
@@ -254,16 +283,23 @@ export function confirmSheet({ title, sub, confirmLabel = 'Confirm', cancelLabel
  * that carries a severity of its own: "crit" for a fault that has taken the
  * piece out of action.
  */
-export function lightbox({ title, sub, image, glyph = 'camera', tone = '' }) {
+export function lightbox({ title, sub, image, glyph = 'camera', tone = '', action = null }) {
   present(html`
     <div class="lbcard" role="dialog" aria-label="${title}">
       <div class="lbphoto ${glyph === 'camera' ? '' : glyph} ${tone}">
         ${image ? html`<img src="${image}" alt="">` : icon(glyph)}
       </div>
       <div class="lbcap"><b>${title}</b>${sub ? html`<span>${sub}</span>` : ''}</div>
+      ${action ? html`<button class="lbaction" data-lbaction>${action.label}</button>` : ''}
       <button class="lbclose">Close</button>
     </div>`, { centred: true });
   layer().querySelector('.lbclose').addEventListener('click', closeOverlay);
+  if (action) {
+    layer().querySelector('[data-lbaction]').addEventListener('click', () => {
+      closeOverlay();
+      action.onClick();
+    });
+  }
 }
 
 let toastTimer = null;

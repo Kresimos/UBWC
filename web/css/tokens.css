@@ -378,6 +378,12 @@ button:active, [role="button"]:active {
   font-size: 10px; font-weight: 750; display: flex; align-items: center; justify-content: center;
 }
 .whobtn.out .av { background: var(--app-faint); }
+
+/* A profile photo standing in for initials. Any .av badge (app-bar pill,
+   sheet row, profile card, members list) can hold one; ui/bits.js avatar()
+   decides which to draw. */
+.av { overflow: hidden; }
+.avimg { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* Avatar only, for a bar that has no room for a name. Padding trimmed to 3px
    (not 4) so the bigger 24px dot avatar still lands on the shared 30px height.
    No margin-left of its own: the row's 12px gap is enough separation from the
@@ -904,6 +910,12 @@ button:active, [role="button"]:active {
   border-radius: 11px; border: 0; background: var(--app-bg2); font-size: 13.5px;
   font-weight: 700; color: var(--app-ink); cursor: pointer;
 }
+.lbaction {
+  display: block; width: calc(100% - 30px); margin: 12px 15px 0; padding: 11px;
+  border-radius: 11px; border: 0; background: var(--teal); font-size: 13.5px;
+  font-weight: 750; color: #fff; cursor: pointer;
+}
+.lbaction + .lbclose { margin-top: 8px; }
 
 /* A short-lived confirmation. Never used for anything the member must read. */
 .toast {

@@ -30,10 +30,11 @@
  *   dotFault  the fault as a bubble on the thumb, because the row's right-hand
  *             column has been given to the voter stack.
  */
-import { html, num, numFixed, initial } from '../dom.js';
+import { html, num, numFixed } from '../dom.js';
 import { icon, artFor } from '../icons.js';
-import { starRow, fullName, worstFault } from './bits.js';
+import { starRow, fullName, worstFault, avatar } from './bits.js';
 import { lightbox } from './overlay.js';
+import { avatarFor } from '../store.js';
 
 /**
  * @param {object} opts
@@ -217,7 +218,7 @@ export function whoStack(voters) {
   const total = shown.length;
   const step = (i) => (total > 1 ? 1 - (1 - fade) * (i / (total - 1)) : 1);
   const discs = shown.map((who, i) => html`<span class="av"
-    style="opacity:${step(i).toFixed(3)};z-index:${20 - i}">${initial(who)}</span>`);
+    style="opacity:${step(i).toFixed(3)};z-index:${20 - i}">${avatar(who, avatarFor(who))}</span>`);
   const label = `Asked for by ${voters.join(', ')}`;
   return html`<span class="whostack" role="button" tabindex="0"
     data-whostack="${voters.join('|')}" title="${label}" aria-label="${label}">${discs}</span>`;

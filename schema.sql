@@ -157,6 +157,7 @@ CREATE TABLE spots (
     site         TEXT NOT NULL,
     name         TEXT NOT NULL,
     description  TEXT,
+    image_path   TEXT,     -- a photo of the rack/bay, so kit goes back right
     UNIQUE (site, name)
 );
 
@@ -240,7 +241,8 @@ CREATE TABLE users (
     is_admin       INTEGER NOT NULL DEFAULT 0,
     password_hash  TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen_at   TEXT
+    last_seen_at   TEXT,
+    image_path     TEXT      -- profile photo; NULL falls back to initials
 );
 
 -- ---------------------------------------------------------------------------

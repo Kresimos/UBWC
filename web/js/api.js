@@ -34,6 +34,33 @@ async function request(method, path, body) {
   return data;
 }
 
+/**
+ * Photo upload. The one call that does not send JSON: the file goes up as
+ * multipart form data, and the server hands back { image_path } — a path to
+ * drop straight into an <img src> or the image_path field of whatever is being
+ * saved next. The browser has already downscaled it (see ui/photofield.js);
+ * the server resizes again and is the authority.
+ */
+async function uploadPhoto(file) {
+  const form = new FormData();
+  form.append('file', file);
+  let response;
+  try {
+    response = await fetch('/api/uploads', {
+      method: 'POST', body: form, credentials: 'same-origin',
+    });
+  } catch {
+    throw new Error('No connection to the club server.');
+  }
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!response.ok) {
+    throw new Error((data && data.error) || `Could not upload that photo (${response.status}).`);
+  }
+  return data.image_path;
+}
+
 const get = (path, params) => {
   const query = params
     ? '?' + new URLSearchParams(
@@ -55,6 +82,9 @@ export const api = {
     request('POST', '/api/account/password', { current, password }),
   changeName: (displayName) =>
     request('POST', '/api/account/name', { display_name: displayName }),
+  uploadPhoto,
+  setAvatar: (imagePath) =>
+    request('POST', '/api/account/photo', { image_path: imagePath }),
 
   members: () => get('/api/members'),
   setMemberAdmin: (id, isAdmin) =>
@@ -73,12 +103,17 @@ export const api = {
   unarchiveItem: (id) => request('POST', `/api/items/${id}/unarchive`, {}),
   moveItems: (itemIds, site, spot) =>
     request('POST', '/api/items/move', { item_ids: itemIds, site, spot }),
+  // Committee: set the note and photo for one spot. Returns the whole spot
+  // list so the store can refresh what the spot popup shows.
+  upsertSpot: (site, name, fields) =>
+    request('POST', '/api/spots', { site, name, ...fields }),
 
   vote: (id, value) => request('POST', `/api/items/${id}/vote`, { vote: value }),
   favourite: (id, on) => request('POST', `/api/items/${id}/favourite`, { on }),
   comment: (id, body, kind) => request('POST', `/api/items/${id}/comments`, { body, kind }),
   reportFault: (id, fault) => request('POST', `/api/items/${id}/faults`, fault),
-  reportFix: (faultId, body) => request('POST', `/api/faults/${faultId}/fix`, { body }),
+  reportFix: (faultId, body, imagePath) =>
+    request('POST', `/api/faults/${faultId}/fix`, { body, image_path: imagePath || null }),
   clearFault: (faultId) => request('POST', `/api/faults/${faultId}/clear`, {}),
 
   // `trip` narrows the rig kit to one trip's inventory (its away flag ignored);

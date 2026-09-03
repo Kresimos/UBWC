@@ -21,6 +21,7 @@ import { cardTile } from '../ui/itemTile.js';
 import { kitPicker } from '../ui/kitpicker.js';
 import { needCommittee } from '../ui/chrome.js';
 import { confirmSheet, toast } from '../ui/overlay.js';
+import { photoField, wirePhoto } from '../ui/photofield.js';
 import { fullName } from '../ui/bits.js';
 import { go, back } from '../router.js';
 
@@ -52,6 +53,7 @@ export async function render(root, params) {
 
   const values = {
     name: '', destination: '', starts_on: '', ends_on: '', notes: '',
+    image_path: null,
     requesting: true,
     // The forecast pin. lat/lon null means the trip page draws no wind strip;
     // pinLabel is only what the chip reads, it is never sent.
@@ -75,6 +77,7 @@ export async function render(root, params) {
       starts_on: trip.starts_on || '',
       ends_on: trip.ends_on || '',
       notes: trip.notes || '',
+      image_path: trip.image_path || null,
       requesting: trip.status === 'requesting',
       lat: trip.lat ?? null,
       lon: trip.lon ?? null,
@@ -187,12 +190,9 @@ export async function render(root, params) {
 
       <div class="body pad">
         <div class="form">
-          <button class="photo" type="button" data-photo>
-            <span class="cam">${icon('camera')}</span>
-            <span class="t">Add photo</span>
-            <span class="h">A shot of the spot, so the trip is recognisable in the
-              list. Optional.</span>
-          </button>
+          ${photoField(values.image_path, {
+            hint: 'A shot of the spot, so the trip is recognisable in the list. Optional.',
+          })}
 
           <div class="grp">
             <span class="lab"><span class="req"></span>Trip name</span>
@@ -346,7 +346,7 @@ export async function render(root, params) {
       values.requesting = !values.requesting;
       node.classList.toggle('on', values.requesting);
     });
-    onClick(root, 'data-photo', () => toast('Photos are coming. The trip works without one.'));
+    wirePhoto(root, values, 'image_path', () => paint({ keepScroll: true }));
     onClick(root, 'data-pick', openPicker);
     onClick(root, 'data-item', async (value, _node, event) => {
       if (event.target.closest('[data-kitpicker]')) return;
@@ -436,6 +436,7 @@ export async function render(root, params) {
       starts_on: values.starts_on || null,
       ends_on: values.ends_on || null,
       notes: values.notes.trim() || null,
+      image_path: values.image_path ?? null,
     };
     try {
       if (editing) {

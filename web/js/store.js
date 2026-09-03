@@ -38,6 +38,8 @@ export const store = {
   committee: false,
   sites: [],
   spots: [],
+  // display_name -> profile photo, for every place a member's name is shown.
+  avatars: {},
   types: [],
   conditions: [],
   boxTypes: [],
@@ -68,6 +70,7 @@ export function applyBootstrap(data) {
   store.committee = data.committee;
   store.sites = data.sites;
   store.spots = data.spots;
+  store.avatars = data.avatars || {};
   store.types = data.types;
   store.conditions = data.conditions;
   store.boxTypes = data.box_types;
@@ -116,6 +119,16 @@ export function setTrip(trip) {
 export function setIdentity(user, committee) {
   store.user = user;
   store.committee = Boolean(committee);
+  // Keep the avatar map in step so the member's own photo shows next to their
+  // past notes and sessions straight away, without waiting for a reload.
+  if (user) {
+    for (const key of [user.display_name, user.username]) {
+      if (key) {
+        if (user.image_path) store.avatars[key] = user.image_path;
+        else delete store.avatars[key];
+      }
+    }
+  }
   emit();
 }
 
@@ -132,5 +145,20 @@ export function spotNote(site, spot) {
   const match = store.spots.find((s) => s.site === site && s.name === spot);
   return match ? match.description : null;
 }
+
+/** The spot photo shown in the same popup, if committee has added one. */
+export function spotImage(site, spot) {
+  const match = store.spots.find((s) => s.site === site && s.name === spot);
+  return match ? match.image_path : null;
+}
+
+/** Replace the spot list after a committee edit, so popups show it at once. */
+export function setSpots(spots) {
+  store.spots = spots || [];
+  emit();
+}
+
+/** A member's profile photo by the name shown on their comment or fault. */
+export const avatarFor = (name) => (name && store.avatars[name]) || null;
 
 export const isCommittee = () => store.committee;

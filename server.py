@@ -6,15 +6,21 @@ validation.py and rigkit.py) or any HTML (that lives in web/).
 
 Run it with:  python server.py        (or: uvicorn server:app --reload)
 """
+import io
 import os
+import secrets
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, ImageOps
+from PIL.Image import DecompressionBombError, UnidentifiedImageError
 
 import db
 import rigkit
@@ -24,6 +30,22 @@ import wind
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
+
+# Uploaded photos live next to the database, on the same disk, so one volume
+# and one backup cover the club's data (misc/scale.md, "Photos"). The name in
+# each image_path column is relative to here and served from /photos.
+PHOTOS_DIR = db.DATA_DIR / "photos"
+PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+# What the browser sends after its own downscale is a few hundred KB; anything
+# far above that is a client that skipped it or a wrong file, and the disk is
+# finite and shared with the database.
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+# The app never draws a photo wider than its ~390 px column at 2x, so a stored
+# edge longer than this is bytes that can never be shown. Resizing down here is
+# what moves the volume's ceiling from ~1,000 photos to ~20,000.
+PHOTO_MAX_EDGE = 1600
+PHOTO_QUALITY = 82
 
 # The cookie carries a session token; the account behind it is looked up on
 # every request (db.session_user), so signing out here signs out for real and a
@@ -36,27 +58,118 @@ COOKIE = "ubwc_session"
 # never come back and nobody could stay signed in.
 SECURE_COOKIES = bool(os.environ.get("UBWC_HTTPS"))
 
-app = FastAPI(title="UBWC Kit", docs_url=None, redoc_url=None)
-
 # run.sh sets UBWC_DEV. Mobile Safari caches ES modules and stylesheets hard
 # enough that a phone will happily show yesterday's build after an edit, which
 # reads as "the change didn't work" rather than "the file is stale". While
-# testing, tell it to keep nothing; in production the ?v= query strings on the
-# stylesheets do the versioning instead.
+# testing, tell it to keep nothing; in production the cache headers below do
+# the same job without throwing away every file on every load.
 DEV = bool(os.environ.get("UBWC_DEV"))
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Open the database before the first request, and say where it is.
+
+    Printed rather than silent because on a host this line is the proof that
+    the disk mounted: a path under /data is the club's inventory, a path under
+    a home directory is a container-local file that dies with the next deploy.
+    """
+    db.ensure_db()
+    print(f"UBWC: database at {db.DB_PATH}", flush=True)
+    _bootstrap_admin()
+    yield
+
+
+app = FastAPI(title="UBWC Kit", docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+# The front end is ~800 KB of uncompressed JavaScript, CSS and JSON, and a
+# member on the lake is on a phone on mobile data. gzip takes the text roughly
+# a quarter of the size for a few milliseconds of CPU. Below 1 KB the header
+# overhead is worth more than the saving, and PNGs are already compressed
+# (Starlette skips anything already content-encoded).
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+def _bootstrap_admin() -> None:
+    """Make the first committee account from the environment, once.
+
+    manage.py is the way to do this on a laptop, but on a host there may be no
+    shell to run it in, and an app nobody can administer is not deployed. So
+    UBWC_ADMIN_USER + UBWC_ADMIN_PASSWORD create that account at boot, or
+    promote it if the name is already taken. Idempotent, and it never touches
+    an existing account's password: once you can sign in, delete both variables.
+    """
+    username = (os.environ.get("UBWC_ADMIN_USER") or "").strip()
+    password = os.environ.get("UBWC_ADMIN_PASSWORD") or ""
+    if not username:
+        return
+    try:
+        existing = db.get_user_by_username(username)
+        if existing:
+            if not existing["is_admin"]:
+                db.set_admin(existing["id"], True)
+                print(f"UBWC: promoted {username} to committee", flush=True)
+            return
+        if not password:
+            print("UBWC: UBWC_ADMIN_USER set without UBWC_ADMIN_PASSWORD; "
+                  "no account made", flush=True)
+            return
+        db.create_user(username, password, username, is_admin=True)
+        print(f"UBWC: made committee account {username}. Remove "
+              "UBWC_ADMIN_PASSWORD now.", flush=True)
+    except Exception as error:          # never let this stop the app booting
+        print(f"UBWC: could not bootstrap the committee account: {error}",
+              flush=True)
+
+
+# How long a browser may reuse a file before asking again. The front end has no
+# build step, so filenames never change and "cache forever" would strand a
+# member on an old app after a deploy. no-cache is not "do not cache": the file
+# is kept and revalidated, so an unchanged file costs one small 304 rather than
+# a re-download, and a deployed change is picked up on the next load. The
+# manifest and icons under /assets do have stable content, so they get a real
+# expiry.
+CODE_CACHE = "no-cache"
+ASSET_CACHE = "public, max-age=604800"      # a week
+# A photo's name is a random token and its bytes never change, so a browser
+# that has one never needs to ask again.
+PHOTO_CACHE = "public, max-age=31536000, immutable"
+
+
 @app.middleware("http")
-async def _no_cache_in_dev(request: Request, call_next):
+async def _cache_headers(request: Request, call_next):
     response = await call_next(request)
     if DEV:
         response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+    path = request.url.path
+    if path.startswith("/assets/"):
+        response.headers.setdefault("Cache-Control", ASSET_CACHE)
+    elif path.startswith("/photos/"):
+        response.headers.setdefault("Cache-Control", PHOTO_CACHE)
+    elif path.startswith(("/js/", "/css/")):
+        response.headers.setdefault("Cache-Control", CODE_CACHE)
+    elif path.startswith("/api/"):
+        # Member-specific and always live. Safari has been known to serve a
+        # cached GET to a signed-in member from before they signed in.
+        response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    db.ensure_db()
+@app.get("/api/health")
+def health():
+    """Is the app up and is its database the real one?
+
+    The host polls this after a deploy; a member never sees it. It reports the
+    database path so a bad mount is visible without a shell, and counts one row
+    so that "up" means "can read the inventory", not merely "answered a socket".
+    """
+    try:
+        with db.connect() as conn:
+            items = conn.execute("SELECT count(*) AS n FROM items").fetchone()["n"]
+    except Exception as error:
+        raise HTTPException(503, f"Database unavailable: {error}")
+    return {"ok": True, "items": items, "db": str(db.DB_PATH)}
 
 
 # --------------------------------------------------------------------------- #
@@ -103,6 +216,50 @@ def require_committee(request: Request) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# API: photo uploads
+#
+# One endpoint for every photo in the app (a piece of kit, a trip, a fault, a
+# profile, a spot). It stores the file and hands back the path; attaching that
+# path to something is the job of the ordinary create/edit call that follows,
+# which is where the per-feature permissions live. The browser downscales
+# before it uploads; this is the authority that still checks.
+# --------------------------------------------------------------------------- #
+def _store_photo(raw: bytes) -> str:
+    """Verify raw bytes really are an image, resize down, save as JPEG.
+
+    Returns the public path (/photos/<name>.jpg). The original is never kept:
+    what lands on disk is at most PHOTO_MAX_EDGE on its long side, which is
+    already more than the app can display.
+    """
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "That photo is too big. Try one straight from "
+                                 "the camera roll rather than a full-res export.")
+    try:
+        probe = Image.open(io.BytesIO(raw))
+        probe.verify()                       # structural check; consumes probe
+        image = Image.open(io.BytesIO(raw))  # reopen to actually use it
+        image = ImageOps.exif_transpose(image)   # honour the phone's rotation
+        image = image.convert("RGB")
+        image.thumbnail((PHOTO_MAX_EDGE, PHOTO_MAX_EDGE))
+    except (UnidentifiedImageError, DecompressionBombError, OSError, ValueError):
+        raise HTTPException(422, "That file is not an image the app can read.")
+
+    name = f"{secrets.token_hex(16)}.jpg"
+    image.save(PHOTOS_DIR / name, "JPEG", quality=PHOTO_QUALITY, optimize=True)
+    return f"/photos/{name}"
+
+
+@app.post("/api/uploads")
+async def upload_photo(request: Request, file: UploadFile = File(...)):
+    """Take one image, store a resized copy, return {image_path}."""
+    require_user(request)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(422, "That upload was empty.")
+    return {"image_path": _store_photo(raw)}
+
+
+# --------------------------------------------------------------------------- #
 # Sign-in throttle
 #
 # A four-word password and an open sign-up page means somebody will eventually
@@ -114,23 +271,62 @@ _ATTEMPTS: dict = {}
 ATTEMPT_LIMIT = 8
 ATTEMPT_WINDOW_S = 15 * 60
 
+# Sign-up is open by design, but on a public address "open" also means a script
+# can make ten thousand accounts overnight. A dozen an hour from one address is
+# far more than a fresher's week ever needs and far less than that is worth.
+SIGNUP_LIMIT = 12
+SIGNUP_WINDOW_S = 60 * 60
 
-def _throttle(request: Request, username: str) -> None:
-    key = (request.client.host if request.client else "?", db.normalise_username(username))
-    now = time.time()
-    tries = [t for t in _ATTEMPTS.get(key, []) if now - t < ATTEMPT_WINDOW_S]
-    if len(tries) >= ATTEMPT_LIMIT:
-        wait = round((ATTEMPT_WINDOW_S - (now - tries[0])) / 60) or 1
+# The dict is keyed by (address, username), so a script working through a
+# username list would otherwise grow it forever. Everything older than the
+# window is dead weight, so sweep it when the dict gets big rather than on
+# every request.
+_ATTEMPTS_MAX_KEYS = 5000
+
+
+def _client(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+def _sweep(now: float) -> None:
+    if len(_ATTEMPTS) < _ATTEMPTS_MAX_KEYS:
+        return
+    oldest = max(ATTEMPT_WINDOW_S, SIGNUP_WINDOW_S)
+    for key, tries in list(_ATTEMPTS.items()):
+        if not tries or now - tries[-1] > oldest:
+            _ATTEMPTS.pop(key, None)
+
+
+def _limit(key: tuple, now: float, limit: int, window_s: int, message: str) -> None:
+    """Record one try against `key` and refuse once there are too many."""
+    tries = [t for t in _ATTEMPTS.get(key, []) if now - t < window_s]
+    if len(tries) >= limit:
+        wait = round((window_s - (now - tries[0])) / 60) or 1
         _ATTEMPTS[key] = tries
-        raise HTTPException(429, f"Too many tries. Wait {wait} minutes, or ask "
-                                 "the committee to reset your password.")
+        raise HTTPException(429, message.format(wait=wait))
     tries.append(now)
     _ATTEMPTS[key] = tries
 
 
+def _throttle(request: Request, username: str) -> None:
+    now = time.time()
+    _sweep(now)
+    _limit((_client(request), db.normalise_username(username)), now,
+           ATTEMPT_LIMIT, ATTEMPT_WINDOW_S,
+           "Too many tries. Wait {wait} minutes, or ask the committee to "
+           "reset your password.")
+
+
 def _throttle_clear(request: Request, username: str) -> None:
-    _ATTEMPTS.pop((request.client.host if request.client else "?",
-                   db.normalise_username(username)), None)
+    _ATTEMPTS.pop((_client(request), db.normalise_username(username)), None)
+
+
+def _throttle_signup(request: Request) -> None:
+    now = time.time()
+    _sweep(now)
+    _limit((_client(request), "\x00signup"), now, SIGNUP_LIMIT, SIGNUP_WINDOW_S,
+           "That is a lot of new accounts from one place. Wait {wait} minutes, "
+           "or ask a committee member.")
 
 
 # --------------------------------------------------------------------------- #
@@ -227,6 +423,8 @@ def bootstrap(request: Request):
                   for t in db.get_trips()
                   if t["status"] in db.TRIP_AWAY_STAGES],
         "spots": db.get_spots(),
+        # display_name -> profile photo, for every place a member's name shows.
+        "avatars": db.member_avatars(),
         "types": [{"key": key, "label": db.COMPONENT_LABELS[key],
                    "count": counts.get(key, 0)} for key in db.CATALOGUE_TYPES],
         "conditions": db.FIELD_META["condition"]["choices"],
@@ -260,6 +458,7 @@ def signup(request: Request, response: Response, payload: dict = Body(...)):
     A new account is never committee: that is handed out by an existing
     committee member, or from the server with manage.py.
     """
+    _throttle_signup(request)
     try:
         user = db.create_user(payload.get("username") or "",
                               payload.get("password") or "",
@@ -323,6 +522,15 @@ def change_display_name(request: Request, payload: dict = Body(...)):
         updated = db.set_display_name(user["id"], payload.get("display_name") or "")
     except db.AccountError as error:
         raise HTTPException(422, str(error))
+    return {"user": updated, "committee": bool(updated["is_admin"])}
+
+
+@app.post("/api/account/photo")
+def change_avatar(request: Request, payload: dict = Body(...)):
+    """Set my profile photo (image_path from /api/uploads), or clear it with
+    null. It then stands in for my initials everywhere my name is shown."""
+    user = require_user(request)
+    updated = db.set_avatar(user["id"], (payload.get("image_path") or "").strip() or None)
     return {"user": updated, "committee": bool(updated["is_admin"])}
 
 
@@ -463,6 +671,8 @@ def read_item(item_id: int, request: Request):
         "diameter": db.diameter_class(item),
         "fault_history": history,
         "comments": db.get_comments(item_id),
+        # So a commenter's or fault-reporter's photo shows next to their name.
+        "avatars": db.member_avatars(),
         "fields": db.COMPONENT_FIELDS[item["component_type"]],
         "raw": {k: item.get(k) for k in db.COMPONENT_FIELDS[item["component_type"]]},
     }
@@ -558,6 +768,22 @@ def move(request: Request, payload: dict = Body(...)):
     moved = db.move_items([int(i) for i in payload.get("item_ids") or []],
                           site, (payload.get("spot") or "").strip() or None)
     return {"moved": moved, "sites": db.get_sites()}
+
+
+@app.post("/api/spots")
+def edit_spot(request: Request, payload: dict = Body(...)):
+    """Committee: set the note and photo for one spot (keyed by site + name).
+
+    The only way either is written from the app. Returns the whole spot list so
+    the browser can refresh what it shows in the spot popup straight away.
+    """
+    require_committee(request)
+    try:
+        db.upsert_spot(payload.get("site") or "", payload.get("name") or "",
+                       payload.get("description"), payload.get("image_path"))
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return {"spots": db.get_spots()}
 
 
 @app.post("/api/items/{item_id}/vote")
@@ -1114,6 +1340,9 @@ def profile(request: Request, site: Optional[str] = Query(None)):
 app.mount("/assets", StaticFiles(directory=WEB / "assets"), name="assets")
 app.mount("/css", StaticFiles(directory=WEB / "css"), name="css")
 app.mount("/js", StaticFiles(directory=WEB / "js"), name="js")
+# Uploaded photos, from the volume rather than the repo. Already-compressed, so
+# gzip skips them; cached hard because each name is unique to its bytes.
+app.mount("/photos", StaticFiles(directory=PHOTOS_DIR), name="photos")
 
 
 @app.exception_handler(HTTPException)
@@ -1132,8 +1361,30 @@ def index(path: str):
 if __name__ == "__main__":
     import uvicorn
 
-    # Loopback by default. Set UBWC_HOST=0.0.0.0 to reach the app from a phone
-    # on the same network (including an offline iPhone hotspot).
-    host = os.environ.get("UBWC_HOST", "127.0.0.1")
-    port = int(os.environ.get("UBWC_PORT", "8000"))
-    uvicorn.run("server:app", host=host, port=port, reload=False)
+    # A host (Railway, Fly, anything container-shaped) hands the app a port in
+    # $PORT and expects it on every interface, because the process is talking
+    # to that platform's proxy rather than to the internet directly. On a
+    # laptop none of these is set, and the app stays on loopback until run.sh
+    # asks for more with UBWC_HOST=0.0.0.0 (the phone-on-the-same-wifi mode).
+    #
+    # Not $PORT alone: a platform that sniffs the listening port instead of
+    # setting one would leave the app bound to loopback and unreachable, which
+    # looks exactly like a broken deploy. Any of these markers means hosted.
+    hosted = any(os.environ.get(name) for name in
+                 ("PORT", "UBWC_HOSTED", "RAILWAY_ENVIRONMENT",
+                  "RAILWAY_PROJECT_ID", "FLY_APP_NAME"))
+    host = os.environ.get("UBWC_HOST") or ("0.0.0.0" if hosted else "127.0.0.1")
+    port = int(os.environ.get("UBWC_PORT") or os.environ.get("PORT") or "8000")
+
+    # Behind that proxy every request arrives from one address, so the
+    # sign-in throttle would count the whole club as a single guesser unless
+    # uvicorn is told to believe the forwarded-for header. Only trust it when
+    # hosted: on the club wifi anyone could set the header by hand and the
+    # real socket address is the honest one.
+    uvicorn.run("server:app", host=host, port=port, reload=False,
+                proxy_headers=hosted,
+                forwarded_allow_ips="*" if hosted else None,
+                # One process. kit.db is a file on one disk and two workers
+                # would be two apps fighting over it (and, on a platform that
+                # gives each replica its own disk, two diverging inventories).
+                workers=1)

@@ -60,12 +60,6 @@
   [data-screen="catalogue"] .catchrome { transition: none; }
 }
 
-[data-screen="catalogue"] .selecthint {
-  flex: none; margin: 0 var(--gutter) 8px; padding: 7px 11px; border-radius: 9px;
-  background: var(--teal-tint); color: var(--teal-ink); font-size: 11.5px;
-  font-weight: 600; text-align: center;
-}
-
 /* [filter | sort] · count · grid/list. The count owns the middle and centres
    itself; both segmented boxes are the same .viewtoggle component. */
 [data-screen="catalogue"] .subbar {
@@ -1299,19 +1293,35 @@
   font-size: 11.5px; font-weight: 700; color: var(--teal-ink); background: #CFE7EA;
   padding: 4px 9px; border-radius: 999px;
 }
-[data-screen="form"] .photo {
+/* The shared photo picker (ui/photofield.js): the Add/Edit kit form, the trip
+   form, the fault and fix sheets, the profile menu and the spot editor. */
+.photopick {
   border: 1.5px dashed var(--app-line); border-radius: 15px; padding: 20px; display: flex;
   flex-direction: column; align-items: center; gap: 7px; text-align: center;
   background: var(--app-bg); cursor: pointer; width: 100%;
 }
-[data-screen="form"] .photo .cam {
+.photopick .cam {
   width: 42px; height: 42px; border-radius: 12px; background: var(--teal-tint);
   color: var(--teal-ink); display: flex; align-items: center; justify-content: center;
 }
-[data-screen="form"] .photo .cam svg { width: 22px; height: 22px; }
-[data-screen="form"] .photo .t { font-size: 14px; font-weight: 750; }
-[data-screen="form"] .photo .h { font-size: 11.5px; color: var(--app-faint); line-height: 1.4; }
-[data-screen="form"] .photo img { max-height: 150px; border-radius: 10px; }
+.photopick .cam svg { width: 22px; height: 22px; }
+.photopick .t { font-size: 14px; font-weight: 750; }
+.photopick .h { font-size: 11.5px; color: var(--app-faint); line-height: 1.4; }
+.photopick.has {
+  border-style: solid; padding: 10px; gap: 10px; cursor: default;
+}
+.photopick.has img {
+  width: 100%; max-height: 220px; object-fit: cover; border-radius: 10px; display: block;
+}
+.photopick-acts { display: flex; gap: 8px; }
+.photopick .pp-btn {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700;
+  padding: 6px 11px; border-radius: 999px; border: 1px solid var(--app-line);
+  background: var(--app-bg2); color: var(--app-ink); cursor: pointer;
+}
+.photopick .pp-btn svg { width: 14px; height: 14px; }
+.photopick .pp-btn.warn { color: var(--warn-ink); border-color: var(--warn); }
+.photopick.busy { opacity: .55; pointer-events: none; }
 
 [data-screen="form"] .grp { display: flex; flex-direction: column; gap: 7px; }
 [data-screen="form"] .lab {

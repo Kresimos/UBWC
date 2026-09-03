@@ -35,7 +35,6 @@ import { go } from '../router.js';
 const VIEW_KEY = 'ubwc.view';
 const SORT_KEY = 'ubwc.catsort';
 const DIR_KEY = 'ubwc.catdir';
-const SELECT_HINT_KEY = 'ubwc.usedselect';
 
 // The fault buckets the panel opens on: a clean piece and an amber-flagged
 // one, but not a red "out of action" one. Deliberately not persisted — a
@@ -346,9 +345,6 @@ export async function render(root) {
 
     paintCount(rows.length);
 
-    const hint = root.querySelector('[data-selecthint]');
-    hint.hidden = state.selecting || Boolean(localStorage.getItem(SELECT_HINT_KEY));
-
     // A fresh grid (a filter changed, a search) scrolls back to the top, so the
     // chrome belongs open again.
     chromeTucked = chromeTucked && scroller.scrollTop > 24;
@@ -638,7 +634,6 @@ export async function render(root) {
   function enterSelect(id) {
     state.selecting = true;
     state.selected.add(id);
-    localStorage.setItem(SELECT_HINT_KEY, '1');
     haptic(PICK);
     paint();
   }
@@ -1025,10 +1020,6 @@ function shell() {
         <input type="search" data-search placeholder="Search kit…" aria-label="Search kit">
         <button class="clearbtn" data-clear aria-label="Clear search">${icon('close')}</button>
       </label>
-    </div>
-
-    <div class="selecthint" data-selecthint hidden>
-      Hold a piece to pick several, to move them somewhere else.
     </div>
 
     <div class="body" data-scroll>

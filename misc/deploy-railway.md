@@ -29,8 +29,10 @@ settled.
 
 ## Part A: get it running (dashboard)
 
-1. **New Project** → **Deploy from GitHub repo** → `bm7273/UBWC`. Authorise
-   Railway for the repo if it asks; it is private, so it will.
+1. **New Project** → **Deploy from GitHub repo** → `Kresimos/UBWC`. Authorise
+   Railway for the repo if it asks; it is private, so it will. If you are a
+   collaborator rather than the owner, the owner has to grant Railway's GitHub
+   app access to the repo before it appears in the list.
 
    It starts building immediately and will fail or crash-loop until step 3.
    That is expected and it is not a mistake you have made.
@@ -248,6 +250,32 @@ you can look at the emptied database before it goes anywhere near the club.
 | `UBWC_ADMIN_USER` | your username | Makes that account committee at every boot. Insurance against being locked out of an app with no shell. |
 | `UBWC_SEED` | `1`, **first deploy only** | Permission to build a database from the spreadsheet. Absent, a missing database is a crash instead of a silent, healthy-looking wipe. |
 | `UBWC_ADMIN_PASSWORD` | **first deploy only** | Only used to *create* an account that does not exist. Never changes an existing account's password. Delete it once you can sign in. |
+| `RAILPACK_DEPLOY_START_CMD` | `python server.py` | Forces the start command past Railpack's guesswork (below). Set once; leave it. |
+
+## The service settings, and why they are not in a file
+
+The variables above are in **Variables**. The rest of what Railway needs to run
+the app is set on the service, in **Settings** → **Deploy**:
+
+| Setting | Value | Why |
+|---|---|---|
+| Builder | Railpack | Railway's default now; Nixpacks is gone. |
+| Start command | `python server.py` | Railpack sees the FastAPI import and otherwise runs `uvicorn main:app`, a module that does not exist, and crash-loops. |
+| Health check path | `/api/health` | The deploy is not made live until this returns 200, and rolls back if it never does. |
+| Health check timeout | 60s | |
+| Restart policy | On failure, 10 retries | Then Railway gives up and leaves the last good deploy running. |
+
+These lived in a `railway.json` when the repo was first prepared. Railway then
+deprecated file-based config (`railway.json` / `railway.toml`, gone from
+2026-12-01), and Railpack was already ignoring the one line that mattered, the
+start command, so the file was deleted and its settings applied to the service
+directly. **There is nothing to migrate:** `railway config migrate` only builds
+a new file that Railway is also retiring, and the SDK it needs is a Node
+dependency this repo does not otherwise have.
+
+The start command has two backstops so a cleared setting cannot break startup: a
+one-line `Procfile` in the repo root (`web: python server.py`) and the
+`RAILPACK_DEPLOY_START_CMD` variable above.
 
 ## What was changed for this
 

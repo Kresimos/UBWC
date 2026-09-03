@@ -217,6 +217,15 @@ def bootstrap(request: Request):
         "user": who["user"],
         "committee": who["committee"],
         "sites": db.get_sites(),
+        # The trips a member can pick as their location: packing or out. A trip
+        # is a place kit can be, so it sits in the same toggle as the sites.
+        "trips": [{"id": t["id"], "name": t["name"],
+                   "destination": t["destination"], "lat": t["lat"],
+                   "lon": t["lon"], "status": t["status"],
+                   "starts_on": t["starts_on"], "ends_on": t["ends_on"],
+                   "n_items": t["n_items"]}
+                  for t in db.get_trips()
+                  if t["status"] in db.TRIP_AWAY_STAGES],
         "spots": db.get_spots(),
         "types": [{"key": key, "label": db.COMPONENT_LABELS[key],
                    "count": counts.get(key, 0)} for key in db.CATALOGUE_TYPES],
@@ -616,9 +625,18 @@ def clear(fault_id: int, request: Request):
 # API: the rig assistant
 # --------------------------------------------------------------------------- #
 @app.get("/api/rig/kit")
-def rig_kit(request: Request, site: Optional[str] = Query(None)):
+def rig_kit(request: Request, site: Optional[str] = Query(None),
+            trip: Optional[int] = Query(None)):
     who = identity(request)
     user_id = who["user"]["id"] if who["user"] else None
+    if trip:
+        # The assistant pointed at one trip: its kit, from wherever it is stored,
+        # away flag and all. An unknown trip yields an empty list rather than the
+        # whole inventory.
+        found = db.get_trip(trip)
+        ids = ({row["item_id"] for row in found["items"] if not row["declined"]}
+               if found else set())
+        return {"kit": rigkit.kit(user_id=user_id, only_ids=ids)}
     return {"kit": rigkit.kit(site if site and site != "all" else None, user_id)}
 
 
@@ -656,6 +674,7 @@ def _expand_setup(setup: Optional[dict]) -> Optional[dict]:
     ratings = db.ratings_by_item()
     faults = db.open_faults_by_item()
     notes = db.comments_by_item()
+    trip = db.get_trip(setup["trip_id"]) if setup.get("trip_id") else None
     pieces = []
     for piece in setup["pieces"]:
         item = db.get_item(piece["item_id"]) if piece["item_id"] else None
@@ -672,14 +691,21 @@ def _expand_setup(setup: Optional[dict]) -> Optional[dict]:
                                  if item else None),
             "notes": notes.get(item["id"], []) if item else [],
         })
-    return {**{k: v for k, v in setup.items() if k != "pieces"}, "pieces": pieces}
+    return {**{k: v for k, v in setup.items() if k != "pieces"},
+            "pieces": pieces,
+            "trip": ({"id": trip["id"], "name": trip["name"],
+                      "destination": trip["destination"], "lat": trip["lat"],
+                      "lon": trip["lon"]} if trip else None)}
 
 
 @app.post("/api/setup")
 def write_setup(request: Request, payload: dict = Body(...)):
     """Confirm a rig. Replaces any setup still marked active for this member."""
     user = require_user(request)
-    setup = db.save_setup(user["id"], payload.get("site"), payload.get("pieces") or [])
+    trip_id = payload.get("trip_id")
+    setup = db.save_setup(user["id"], payload.get("site"),
+                          payload.get("pieces") or [],
+                          int(trip_id) if trip_id else None)
     return {"setup": _expand_setup(setup)}
 
 
@@ -701,16 +727,16 @@ def bin_setup(setup_id: int, request: Request):
 # API: trips
 #
 # Reading is open, the way the catalogue is: what the trailer is taking is the
-# whole club's business, and a trip can be opened for members to vote on before
-# it is packed. Writing the list is still committee — packing the trailer is
-# the kit sec's job and the list is the club's record of what left the
-# building — with the one exception of a vote, which is any member's to cast.
+# whole club's business, and a trip opens for members to ask for kit before it
+# is packed. Writing is committee — packing the trailer is the kit sec's job
+# and the list is the club's record of what left the building — with the one
+# exception of a request, which is any member's to make.
 #
 # Nothing here writes items.location. A trip is a named list, not a place, so
-# kit keeps saying where it is stored for the whole trip and unpacking is
-# putting it back where the app already says it lives. What being on a trip
-# does change is availability: db.away_item_ids is subtracted from the rig
-# picker, and shown as a flag in the catalogue.
+# kit keeps saying where it is stored for the whole trip and ending a trip is
+# simply letting go of it. What being on a trip does change is availability:
+# db.away_item_ids is subtracted from the rig picker, and shown as a flag in
+# the catalogue.
 # --------------------------------------------------------------------------- #
 @app.get("/api/trips/kit")
 def trip_kit(request: Request):
@@ -721,8 +747,8 @@ def trip_kit(request: Request):
     already down for another weekend is the point — `piece.away` carries which
     trip, and the server refuses to double-book it.
     """
-    # Any signed-in member: this is the ballot's kit list as well as the kit
-    # sec's picker, and it says nothing the catalogue does not already show.
+    # Any signed-in member: this is the request picker as well as the kit sec's,
+    # and it says nothing the catalogue does not already show.
     require_user(request)
     kit = rigkit.kit(None, None, exclude_away=False)
     # Two shapes of the same kit: the rig pieces the pack maths reasons about,
@@ -754,10 +780,16 @@ def create_trip(request: Request, payload: dict = Body(...)):
                               payload.get("items") or [],
                               payload.get("destination"),
                               payload.get("starts_on"), payload.get("ends_on"),
-                              bool(payload.get("voting")))
+                              # Default on: letting the club ask first is the
+                              # normal way a trip starts, and a kit sec who
+                              # already knows what is going turns it off.
+                              bool(payload.get("requesting", True)),
+                              payload.get("notes"),
+                              payload.get("image_path"),
+                              payload.get("lat"), payload.get("lon"))
     except db.TripError as error:
         raise HTTPException(422, str(error))
-    return {"trip": _expand_trip(trip)}
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
 @app.get("/api/trips/{trip_id}")
@@ -768,9 +800,40 @@ def read_trip(trip_id: int, request: Request):
     return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
+@app.get("/api/trips/{trip_id}/forecast")
+def trip_forecast(trip_id: int, request: Request):
+    """The trip's sailing days at its pin, hour by hour, one entry per day.
+
+    Null (or a short list) whenever the whole span cannot be had — no pin on
+    the trip and none on the site, dates beyond the forecast, no network at the
+    lake — and the strip is drawn shorter or not at all. A trip is still a trip
+    without a forecast.
+    """
+    trip = db.get_trip(trip_id)
+    if not trip:
+        raise HTTPException(404, "No such trip.")
+    start = trip.get("starts_on")
+    end = trip.get("ends_on")
+    site = trip.get("destination")
+    coords = ((trip.get("lat"), trip.get("lon"))
+              if trip.get("lat") is not None and trip.get("lon") is not None
+              else None)
+    days = (wind.forecast(site, start, end, coords=coords)
+            if start and (site or coords) else None)
+    return {"forecast": days, "site": site, "start": start, "end": end}
+
+
+@app.get("/api/geocode")
+def geocode(q: str = Query("")):
+    """Typed place -> pins, for the new-trip form's "Pin the spot" box. Public,
+    like every other read; empty on anything going wrong."""
+    return {"results": wind.geocode(q)}
+
+
 @app.post("/api/trips/{trip_id}/items")
 def write_trip_items(trip_id: int, request: Request, payload: dict = Body(...)):
-    """Replace a trip's kit. What the packing screen saves, first time and after."""
+    """Replace a trip's kit. What the packing wizard saves once it has derived
+    the rig kit the chosen boards and sails imply."""
     require_committee(request)
     if not db.get_trip(trip_id):
         raise HTTPException(404, "No such trip.")
@@ -778,7 +841,70 @@ def write_trip_items(trip_id: int, request: Request, payload: dict = Body(...)):
         trip = db.set_trip_items(trip_id, payload.get("items") or [])
     except db.TripError as error:
         raise HTTPException(422, str(error))
-    return {"trip": _expand_trip(trip)}
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/items/add")
+def add_trip_items(trip_id: int, request: Request, payload: dict = Body(...)):
+    """Add kit to a trip without touching the rest of the list.
+
+    The picker sheet adds a piece at a time, so it posts here rather than
+    replacing the whole list from a browser that may be holding a stale copy.
+    """
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    try:
+        trip = db.add_trip_items(trip_id, payload.get("items") or [])
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/items/remove")
+def remove_trip_item(trip_id: int, request: Request, payload: dict = Body(...)):
+    """Take one piece back off. The long-press on a tile."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    item_id = payload.get("item_id")
+    if item_id is None:
+        raise HTTPException(400, "Say which piece is coming off.")
+    trip = db.remove_trip_item(trip_id, int(item_id))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/finalise")
+def finalise_trip_kit(trip_id: int, request: Request, payload: dict = Body(...)):
+    """The Confirm screen's Continue: fix the trip's chosen kit and let go of
+    the requests for anything the kit sec did not take through.
+
+    Requests for kit that stayed on the list are kept — the disc stacks on the
+    packing and active trip read them — so a piece the kit sec left off just
+    stops being a pending row rather than being recorded as a "no".
+    """
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    try:
+        trip = db.finalise_trip_kit(trip_id, payload.get("items") or [])
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/request/drop")
+def drop_trip_request(trip_id: int, request: Request, payload: dict = Body(...)):
+    """The kit sec clearing one piece off the wishlist before Confirm: every
+    member's request for it, at once. Not kept — the list is read once."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    item_id = payload.get("item_id")
+    if item_id is None:
+        raise HTTPException(400, "Say which piece is coming off the list.")
+    trip = db.drop_trip_request(trip_id, int(item_id))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
 @app.post("/api/trips/{trip_id}/edit")
@@ -790,25 +916,43 @@ def edit_trip(trip_id: int, request: Request, payload: dict = Body(...)):
         trip = db.update_trip(trip_id, payload or {})
     except db.TripError as error:
         raise HTTPException(422, str(error))
-    return {"trip": _expand_trip(trip)}
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
-@app.post("/api/trips/{trip_id}/returned")
-def trip_returned(trip_id: int, request: Request, payload: dict = Body(...)):
-    """One piece ticked back in. Moves nothing: it never left its rack."""
+@app.post("/api/trips/{trip_id}/stage")
+def set_trip_stage(trip_id: int, request: Request, payload: dict = Body(...)):
+    """Move a trip on a stage, or back one. The kit sec holds the clipboard."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    try:
+        trip = db.set_trip_stage(trip_id, payload.get("status") or "")
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/packed")
+def trip_packed(trip_id: int, request: Request, payload: dict = Body(...)):
+    """One piece ticked onto the trailer. Moves nothing: it never leaves its rack."""
     require_committee(request)
     if not db.get_trip(trip_id):
         raise HTTPException(404, "No such trip.")
     item_id = payload.get("item_id")
     if item_id is None:
-        raise HTTPException(400, "Say which piece came back.")
-    trip = db.set_trip_returned(trip_id, int(item_id), bool(payload.get("on", True)))
-    return {"trip": _expand_trip(trip)}
+        raise HTTPException(400, "Say which piece went on.")
+    trip = db.set_trip_packed(trip_id, int(item_id), bool(payload.get("on", True)))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
 @app.post("/api/trips/{trip_id}/close")
 def close_trip(trip_id: int, request: Request, payload: dict = Body({})):
-    """End a trip. `all` is the usual way: everything came back, tick the lot."""
+    """End a trip. `all` is the usual way: everything comes home at once.
+
+    There is no per-piece return tick, and deliberately so: coming home is one
+    act. The kit sec presses End trip, confirms, and every piece on the list
+    goes back to being available at the rack it never left.
+    """
     require_committee(request)
     if not db.get_trip(trip_id):
         raise HTTPException(404, "No such trip.")
@@ -817,31 +961,31 @@ def close_trip(trip_id: int, request: Request, payload: dict = Body({})):
         if payload.get("all"):
             trip = db.return_all(trip_id)
         else:
-            trip = db.close_trip(trip_id, payload.get("status") or "returned")
+            trip = db.close_trip(trip_id, payload.get("status") or "done")
     except db.TripError as error:
         raise HTTPException(422, str(error))
-    return {"trip": _expand_trip(trip)}
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
 
 
-@app.post("/api/trips/{trip_id}/vote")
-def trip_vote(trip_id: int, request: Request, payload: dict = Body(...)):
-    """One member's vote for one piece of kit, cast or withdrawn.
+@app.post("/api/trips/{trip_id}/request")
+def trip_request(trip_id: int, request: Request, payload: dict = Body(...)):
+    """One member asking for one piece of kit, or taking the ask back.
 
     The only trip write an ordinary member can make, and only while the trip is
-    still being voted on: once the kit sec has packed it the tally is a record,
-    not a poll.
+    still asking: once the kit sec has been through the deck the list is a
+    record, not an open question.
     """
     user = require_user(request)
     trip = db.get_trip(trip_id)
     if not trip:
         raise HTTPException(404, "No such trip.")
-    if trip["status"] != "voting":
-        raise HTTPException(409, "Voting on this trip has closed.")
+    if trip["status"] != "requesting":
+        raise HTTPException(409, "This trip has stopped taking requests.")
     item_id = payload.get("item_id")
     if item_id is None:
-        raise HTTPException(400, "Say which piece you are voting for.")
-    return db.set_trip_vote(trip_id, int(item_id), user["id"],
-                            bool(payload.get("on", True)))
+        raise HTTPException(400, "Say which piece you are asking for.")
+    return db.set_trip_request(trip_id, int(item_id), user["id"],
+                               bool(payload.get("on", True)))
 
 
 def _expand_trip(trip: Optional[dict],
@@ -855,36 +999,54 @@ def _expand_trip(trip: Optional[dict],
         return None
     ratings = db.ratings_by_item()
     faults = db.open_faults_by_item()
-    # The ballot, drawn server-side: which pieces have been voted for and by how
-    # many. Carried on every trip, not just a voting one, because the tally is
-    # kept after the kit sec packs — what the club asked for, beside what went.
-    # It is also the whole of what somebody who is not signed in can see, since
-    # the picker's kit list (/api/trips/kit) needs an account.
-    counts = db.trip_vote_counts(trip["id"])
-    voted = []
-    for item_id, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+    # Who asked for what, drawn server-side. Carried on every trip, not just one
+    # still asking, because the tags stay on the kit for the whole trip: on the
+    # water "who wanted the 124?" is a real question and this is its answer.
+    counts = db.trip_request_counts(trip["id"])
+    who = db.trip_requesters(trip["id"])
+    decided = {row["item_id"] for row in trip["items"]}
+
+    def card(item_id):
         item = db.get_item(item_id)
-        if item:
-            voted.append({"votes": n,
-                          "item": item_card(item, ratings.get(item_id),
-                                            faults.get(item_id))})
-    trip = {**trip, "votes": counts, "voted": voted,
-            "my_votes": db.trip_votes_by_user(trip["id"],
-                                              user["id"] if user else None)}
-    rows = []
-    for entry in trip["items"]:
-        item = db.get_item(entry["item_id"])
-        if not item:
+        return item_card(item, ratings.get(item_id),
+                         faults.get(item_id)) if item else None
+
+    # The requests still waiting on an answer, newest first. That is the order
+    # the requesting screen reads in and the order the deck deals in, because
+    # they are the same list: what the club has just asked for.
+    pending = []
+    for item_id in db.trip_request_order(trip["id"]):
+        n = counts.get(item_id, 0)
+        if item_id in decided:
             continue
-        rows.append({
+        shaped = card(item_id)
+        if shaped:
+            pending.append({"requests": n, "who": who.get(item_id, []),
+                            "item": shaped})
+
+    rows, declined = [], []
+    for entry in trip["items"]:
+        shaped = card(entry["item_id"])
+        if not shaped:
+            continue
+        row = {
             "role": entry["role"],
             "role_label": db.ROLE_LABELS.get(entry["role"], entry["role"]),
             "source": entry["source"],
+            "packed": bool(entry["packed"]),
             "returned": bool(entry["returned"]),
             "note": entry["note"],
-            "item": item_card(item, ratings.get(item["id"]), faults.get(item["id"])),
-        })
-    return {**{k: v for k, v in trip.items() if k != "items"}, "items": rows}
+            "requests": counts.get(entry["item_id"], 0),
+            "who": who.get(entry["item_id"], []),
+            "item": shaped,
+        }
+        (declined if entry["declined"] else rows).append(row)
+
+    return {**{k: v for k, v in trip.items() if k != "items"},
+            "items": rows, "declined": declined, "pending": pending,
+            "requests": counts, "who": who,
+            "my_requests": db.trip_requests_by_user(
+                trip["id"], user["id"] if user else None)}
 
 
 # --------------------------------------------------------------------------- #
@@ -904,10 +1066,18 @@ def create_session(request: Request, payload: dict = Body(...)):
 
 
 @app.get("/api/wind")
-def read_wind(site: str = Query(...), start: str = Query(...),
-              end: Optional[str] = Query(None)):
-    """Wind over the rig-to-de-rig window. Null when it cannot be fetched."""
-    return {"wind": wind.for_window(site, start, end)}
+def read_wind(start: str = Query(...), site: Optional[str] = Query(None),
+              end: Optional[str] = Query(None),
+              lat: Optional[float] = Query(None),
+              lon: Optional[float] = Query(None)):
+    """Wind over the rig-to-de-rig window. Null when it cannot be fetched.
+
+    `lat`/`lon` is a trip's own pin: passed when the session was sailed on a
+    trip, whose destination usually has no `sites` row to look coordinates up
+    on. An explicit pin wins over the site (see `wind._coords`).
+    """
+    coords = (lat, lon) if lat is not None and lon is not None else None
+    return {"wind": wind.for_window(site or "", start, end, coords=coords)}
 
 
 # --------------------------------------------------------------------------- #

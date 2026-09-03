@@ -147,7 +147,9 @@ CREATE INDEX idx_faults_item ON faults(item_id);
 CREATE TABLE sites (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     name      TEXT UNIQUE NOT NULL,
-    sort      INTEGER NOT NULL DEFAULT 0
+    sort      INTEGER NOT NULL DEFAULT 0,
+    lat       REAL,     -- the forecast pin: what wind.py reads to fetch a
+    lon       REAL      -- forecast for a trip here. NULL means no strip.
 );
 
 CREATE TABLE spots (
@@ -273,6 +275,9 @@ CREATE TABLE setups (
     status        TEXT NOT NULL DEFAULT 'active'
                   CHECK (status IN ('active','derigged','logged','binned')),
     site          TEXT,
+    -- Set when the rig was built with a club trip as the chosen location, so
+    -- the logbook can pull wind for the trip's pin even after a de-rig.
+    trip_id       INTEGER REFERENCES trips(id) ON DELETE SET NULL,
     rigged_at     TEXT NOT NULL DEFAULT (datetime('now')),
     derigged_at   TEXT,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -315,26 +320,57 @@ CREATE TABLE setup_items (
 -- The same list is the return checklist: `returned` is ticked per item as kit
 -- comes back, and a trip closes when nothing is outstanding.
 --
--- `status` = 'voting' is a trip that exists before any of that: named, dated,
--- and open for the club to vote on what it should take (see `trip_votes`). It
--- has no kit yet, and because "away" is membership of an OPEN trip, nothing on
--- a voting trip is away. Saving its kit flips it to 'open' and closes voting.
+-- A trip walks five stages, and the stage is the whole of what the Trips tab
+-- needs to know about it:
+--
+--   requesting  named and dated, no kit yet, open for any member to ask for a
+--               piece (see `trip_votes`). Nothing is away: a request reserves
+--               nothing, so kit somebody has asked for is still rig-able.
+--   packing     the kit sec has been through the requests and the app has
+--               derived the rig kit those imply. The list is a checklist and
+--               `trip_items.packed` is ticked per piece as it goes on.
+--   active      packed and gone. The list is the manifest.
+--   done        the record of what went. Kept, not deleted.
+--
+-- There is deliberately no unpacking stage. Coming home is one act, not a
+-- second checklist: the kit sec ends the trip and everything on the list goes
+-- back to being available at the rack it never left. `trip_items.returned` is
+-- set for the whole list at that moment (`db.return_all`) and is the record
+-- that it came home, not a per-piece tick anybody has to make.
+--
+-- Kit is AWAY while a trip is packing or active — that is what
+-- `db.away_item_ids` reads and what hides a piece from the rig picker. It is
+-- not away while the trip is only being asked about, and not away once it is
+-- done. 'cancelled' is a trip called off before it packed.
 -- ---------------------------------------------------------------------------
 CREATE TABLE trips (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL,
     destination TEXT,
+    lat         REAL,      -- the forecast pin: usually the destination geocoded,
+    lon         REAL,      -- falls back to the site's own lat/lon. NULL = no strip.
     starts_on   TEXT,
     ends_on     TEXT,
-    status      TEXT NOT NULL DEFAULT 'open'
-                CHECK (status IN ('voting','open','returned','cancelled')),
+    notes       TEXT,      -- what members should know: meet time, what to bring
+    image_path  TEXT,      -- a shot of the spot, so the trip is recognisable
+    status      TEXT NOT NULL DEFAULT 'requesting'
+                CHECK (status IN ('requesting','packing','active','done',
+                                  'cancelled')),
     created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    packed_at   TEXT,
     returned_at TEXT
 );
 
 CREATE INDEX idx_trips_status ON trips(status, id);
 
+-- `declined` is the other half of the same row: a piece somebody asked for that
+-- the kit sec swiped left on. It is stored here rather than in a table of its
+-- own so the UNIQUE below still holds — a piece cannot be both declined and
+-- packed — and it is subtracted from everything a trip's kit means (the
+-- checklist, the manifest, what is away). It surfaces in exactly one place, at
+-- the foot of an ACTIVE trip, because that is the screen somebody is on when
+-- they are stood at the trailer wondering where the 111 is.
 CREATE TABLE trip_items (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id  INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
@@ -342,7 +378,9 @@ CREATE TABLE trip_items (
     role     TEXT,      -- sail|board|wing|foil|mast|ext|boom|fin|uj
     source   TEXT NOT NULL DEFAULT 'derived'
              CHECK (source IN ('chosen','derived')),
+    packed   INTEGER NOT NULL DEFAULT 0,
     returned INTEGER NOT NULL DEFAULT 0,
+    declined INTEGER NOT NULL DEFAULT 0,
     note     TEXT,
     UNIQUE (trip_id, item_id)
 );
@@ -350,24 +388,28 @@ CREATE TABLE trip_items (
 CREATE INDEX idx_trip_items_trip ON trip_items(trip_id);
 
 -- ---------------------------------------------------------------------------
--- trip_votes: the club's say in what a trip takes.
+-- trip_votes: who asked for what. The club's say in what a trip takes.
 --
--- A trip can be opened for voting before anything is packed (`trips.status` =
--- 'voting'): every board, sail, wing and foil the club owns is on the ballot at
--- nought votes, and voting for one IS suggesting it, so there is no separate
--- suggestion to moderate and no zero-vote suggestion to tidy up. One row per
--- member per piece, enforced by the UNIQUE, and un-voting deletes the row —
--- there is no voided-vote history here as there is on `ratings`, because a
--- ballot is settled in a fortnight by a person reading the tally, not a
--- standing public score on club property.
+-- While a trip is `requesting`, any member can ask for a specific piece — their
+-- favourite board, the boom they get on with, a wetsuit in their size. One row
+-- per member per piece, enforced by the UNIQUE, and withdrawing deletes the row:
+-- there is no voided history here as there is on `ratings`, because this is a
+-- list settled in a fortnight by a person reading it, not a standing public
+-- score on club property.
 --
--- A vote RESERVES NOTHING. Away is membership of an *open* trip (see `trips`),
--- and a trip being voted on is not open, so kit somebody has voted for is still
--- offered by the rig picker right up until the kit sec actually packs it.
+-- These rows are what the voter tags on a tile are drawn from, which is why the
+-- names matter and not just the count: the whole point of the little stack of
+-- discs is that it opens into who, so that on the water "who asked for the 124?"
+-- has an answer the app can give and then stay out of.
 --
--- Voting closes when the kit sec saves the trip's kit, which flips the trip to
--- 'open'. The rows stay: the packed trip page shows what the club asked for
--- next to what actually went, which is the record worth keeping.
+-- A request RESERVES NOTHING. Away is membership of a trip in one of the three
+-- middle stages (see `trips`), and a trip being asked about is in none of them,
+-- so kit somebody has requested is still offered by the rig picker right up
+-- until the kit sec actually packs it.
+--
+-- Requesting closes when the kit sec goes through the deck and decides. The rows
+-- stay: an active trip shows what was asked for beside what went, and what was
+-- turned down, which is the record worth keeping.
 -- ---------------------------------------------------------------------------
 CREATE TABLE trip_votes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

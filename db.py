@@ -112,6 +112,16 @@ CATALOGUE_TYPES = ["board", "sail", "mast", "ext", "boom", "fin", "foil",
 # inline while moving kit, which is why it is a table rather than a constant.
 DEFAULT_SITES = ["Cheddar", "Richmond Building", "SU Store"]
 
+# The forecast pin for the sites the club already knows. wind.py reads these
+# (via `site_coords`) so a trip to a named site, and the logbook's auto-wind,
+# both get a forecast without anybody geocoding anything. A site the club adds
+# later has no coordinates until somebody sets them, and simply gets no strip.
+DEFAULT_SITE_COORDS = {
+    "Cheddar": (51.2807, -2.7900),           # Cheddar Reservoir
+    "Richmond Building": (51.4585, -2.6047),  # Bristol SU, Clifton
+    "SU Store": (51.4585, -2.6047),
+}
+
 # Where each kind of kit lives at each site, and the sentence shown when a
 # member taps the spot. Used to seed `spots` and to backfill `items.spot` for a
 # database built before the two-level location existed.
@@ -227,8 +237,14 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
             CREATE TABLE sites (
                 id   INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
-                sort INTEGER NOT NULL DEFAULT 0
+                sort INTEGER NOT NULL DEFAULT 0,
+                lat  REAL,
+                lon  REAL
             )""")
+    elif "lat" not in _columns(conn, "sites"):
+        # The forecast pin. A site with no coordinates simply gets no strip.
+        conn.execute("ALTER TABLE sites ADD COLUMN lat REAL")
+        conn.execute("ALTER TABLE sites ADD COLUMN lon REAL")
     if "spots" not in tables:
         conn.execute("""
             CREATE TABLE spots (
@@ -252,11 +268,17 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                 status      TEXT NOT NULL DEFAULT 'active'
                             CHECK (status IN ('active','derigged','logged','binned')),
                 site        TEXT,
+                trip_id     INTEGER REFERENCES trips(id) ON DELETE SET NULL,
                 rigged_at   TEXT NOT NULL DEFAULT (datetime('now')),
                 derigged_at TEXT,
                 created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_setups_user ON setups(user_id, status)")
+    elif "trip_id" not in _columns(conn, "setups"):
+        # A rig built while a trip was the chosen location remembers the trip, so
+        # the logbook can pull wind for the trip's pin even after a de-rig.
+        conn.execute("ALTER TABLE setups ADD COLUMN trip_id INTEGER "
+                     "REFERENCES trips(id) ON DELETE SET NULL")
     if "setup_items" not in tables:
         conn.execute("""
             CREATE TABLE setup_items (
@@ -270,19 +292,7 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                 UNIQUE (setup_id, role)
             )""")
     if "trips" not in tables:
-        conn.execute("""
-            CREATE TABLE trips (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
-                destination TEXT,
-                starts_on   TEXT,
-                ends_on     TEXT,
-                status      TEXT NOT NULL DEFAULT 'open'
-                            CHECK (status IN ('open','returned','cancelled')),
-                created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-                returned_at TEXT
-            )""")
+        conn.execute(_TRIPS_DDL.format(name="trips"))
         conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status, id)")
     if "trip_items" not in tables:
         conn.execute("""
@@ -293,14 +303,35 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                 role     TEXT,
                 source   TEXT NOT NULL DEFAULT 'derived'
                          CHECK (source IN ('chosen','derived')),
+                packed   INTEGER NOT NULL DEFAULT 0,
                 returned INTEGER NOT NULL DEFAULT 0,
+                declined INTEGER NOT NULL DEFAULT 0,
                 note     TEXT,
                 UNIQUE (trip_id, item_id)
             )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_items_trip "
                      "ON trip_items(trip_id)")
+    else:
+        # The packing tick and the decline are both later than the first
+        # trip_items, and both are plain additive columns.
+        ti_cols = _columns(conn, "trip_items")
+        if "packed" not in ti_cols:
+            conn.execute("ALTER TABLE trip_items ADD COLUMN packed "
+                         "INTEGER NOT NULL DEFAULT 0")
+        if "declined" not in ti_cols:
+            conn.execute("ALTER TABLE trip_items ADD COLUMN declined "
+                         "INTEGER NOT NULL DEFAULT 0")
     if "trips" in tables:
-        _widen_trip_status(conn)
+        trip_cols = _columns(conn, "trips")
+        for column in ("notes", "image_path", "packed_at"):
+            if column not in trip_cols:
+                conn.execute(f"ALTER TABLE trips ADD COLUMN {column} TEXT")
+        if "lat" not in trip_cols:
+            # The forecast pin, usually the destination geocoded when the trip
+            # was set up. Without it the trip page draws no wind strip.
+            conn.execute("ALTER TABLE trips ADD COLUMN lat REAL")
+            conn.execute("ALTER TABLE trips ADD COLUMN lon REAL")
+        _migrate_trip_stages(conn)
     if "trip_votes" not in tables:
         conn.execute("""
             CREATE TABLE trip_votes (
@@ -450,28 +481,52 @@ _TRIPS_DDL = """
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         name        TEXT NOT NULL,
         destination TEXT,
+        lat         REAL,
+        lon         REAL,
         starts_on   TEXT,
         ends_on     TEXT,
-        status      TEXT NOT NULL DEFAULT 'open'
-                    CHECK (status IN ('voting','open','returned','cancelled')),
+        notes       TEXT,
+        image_path  TEXT,
+        status      TEXT NOT NULL DEFAULT 'requesting'
+                    CHECK (status IN ('requesting','packing','active','done',
+                                      'cancelled')),
         created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        packed_at   TEXT,
         returned_at TEXT
     )
 """
 
 
-def _widen_trip_status(conn: sqlite3.Connection) -> None:
-    """Let `trips.status` hold 'voting' on a database that predates it.
+# What every status this table has ever held becomes. 'voting' was always the
+# asking stage under another name and 'open' was always a trip that had been
+# packed and gone; a database written before the stages existed has no way of
+# telling packing from active, and 'active' is the safe read (its kit is away
+# either way, and the kit sec can wind it back). 'unpacking' was a stage of its
+# own for a while and is now the moment a trip ends rather than a place it
+# sits, so a trip caught mid-unpack lands back on 'active' with its End trip
+# button waiting.
+_TRIP_STATUS_WAS = {"voting": "requesting", "open": "active", "returned": "done",
+                    "unpacking": "active"}
 
-    Same reason as _rebuild_items below: widening a CHECK is the one migration
-    SQLite has no ALTER for, so the table is rebuilt. Ids are copied, so
-    trip_items and trip_votes still point at the right trips.
+
+def _migrate_trip_stages(conn: sqlite3.Connection) -> None:
+    """Bring `trips.status` to the current stages, renaming anything older.
+
+    Changing a CHECK is the one migration SQLite has no ALTER for, so the table
+    is rebuilt. Ids are copied, so trip_items and trip_votes still point at the
+    right trips. The rename runs inside the copy, because the new CHECK would
+    reject the old vocabulary on the way in.
+
+    The guard is the stored DDL itself rather than a version number: it has to
+    match what _TRIPS_DDL says today, both in what it allows and in what it no
+    longer does.
     """
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'trips'"
     ).fetchone()
-    if not row or "'voting'" in (row["sql"] or ""):
+    stored = (row["sql"] or "") if row else ""
+    if not row or ("'requesting'" in stored and "'unpacking'" not in stored):
         return
     if conn.in_transaction:
         conn.commit()
@@ -479,8 +534,14 @@ def _widen_trip_status(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("DROP TABLE IF EXISTS trips_new")
         conn.execute(_TRIPS_DDL.format(name="trips_new"))
-        columns = ", ".join(_columns(conn, "trips_new") & _columns(conn, "trips"))
-        conn.execute(f"INSERT INTO trips_new ({columns}) SELECT {columns} FROM trips")
+        shared = _columns(conn, "trips_new") & _columns(conn, "trips")
+        shared.discard("status")
+        columns = ", ".join(sorted(shared))
+        renamed = " ".join(f"WHEN '{old}' THEN '{now}'"
+                           for old, now in _TRIP_STATUS_WAS.items())
+        conn.execute(
+            f"INSERT INTO trips_new ({columns}, status) "
+            f"SELECT {columns}, CASE status {renamed} ELSE status END FROM trips")
         conn.execute("DROP TABLE trips")
         conn.execute("ALTER TABLE trips_new RENAME TO trips")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status, id)")
@@ -610,6 +671,12 @@ def _seed_locations(conn: sqlite3.Connection) -> None:
              conn.execute("SELECT DISTINCT location FROM items WHERE location IS NOT NULL")}
     for i, name in enumerate(DEFAULT_SITES + sorted(known - set(DEFAULT_SITES))):
         conn.execute("INSERT OR IGNORE INTO sites (name, sort) VALUES (?, ?)", (name, i))
+
+    # Give the known sites their forecast pin, but never overwrite a coordinate
+    # somebody has already set by hand.
+    for name, (lat, lon) in DEFAULT_SITE_COORDS.items():
+        conn.execute("UPDATE sites SET lat = ?, lon = ? "
+                     "WHERE name = ? AND lat IS NULL", (lat, lon, name))
 
     for site, by_type in DEFAULT_SPOTS.items():
         for spot, description in by_type.values():
@@ -897,12 +964,33 @@ def spec_rows(item: dict) -> list:
 def get_sites() -> list:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT s.name, "
+            "SELECT s.name, s.lat, s.lon, "
             "  (SELECT COUNT(*) FROM items i WHERE i.location = s.name "
             "     AND i.archived = 0) AS n_items "
             "FROM sites s ORDER BY s.sort, s.name"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def site_coords(name: Optional[str]) -> Optional[tuple]:
+    """The forecast pin for a named site, or None. What wind.py resolves a trip
+    destination or a logbook site to before it asks Open-Meteo for a forecast."""
+    if not name:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT lat, lon FROM sites WHERE name = ? "
+            "AND lat IS NOT NULL AND lon IS NOT NULL", (name.strip(),)
+        ).fetchone()
+    return (row["lat"], row["lon"]) if row else None
+
+
+def set_site_coords(name: str, lat: Optional[float], lon: Optional[float]) -> None:
+    """Committee action. Sets (or clears, with None) a site's forecast pin."""
+    with connect() as conn:
+        conn.execute("UPDATE sites SET lat = ?, lon = ? WHERE name = ?",
+                     (lat, lon, (name or "").strip()))
+        conn.commit()
 
 
 def add_site(name: str) -> None:
@@ -951,7 +1039,10 @@ PUBLIC_USER = "id, username, display_name, is_admin"
 PBKDF2_ROUNDS = 260_000
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,23}$")
-MIN_PASSWORD = 8
+# Deliberately only "not empty". This guards a club kit list, not anything
+# worth stealing, and the members setting one up are standing in a car park in
+# the cold; the length rule bought nothing and turned people away at sign-up.
+MIN_PASSWORD = 1
 
 # Sign-ins last a term. A member sets this up once at the start of the year and
 # is not asked again at the water's edge with cold hands.
@@ -982,7 +1073,7 @@ def check_username(username: str) -> str:
 
 def check_password(password: str) -> str:
     if len(password or "") < MIN_PASSWORD:
-        raise AccountError(f"A password needs at least {MIN_PASSWORD} characters.")
+        raise AccountError("Pick a password.")
     return password
 
 
@@ -1633,11 +1724,14 @@ def current_setup(user_id: int, statuses=("active", "derigged")) -> Optional[dic
         return _setup_row(conn, row["id"]) if row else None
 
 
-def save_setup(user_id: int, site: Optional[str], pieces: list) -> dict:
+def save_setup(user_id: int, site: Optional[str], pieces: list,
+               trip_id: Optional[int] = None) -> dict:
     """Start a new active setup, replacing any earlier one for this member.
 
     One active setup at a time: the previous one is binned here, and the UI is
-    what asks first whether it should be logged instead.
+    what asks first whether it should be logged instead. `trip_id` is set when
+    the rig was built with a club trip as the chosen location, so the logbook
+    can pull wind for the trip's pin after a de-rig.
     """
     with connect() as conn:
         conn.execute(
@@ -1645,8 +1739,9 @@ def save_setup(user_id: int, site: Optional[str], pieces: list) -> dict:
             (user_id,),
         )
         cur = conn.execute(
-            "INSERT INTO setups (user_id, status, site) VALUES (?, 'active', ?)",
-            (user_id, site),
+            "INSERT INTO setups (user_id, status, site, trip_id) "
+            "VALUES (?, 'active', ?, ?)",
+            (user_id, site, trip_id),
         )
         setup_id = cur.lastrowid
         for piece in pieces:
@@ -1685,12 +1780,24 @@ def close_setup(setup_id: int, status: str = "logged") -> None:
 # Trips: the kit packed for a trip away, and the list it is checked back against
 #
 # A trip never moves anything. `items.location` is where a piece is stored and
-# stays that for the whole trip, so unpacking is putting kit back where the app
-# already says it lives. "Away" is not a location, it is membership of an open
-# trip, which is what `away_item_ids` answers.
+# stays that for the whole trip, so ending a trip is simply letting go of kit
+# that never left its rack. "Away" is not a location, it is membership of a
+# trip that is being loaded or is out, which is what `away_item_ids` answers.
 # --------------------------------------------------------------------------- #
 TRIP_ROLE_ORDER = ["sail", "mast", "ext", "boom", "board", "fin", "uj",
                    "wing", "foil"]
+
+# The four stages a trip walks, plus the one it can be called off into. The
+# order here is the order the Trips index groups them in, which is why it is a
+# list and not a set: a trip being asked about is the one you are most likely to
+# have opened the tab for, and a finished one the least.
+TRIP_STAGES = ["requesting", "packing", "active", "done", "cancelled"]
+
+# Kit is away for the middle two and only those. Not while a trip is being
+# asked about (a request reserves nothing), and not once it is done.
+TRIP_AWAY_STAGES = ("packing", "active")
+
+_STAGE_SORT = {stage: i for i, stage in enumerate(TRIP_STAGES)}
 
 
 class TripError(ValueError):
@@ -1707,36 +1814,47 @@ def _trip_row(conn: sqlite3.Connection, trip_id: int) -> Optional[dict]:
     trip["items"].sort(key=lambda i: (TRIP_ROLE_ORDER.index(i["role"])
                                       if i["role"] in TRIP_ROLE_ORDER else 99,
                                       i["id"]))
-    trip["n_items"] = len(trip["items"])
-    trip["n_returned"] = sum(1 for i in trip["items"] if i["returned"])
+    # Every count below is of kit the trip is actually taking. A declined row
+    # is a record of an answer, not a piece on the trailer, so it is counted
+    # separately and never in the totals a checklist is measured against.
+    live = [i for i in trip["items"] if not i["declined"]]
+    trip["n_items"] = len(live)
+    trip["n_packed"] = sum(1 for i in live if i["packed"])
+    trip["n_returned"] = sum(1 for i in live if i["returned"])
+    trip["n_declined"] = sum(1 for i in trip["items"] if i["declined"])
     return trip
 
 
 def get_trips(status: Optional[str] = None) -> list:
-    """Every trip: being voted on first, then out now, then done.
+    """Every trip, in stage order: being asked about first, done last.
 
-    Each carries how much of it is back and how many votes it has taken, which
-    is the one number a trip still being decided has to show.
+    Each carries how far through its checklist it is and how many requests it
+    has taken, which is what the index rows read out under the name.
     """
-    # n_votes is a subquery, not a third join: joining trip_votes as well would
-    # fan the item rows out by the number of votes and quietly break the
-    # returned tally that the trip list is mostly here to show.
+    # Both tallies are subqueries rather than joins: joining trip_votes as well
+    # would fan the item rows out by the number of requests and quietly break
+    # the packed/returned counts the list is mostly here to show.
     query = ("SELECT t.*, u.display_name AS created_by_name, "
-             "       COUNT(ti.id) AS n_items, "
-             "       COALESCE(SUM(ti.returned), 0) AS n_returned, "
-             "       (SELECT COUNT(*) FROM trip_votes tv WHERE tv.trip_id = t.id) "
-             "         AS n_votes "
-             "FROM trips t "
-             "LEFT JOIN users u ON u.id = t.created_by "
-             "LEFT JOIN trip_items ti ON ti.trip_id = t.id ")
+             "       (SELECT COUNT(*) FROM trip_items ti "
+             "          WHERE ti.trip_id = t.id AND ti.declined = 0) AS n_items, "
+             "       (SELECT COUNT(*) FROM trip_items ti "
+             "          WHERE ti.trip_id = t.id AND ti.declined = 0 "
+             "            AND ti.packed = 1) AS n_packed, "
+             "       (SELECT COUNT(*) FROM trip_items ti "
+             "          WHERE ti.trip_id = t.id AND ti.declined = 0 "
+             "            AND ti.returned = 1) AS n_returned, "
+             "       (SELECT COUNT(DISTINCT tv.item_id) FROM trip_votes tv "
+             "          WHERE tv.trip_id = t.id) AS n_requests "
+             "FROM trips t LEFT JOIN users u ON u.id = t.created_by ")
     params: list = []
     if status:
         query += "WHERE t.status = ? "
         params.append(status)
-    query += ("GROUP BY t.id ORDER BY (t.status = 'voting') DESC, "
-              "(t.status = 'open') DESC, t.id DESC")
+    query += "ORDER BY t.id DESC"
     with connect() as conn:
-        return [dict(r) for r in conn.execute(query, params)]
+        trips = [dict(r) for r in conn.execute(query, params)]
+    trips.sort(key=lambda t: (_STAGE_SORT.get(t["status"], 99), -t["id"]))
+    return trips
 
 
 def get_trip(trip_id: int) -> Optional[dict]:
@@ -1745,17 +1863,20 @@ def get_trip(trip_id: int) -> Optional[dict]:
 
 
 def _write_items(conn: sqlite3.Connection, trip_id: int, items: list) -> None:
-    """Replace a trip's item set, keeping the ticks already made.
+    """Replace a trip's kit, keeping the ticks already made and the declines.
 
     Editing a packed list mid-trip is normal (something would not fit, somebody
-    threw an extra board in), and a piece that is already back should not
-    un-return itself because the list around it was re-saved.
+    threw an extra board in), and a piece already ticked on or back should not
+    un-tick itself because the list around it was re-saved. Declined rows are
+    not part of the list at all — they are the record of an answer — so they are
+    left where they are unless the piece is now being taken after all.
     """
-    ticked = {r["item_id"] for r in conn.execute(
-        "SELECT item_id FROM trip_items WHERE trip_id = ? AND returned = 1",
-        (trip_id,))}
+    ticked = {r["item_id"]: (r["packed"], r["returned"]) for r in conn.execute(
+        "SELECT item_id, packed, returned FROM trip_items "
+        "WHERE trip_id = ? AND declined = 0", (trip_id,))}
     clashes = _away(conn, exclude_trip_id=trip_id)
-    conn.execute("DELETE FROM trip_items WHERE trip_id = ?", (trip_id,))
+    conn.execute("DELETE FROM trip_items WHERE trip_id = ? AND declined = 0",
+                 (trip_id,))
     seen = set()
     for entry in items:
         item_id = entry.get("item_id")
@@ -1766,12 +1887,18 @@ def _write_items(conn: sqlite3.Connection, trip_id: int, items: list) -> None:
                             f"for {clashes[item_id]}.")
         seen.add(item_id)
         role = entry.get("role")
+        packed, returned = ticked.get(item_id, (0, 0))
+        # Taking a piece that was turned down earlier is the kit sec changing
+        # their mind, and the decline has to go or the UNIQUE below refuses it.
+        conn.execute("DELETE FROM trip_items WHERE trip_id = ? AND item_id = ?",
+                     (trip_id, item_id))
         conn.execute(
-            "INSERT INTO trip_items (trip_id, item_id, role, source, returned, note) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO trip_items (trip_id, item_id, role, source, packed, "
+            "                        returned, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (trip_id, item_id, role if role in TRIP_ROLE_ORDER else None,
              "chosen" if entry.get("source") == "chosen" else "derived",
-             1 if item_id in ticked else 0, entry.get("note")),
+             packed, returned, entry.get("note")),
         )
 
 
@@ -1781,27 +1908,44 @@ def _item_title_by_id(conn: sqlite3.Connection, item_id: int) -> str:
     return item_title(dict(row)) if row else f"Item {item_id}"
 
 
+def _coord(value) -> Optional[float]:
+    """A latitude or longitude as a float, or None for anything unparseable or
+    out of range — the client sends a pin or it sends nothing."""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    return num if -180.0 <= num <= 180.0 else None
+
+
 def create_trip(user_id: int, name: str, items: list,
                 destination: Optional[str] = None,
                 starts_on: Optional[str] = None,
                 ends_on: Optional[str] = None,
-                voting: bool = False) -> Optional[dict]:
-    """Start a trip, either packed outright or open for the club to vote on.
+                requesting: bool = True,
+                notes: Optional[str] = None,
+                image_path: Optional[str] = None,
+                lat: Optional[float] = None,
+                lon: Optional[float] = None) -> Optional[dict]:
+    """Start a trip, either open for requests or straight into packing.
 
-    `voting` is the kit sec ticking "let members vote first" on the name sheet:
-    the trip exists with no kit, members vote, and the kit sec's first
-    `set_trip_items` closes voting by making it open.
+    `requesting` is the kit sec's answer to "let members request kit first" on
+    the new-trip form. Either way the trip can be created with kit already on
+    it — the form has an Add kit button — which is the pieces the kit sec knows
+    are going before anybody asks.
     """
     name = (name or "").strip()
     if not name:
         raise TripError("Give the trip a name.")
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO trips (name, destination, starts_on, ends_on, created_by, "
-            "                   status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, (destination or "").strip() or None, starts_on or None,
-             ends_on or None, user_id, "voting" if voting else "open"),
+            "INSERT INTO trips (name, destination, lat, lon, starts_on, ends_on, "
+            "                   notes, image_path, created_by, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, (destination or "").strip() or None,
+             _coord(lat), _coord(lon), starts_on or None,
+             ends_on or None, (notes or "").strip() or None, image_path or None,
+             user_id, "requesting" if requesting else "packing"),
         )
         trip_id = cur.lastrowid
         _write_items(conn, trip_id, items or [])
@@ -1810,28 +1954,107 @@ def create_trip(user_id: int, name: str, items: list,
 
 
 def set_trip_items(trip_id: int, items: list) -> Optional[dict]:
-    """Save a trip's kit — and, first time round, close its voting.
-
-    Packing IS the decision, so there is no separate "close the vote" button to
-    forget: the moment the kit sec saves a list, the trip becomes an open trip
-    and the ballot stops taking votes. The votes themselves are kept, and shown
-    against the packed list.
-    """
+    """Save a trip's kit. What the picker and the packing wizard both write."""
     with connect() as conn:
         _write_items(conn, trip_id, items or [])
-        conn.execute("UPDATE trips SET status = 'open' "
-                     "WHERE id = ? AND status = 'voting'", (trip_id,))
         conn.commit()
         return _trip_row(conn, trip_id)
 
 
+def add_trip_items(trip_id: int, items: list) -> Optional[dict]:
+    """Add to a trip's kit without disturbing the rest of it.
+
+    The picker sheet adds a piece at a time, and a full replace from a browser
+    holding a stale list is how a trip quietly loses the board somebody else
+    added while the sheet was open.
+    """
+    with connect() as conn:
+        clashes = _away(conn, exclude_trip_id=trip_id)
+        for entry in items or []:
+            item_id = entry.get("item_id")
+            if item_id is None:
+                continue
+            if item_id in clashes:
+                raise TripError(f"{_item_title_by_id(conn, item_id)} is already "
+                                f"packed for {clashes[item_id]}.")
+            role = entry.get("role")
+            conn.execute("DELETE FROM trip_items WHERE trip_id = ? AND item_id = ?",
+                         (trip_id, item_id))
+            conn.execute(
+                "INSERT INTO trip_items (trip_id, item_id, role, source) "
+                "VALUES (?, ?, ?, ?)",
+                (trip_id, item_id, role if role in TRIP_ROLE_ORDER else None,
+                 "chosen" if entry.get("source") == "chosen" else "derived"))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def remove_trip_item(trip_id: int, item_id: int) -> Optional[dict]:
+    """Take one piece back off a trip. The long-press on a tile."""
+    with connect() as conn:
+        conn.execute("DELETE FROM trip_items WHERE trip_id = ? AND item_id = ?",
+                     (trip_id, item_id))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def finalise_trip_kit(trip_id: int, items: list) -> Optional[dict]:
+    """The Confirm screen's Continue: settle the trip's chosen kit and let go
+    of the requests for anything the kit sec did not carry through.
+
+    The kit that stayed on the list keeps its requesters, because the disc
+    stacks on the packed and active trip are read off `trip_votes`. A request
+    for a piece that was dropped goes, so it cannot come back as a pending row.
+    Nothing about the drop is recorded: the wishlist is read once and acted on.
+    """
+    with connect() as conn:
+        _write_items(conn, trip_id, items or [])
+        kept = {e.get("item_id") for e in (items or []) if e.get("item_id") is not None}
+        asked = [r["item_id"] for r in conn.execute(
+            "SELECT DISTINCT item_id FROM trip_votes WHERE trip_id = ?", (trip_id,))]
+        for item_id in asked:
+            if item_id not in kept:
+                conn.execute("DELETE FROM trip_votes WHERE trip_id = ? AND item_id = ?",
+                             (trip_id, item_id))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def drop_trip_request(trip_id: int, item_id: int) -> Optional[dict]:
+    """Clear one piece off a trip's wishlist: every member's request for it, in
+    one go. The kit sec taking something off before the Confirm screen."""
+    with connect() as conn:
+        conn.execute("DELETE FROM trip_votes WHERE trip_id = ? AND item_id = ?",
+                     (trip_id, item_id))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def undecided_requests(trip_id: int) -> list:
+    """The item ids asked for that the kit sec has not answered yet.
+
+    What the approve deck has left to show. A piece the kit sec put on the trip
+    from the form before anybody asked counts as already answered.
+    """
+    with connect() as conn:
+        return [r["item_id"] for r in conn.execute(
+            "SELECT DISTINCT tv.item_id FROM trip_votes tv "
+            "WHERE tv.trip_id = ? AND tv.item_id NOT IN "
+            "  (SELECT item_id FROM trip_items WHERE trip_id = ?) "
+            "ORDER BY tv.item_id", (trip_id, trip_id))]
+
+
 def update_trip(trip_id: int, fields: dict) -> Optional[dict]:
-    """Rename a trip or change its dates. Its kit is `set_trip_items`."""
+    """Rename a trip, change its dates or its blurb. Its kit is set_trip_items."""
     allowed = {k: v for k, v in fields.items()
-               if k in ("name", "destination", "starts_on", "ends_on")}
+               if k in ("name", "destination", "lat", "lon", "starts_on",
+                        "ends_on", "notes", "image_path")}
     if allowed:
         if "name" in allowed and not (allowed["name"] or "").strip():
             raise TripError("Give the trip a name.")
+        for key in ("lat", "lon"):
+            if key in allowed:
+                allowed[key] = _coord(allowed[key])
         sets = ", ".join(f"{k} = ?" for k in allowed)
         with connect() as conn:
             conn.execute(f"UPDATE trips SET {sets} WHERE id = ?",
@@ -1840,55 +2063,110 @@ def update_trip(trip_id: int, fields: dict) -> Optional[dict]:
     return get_trip(trip_id)
 
 
-def set_trip_returned(trip_id: int, item_id: int, on: bool = True) -> Optional[dict]:
-    """Tick one piece back in. Changes no location: it never left its rack."""
+def set_trip_packed(trip_id: int, item_id: int, on: bool = True) -> Optional[dict]:
+    """Tick one piece onto the trailer. Changes no location: it never moves."""
     with connect() as conn:
         conn.execute(
-            "UPDATE trip_items SET returned = ? WHERE trip_id = ? AND item_id = ?",
-            (1 if on else 0, trip_id, item_id),
-        )
+            "UPDATE trip_items SET packed = ? WHERE trip_id = ? AND item_id = ?",
+            (1 if on else 0, trip_id, item_id))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def set_trip_stage(trip_id: int, status: str) -> Optional[dict]:
+    """Move a trip on a stage, or back one, which is the same call.
+
+    Deliberately not a state machine that refuses: the kit sec who tapped
+    Complete packing a minute too early needs to be able to go back, and a
+    forecast of every legitimate order a real trip happens in is a worse guess
+    than the person holding the clipboard.
+    """
+    if status not in TRIP_STAGES:
+        raise TripError("A trip is requesting, packing, active, done "
+                        "or cancelled.")
+    with connect() as conn:
+        conn.execute("UPDATE trips SET status = ? WHERE id = ?", (status, trip_id))
+        # The two stamps are set the first time the trip reaches the stage and
+        # left alone after, so winding back and forward does not rewrite when
+        # the trailer actually went out.
+        if status == "active":
+            conn.execute("UPDATE trips SET packed_at = COALESCE(packed_at, "
+                         "datetime('now')) WHERE id = ?", (trip_id,))
+        if status == "done":
+            conn.execute("UPDATE trips SET returned_at = COALESCE(returned_at, "
+                         "datetime('now')) WHERE id = ?", (trip_id,))
         conn.commit()
         return _trip_row(conn, trip_id)
 
 
 def return_all(trip_id: int) -> Optional[dict]:
-    """The normal end of a trip: everything came back, so tick the lot and close.
+    """End a trip: everything goes back to being available, and it closes.
 
-    One button rather than thirty, because unpacking a trailer where nothing is
-    missing is the usual case and tapping every row to say so is the kind of
-    chore that stops the list being kept at all.
+    The whole of coming home, in one act. There was briefly an unpacking stage
+    with a checklist to work through, and it earned nothing: a trailer where
+    nothing is missing is the usual case, tapping thirty rows to say so is the
+    kind of chore that stops the list being kept at all, and the app never
+    moved any of it in the first place. Nothing here writes `items.location` —
+    every piece goes back to the rack it never left.
     """
     with connect() as conn:
         conn.execute("UPDATE trip_items SET returned = 1 WHERE trip_id = ?", (trip_id,))
-        conn.execute("UPDATE trips SET status = 'returned', "
-                     "returned_at = datetime('now') WHERE id = ?", (trip_id,))
+        conn.execute("UPDATE trips SET status = 'done', "
+                     "returned_at = COALESCE(returned_at, datetime('now')) "
+                     "WHERE id = ?", (trip_id,))
         conn.commit()
         return _trip_row(conn, trip_id)
 
 
-def close_trip(trip_id: int, status: str = "returned") -> Optional[dict]:
-    if status not in ("open", "returned", "cancelled"):
-        raise TripError("A trip is open, returned or cancelled.")
-    with connect() as conn:
-        conn.execute(
-            "UPDATE trips SET status = ?, returned_at = CASE WHEN ? = 'returned' "
-            "THEN datetime('now') ELSE NULL END WHERE id = ?",
-            (status, status, trip_id),
-        )
-        conn.commit()
-        return _trip_row(conn, trip_id)
+def close_trip(trip_id: int, status: str = "done") -> Optional[dict]:
+    """Kept for the two endings: it came back, or it never went."""
+    if status not in ("done", "cancelled"):
+        raise TripError("A trip ends done or cancelled.")
+    return set_trip_stage(trip_id, status)
 
 
-def trip_vote_counts(trip_id: int) -> dict:
-    """{item_id: how many members voted for it} for one trip's ballot."""
+def trip_request_counts(trip_id: int) -> dict:
+    """{item_id: how many members asked for it} for one trip."""
     with connect() as conn:
         return {r["item_id"]: r["n"] for r in conn.execute(
             "SELECT item_id, COUNT(*) AS n FROM trip_votes WHERE trip_id = ? "
             "GROUP BY item_id", (trip_id,))}
 
 
-def trip_votes_by_user(trip_id: int, user_id: Optional[int]) -> list:
-    """The item ids this member has voted for, so the ballot can show them back."""
+def trip_request_order(trip_id: int) -> list:
+    """The item ids asked for, newest request first.
+
+    The requesting screen is a feed of what people have just asked for, so it
+    reads newest first rather than most-asked-for first: a piece five members
+    wanted a fortnight ago is settled in everybody's mind, and the one somebody
+    added this morning is the news. A later request for a piece already on the
+    list lifts it back to the top, which is the right answer too.
+    """
+    with connect() as conn:
+        return [r["item_id"] for r in conn.execute(
+            "SELECT item_id, MAX(id) AS latest FROM trip_votes WHERE trip_id = ? "
+            "GROUP BY item_id ORDER BY latest DESC", (trip_id,))]
+
+
+def trip_requesters(trip_id: int) -> dict:
+    """{item_id: [display name, ...]}, oldest request first.
+
+    Names, not just a count: the voter tags on a tile are a stack of discs that
+    opens into who asked, and settling "whose board is this" on the beach is the
+    whole job they do.
+    """
+    out: dict = {}
+    with connect() as conn:
+        for row in conn.execute(
+                "SELECT tv.item_id, COALESCE(u.display_name, u.username) AS who "
+                "FROM trip_votes tv JOIN users u ON u.id = tv.user_id "
+                "WHERE tv.trip_id = ? ORDER BY tv.id", (trip_id,)):
+            out.setdefault(row["item_id"], []).append(row["who"])
+    return out
+
+
+def trip_requests_by_user(trip_id: int, user_id: Optional[int]) -> list:
+    """The item ids this member has asked for, so the screen can show them back."""
     if not user_id:
         return []
     with connect() as conn:
@@ -1897,14 +2175,14 @@ def trip_votes_by_user(trip_id: int, user_id: Optional[int]) -> list:
             (trip_id, user_id))]
 
 
-def set_trip_vote(trip_id: int, item_id: int, user_id: int,
-                  on: bool = True) -> dict:
-    """Cast or withdraw one member's vote for one piece.
+def set_trip_request(trip_id: int, item_id: int, user_id: int,
+                     on: bool = True) -> dict:
+    """Cast or withdraw one member's request for one piece.
 
-    Voting for something nobody has voted for yet IS suggesting it, so there is
+    Asking for something nobody has asked for yet IS suggesting it, so there is
     no separate suggestion to make first. The UNIQUE on (trip, item, member)
-    does the only anti-stuffing this needs; un-voting deletes the row rather
-    than voiding it, because a ballot is read once and thrown away.
+    does the only anti-stuffing this needs; withdrawing deletes the row rather
+    than voiding it, because this list is read once and acted on.
     """
     with connect() as conn:
         if on:
@@ -1916,12 +2194,14 @@ def set_trip_vote(trip_id: int, item_id: int, user_id: int,
                 "DELETE FROM trip_votes WHERE trip_id = ? AND item_id = ? "
                 "AND user_id = ?", (trip_id, item_id, user_id))
         conn.commit()
-    return {"counts": trip_vote_counts(trip_id),
-            "mine": trip_votes_by_user(trip_id, user_id)}
+    return {"counts": trip_request_counts(trip_id),
+            "who": trip_requesters(trip_id),
+            "mine": trip_requests_by_user(trip_id, user_id)}
 
 
 def away_item_ids(exclude_trip_id: Optional[int] = None) -> dict:
-    """{item_id: trip name} for everything on an open trip.
+    """{item_id: trip name} for everything on a trip that is being loaded, out,
+    or coming back.
 
     The one question the rest of the app asks about trips: the rig picker hides
     these (they are in a trailer, whatever their location says) and the
@@ -1933,9 +2213,11 @@ def away_item_ids(exclude_trip_id: Optional[int] = None) -> dict:
 
 
 def _away(conn: sqlite3.Connection, exclude_trip_id: Optional[int] = None) -> dict:
+    stages = ", ".join("?" for _ in TRIP_AWAY_STAGES)
     query = ("SELECT ti.item_id, t.name FROM trip_items ti "
-             "JOIN trips t ON t.id = ti.trip_id WHERE t.status = 'open'")
-    params: list = []
+             "JOIN trips t ON t.id = ti.trip_id "
+             f"WHERE ti.declined = 0 AND t.status IN ({stages})")
+    params: list = list(TRIP_AWAY_STAGES)
     if exclude_trip_id is not None:
         query += " AND t.id != ?"
         params.append(exclude_trip_id)

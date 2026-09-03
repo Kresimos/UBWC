@@ -112,7 +112,7 @@ def to_piece(item: dict, faults: list, rating: dict, favourite: bool = False) ->
 
 
 def kit(site: Optional[str] = None, user_id: Optional[int] = None,
-        exclude_away: bool = True) -> list:
+        exclude_away: bool = True, only_ids: Optional[set] = None) -> list:
     """Every usable piece of rig kit, optionally narrowed to one site.
 
     The site filter is what keeps the assistant from suggesting kit that lives
@@ -126,6 +126,10 @@ def kit(site: Optional[str] = None, user_id: Optional[int] = None,
     why it has to be subtracted here rather than filtered by site. The trip
     packer itself passes `exclude_away=False`, since it is the one screen that
     has to see what is already spoken for.
+
+    `only_ids` is the rig assistant pointed at one trip: the list is exactly
+    that trip's kit, so the site filter and the away subtraction both fall away
+    (its kit *is* away, with that trip). Out-of-action kit is still dropped.
     """
     faults = db.open_faults_by_item()
     ratings = db.ratings_by_item(user_id)
@@ -135,9 +139,11 @@ def kit(site: Optional[str] = None, user_id: Optional[int] = None,
     for item in db.all_items():
         if not rig_kind(item):
             continue
-        if site and item.get("location") != site:
+        if only_ids is not None and item["id"] not in only_ids:
             continue
-        if exclude_away and item["id"] in away:
+        if only_ids is None and site and item.get("location") != site:
+            continue
+        if only_ids is None and exclude_away and item["id"] in away:
             continue
         item_faults = faults.get(item["id"], [])
         if any(f["severity"] == "out_of_action" for f in item_faults):

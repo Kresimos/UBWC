@@ -55,7 +55,7 @@ export async function render(root, params) {
         sub: item.spot_description
           || (canEdit
             ? 'No description or photo yet. Add one so the next person can find it and put it back.'
-            : 'No description recorded for this spot yet. A committee member can add one.'),
+            : 'No description recorded for this spot yet.'),
         action: canEdit ? { label: 'Edit spot', onClick: editSpot } : null,
       });
     });
@@ -93,11 +93,11 @@ export async function render(root, params) {
       node.closest('.faultitem').classList.toggle('open');
     });
 
-    onClick(root, 'data-fault-photo', (value, _node, event) => {
+    onClick(root, 'data-fault-photo', (value, node, event) => {
       event.stopPropagation();
       lightbox({
         title: 'Fault photo',
-        sub: 'Attached when the fault was reported, to help diagnose it.',
+        sub: node.dataset.caption || null,
         image: value,
       });
     });
@@ -152,7 +152,7 @@ export async function render(root, params) {
       item.favourite = data.favourite;
       paint();
       toast(item.favourite
-        ? 'Saved. The rig assistant will flag it while you choose.'
+        ? 'Favourited.'
         : 'Removed from your kit.');
     });
 
@@ -178,15 +178,14 @@ export async function render(root, params) {
       if (!(await needUser('Fault reports are attributed to you.'))) return;
       const values = await formSheet({
         title: 'Report a fault',
-        sub: 'One box per issue. Usable keeps it in the rig picker with an amber flag; out of action hides it until committee clears it.',
         fields: [
           { name: 'title', label: 'Short name (the flag label)', required: true, placeholder: 'Bottom cam falls off' },
           { name: 'description', label: 'What is wrong, and what it needs', type: 'textarea', rows: 3, required: true },
           {
             name: 'severity', label: 'Severity', type: 'select', value: 'usable',
             options: [
-              { value: 'usable', label: 'Usable (amber flag, still sailable)' },
-              { value: 'out_of_action', label: 'Out of action (red flag, hidden from the rig picker)' },
+              { value: 'usable', label: 'Minor fault: usable' },
+              { value: 'out_of_action', label: 'Major fault: out of action' },
             ],
           },
           { name: 'image_path', label: 'Photo', type: 'photo', aspect: 4 / 3,
@@ -319,16 +318,14 @@ function screen(item, historyOpen) {
               </div>` : ''}
           </div>
           ${item.recommended ? html`
-            <p class="calc">A worked example, not a requirement: any mast and extension totalling
-              the ${num(item.raw.luff_cm)} cm luff rigs this sail equally well.</p>` : ''}
+            <p class="calc">Recommended mast and extension is only a suggestion. Any mast and extension
+              totalling the ${num(item.raw.luff_cm)} cm luff rigs this sail equally well.</p>` : ''}
         </div>
 
         ${item.cams ? html`
           <div class="info">
             ${icon('info')}
-            <p>Cambered sail: the cams have to rotate past the boom head when rigging, so it is a
-              faff for a first-timer${item.diameter ? `, and the cams only fit a ${item.diameter} mast` : ''}.
-              Grab a committee member if you have not rigged cams before.</p>
+            <p>Cambered sail: Grab a committee member if you have not rigged cams before.</p>
           </div>` : ''}
 
         ${item.notes ? html`
@@ -363,7 +360,7 @@ function screen(item, historyOpen) {
           <h3>Members' notes</h3>
           ${item.comments.length
             ? item.comments.map(comment)
-            : html`<p class="calc" style="margin:0">Nothing yet. A rigging tip here saves the next person ten minutes.</p>`}
+            : html`<p class="calc" style="margin:0">Nothing yet.</p>`}
           <button class="dashbtn" data-note>Add a note</button>
         </div>
 
@@ -392,7 +389,7 @@ function faultBox(fault) {
       <div class="fbody">
         <p class="fdesc">${fault.description}</p>
         ${fault.image_path
-          ? html`<button class="photochip" data-fault-photo="${fault.image_path}">
+          ? html`<button class="photochip" data-fault-photo="${fault.image_path}" data-caption="${fault.description}">
               ${icon('image')}Photo · View</button>`
           : ''}
         ${fault.awaiting_signoff
@@ -432,7 +429,7 @@ function historyGroup(fault) {
             <span class="fw">${[event.author, ago(event.created_at)].filter(Boolean).join(' · ')}</span>
             ${event.body ? html`<p>${event.body}</p>` : ''}
             ${event.image_path
-              ? html`<button class="photochip" data-fault-photo="${event.image_path}">
+              ? html`<button class="photochip" data-fault-photo="${event.image_path}" data-caption="${event.body || ''}">
                   ${icon('image')}Photo · View</button>`
               : ''}
           </div>

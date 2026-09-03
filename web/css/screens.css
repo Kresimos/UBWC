@@ -1153,7 +1153,6 @@
 [data-screen="compose"] .field > .fl .hint {
   color: #B4BFBF; letter-spacing: 0; text-transform: none; font-weight: 600;
 }
-[data-screen="compose"] .field > .fl .hint { font-style: italic; }
 
 [data-screen="compose"] .kitcard {
   background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 14px;

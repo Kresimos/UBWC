@@ -45,8 +45,8 @@ export async function render(root, params) {
     .split(',').map((s) => Number(s.trim())).filter(Boolean);
 
   if (!(await needCommittee(editing
-    ? 'Editing a trip is the kit sec\'s job.'
-    : 'Starting a trip is the kit sec\'s job.'))) {
+    ? 'Editing a trip is a committee action.'
+    : 'Starting a trip is a committee action.'))) {
     back('/trips');
     return undefined;
   }

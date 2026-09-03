@@ -203,7 +203,6 @@ function screen(type, editing, fields, required, values, faults) {
 
     <div class="actionbar">
       <button class="bigbtn" data-save>${editing ? 'Save changes' : 'Add to inventory'}${icon('tick')}</button>
-      <span class="helper">Saved as club ground truth. Required fields are marked with a teal dot.</span>
     </div>`;
 }
 

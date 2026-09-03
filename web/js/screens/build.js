@@ -27,12 +27,11 @@ import { store, siteLabel, subscribe } from '../store.js';
 import { worstFault } from '../ui/bits.js';
 import { itemTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite } from '../ui/chrome.js';
-import { toast } from '../ui/overlay.js';
 import { haptic, TICK, PICK } from '../ui/haptics.js';
 import { go, path } from '../router.js';
 import { building } from '../rig/session.js';
 import {
-  TARGETS, TARGET_KEYS, SLOTS, matches, tagsFor, nearestStocked, clampTarget,
+  TARGETS, TARGET_KEYS, matches, tagsFor, nearestStocked, clampTarget,
   sizeBits, modelShort,
 } from '../rig/engine.js';
 
@@ -113,13 +112,6 @@ export async function render(root, params) {
       state.target[key] = clampTarget(key, TARGETS[key].size(pinned) ?? state.target[key]);
       building.setTarget(key, state.target[key]);
       state.step = key;
-    } else if (pinned) {
-      const slot = SLOTS.find((s) => s.kind === pinned.kind);
-      toast(slot
-        ? `Pick a sail and a board, and the app suggests the ${slot.noun} itself.`
-        : 'Build asks for a sail and a board; the rest follows from them.');
-    } else {
-      toast('That piece is not available at this site.', true);
     }
   }
 

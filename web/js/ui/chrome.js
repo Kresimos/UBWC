@@ -148,14 +148,14 @@ export async function openIdentity() {
     { value: 'password', label: 'Change password', sub: 'Signs your other devices out' },
   ];
   if (store.committee) {
-    rows.push({ value: 'members', label: 'Members', sub: 'Who is committee, and rating clean-up' });
+    rows.push({ value: 'members', label: 'Members', sub: "Manage who's committee, and members' accounts" });
   }
   rows.push({ value: 'out', label: 'Sign out', sub: 'Browsing carries on working' });
 
   const choice = await chooser({
     title: store.user.display_name || store.user.username,
     sub: store.committee
-      ? `Signed in as ${store.user.username}. Committee: you can move, delete and clear faults.`
+      ? `Signed in as ${store.user.username}. Registered as committee.`
       : `Signed in as ${store.user.username}.`,
     rows,
   });
@@ -178,7 +178,7 @@ export async function openIdentity() {
 export async function signIn({ sub } = {}) {
   const result = await formSheet({
     title: 'Sign in',
-    sub: sub || 'Your account is what keeps your ratings, rigs and logbook yours.',
+    sub,
     fields: [
       { name: 'username', label: 'Username', required: true, autocomplete: 'username' },
       { name: 'password', label: 'Password', type: 'password', required: true,
@@ -198,7 +198,6 @@ export async function signIn({ sub } = {}) {
 export async function signUp() {
   const result = await formSheet({
     title: 'Create an account',
-    sub: 'Anyone in the club can. Your username is how you sign in; your display name is what the club sees.',
     fields: [
       { name: 'username', label: 'Username', required: true, autocomplete: 'username',
         hint: 'Letters, numbers, dots or dashes.' },
@@ -252,7 +251,7 @@ async function changeName() {
 async function changePassword() {
   const result = await formSheet({
     title: 'Change password',
-    sub: 'Every other device signed in as you is signed out. This one stays.',
+    sub: 'You will be signed out on other devices.',
     fields: [
       { name: 'current', label: 'Current password', type: 'password', required: true,
         autocomplete: 'current-password' },

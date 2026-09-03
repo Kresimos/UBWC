@@ -6,7 +6,7 @@
  * open so a member sees what is possible before being asked to sign in.
  */
 import { html, mount, onClick } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { artFor } from '../icons.js';
 import { store } from '../store.js';
 import { wireWhoPill } from '../ui/bits.js';
 import { needUser, openIdentity } from '../ui/chrome.js';
@@ -46,7 +46,6 @@ function screen() {
       </div>
     </div>
     <div class="body pad">
-      <p class="lead">Choose what you are adding. You can add several in a row.</p>
       <div class="typegrid">
         ${TYPES.map((type) => html`
           <button class="tcard" data-type="${type.key}">
@@ -54,11 +53,6 @@ function screen() {
             <span class="nm">${type.name}</span>
             <span class="ex">${type.ex}</span>
           </button>`)}
-      </div>
-      <div class="hintline">
-        ${icon('info')}
-        <p>Misc is the catch-all: harnesses, UJs, wetsuits, roof straps, repair kits,
-          anything without its own type.</p>
       </div>
     </div>`;
 }

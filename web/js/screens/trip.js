@@ -469,7 +469,7 @@ export async function render(root, params) {
     const asking = trip.status === 'requesting';
     const reason = asking
       ? 'Asking for kit puts your name on it, so the kit sec knows who wants what.'
-      : 'Adding kit to a trip is the kit sec\'s job.';
+      : 'Adding kit to a trip is a committee action.';
     const ok = asking ? await needUser(reason) : await needCommittee(reason);
     if (!ok) return;
 
@@ -635,7 +635,7 @@ export async function render(root, params) {
   }
 
   async function moveStage(status) {
-    if (!(await needCommittee('Moving a trip on is the kit sec\'s job.'))) return;
+    if (!(await needCommittee('Moving a trip on is a committee action.'))) return;
     try {
       trip = (await api.setTripStage(id, status)).trip;
       paint();
@@ -651,7 +651,7 @@ export async function render(root, params) {
    * what went is the list itself, not the ticks.
    */
   async function skipPacking() {
-    if (!(await needCommittee('Moving a trip on is the kit sec\'s job.'))) return;
+    if (!(await needCommittee('Moving a trip on is a committee action.'))) return;
     const left = (trip.n_items || 0) - (trip.n_packed || 0);
     const sure = await confirmSheet({
       title: 'Call this trip packed?',
@@ -674,7 +674,7 @@ export async function render(root, params) {
    * out loud because it is the one thing worth being sure about.
    */
   async function endTrip() {
-    if (!(await needCommittee('Ending a trip is the kit sec\'s job.'))) return;
+    if (!(await needCommittee('Ending a trip is a committee action.'))) return;
     const sure = await confirmSheet({
       title: 'End this trip?',
       sub: `All ${trip.n_items} ${trip.n_items === 1 ? 'piece' : 'pieces'} go back to `
@@ -739,7 +739,7 @@ export async function render(root, params) {
  */
 export async function renderConfirm(root, params) {
   const id = Number(params.id);
-  if (!(await needCommittee('Settling the kit list is the kit sec\'s job.'))) {
+  if (!(await needCommittee('Settling the kit list is a committee action.'))) {
     go(`/trip/${id}`, { replace: true });
     return undefined;
   }
@@ -888,7 +888,7 @@ export async function renderConfirm(root, params) {
  */
 export async function renderWizard(root, params) {
   const id = Number(params.id);
-  if (!(await needCommittee('Packing the trailer is the kit sec\'s job.'))) {
+  if (!(await needCommittee('Packing the trailer is a committee action.'))) {
     go(`/trip/${id}`, { replace: true });
     return undefined;
   }

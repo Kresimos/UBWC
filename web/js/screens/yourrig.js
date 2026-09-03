@@ -463,9 +463,8 @@ export async function render(root) {
             </ol>
           </div>
           ${camsNote(picks.sail) ? html`
-            <p class="camnote">${icon('warning')}This sail is cambered: seat each cam over the mast before
-              you tension the downhaul, and expect it to fight you. Ask a committee member if it is your
-              first time.</p>` : ''}
+            <p class="camnote">${icon('warning')}This sail is cambered: Ask a committee member if it is
+              your first time rigging a cambered sail.</p>` : ''}
           <div>
             <p class="stephead">Video</p>
             <button class="vid" type="button" data-video aria-label="Play the rigging video">
@@ -682,7 +681,7 @@ export async function render(root) {
     if (missing) {
       const yes = await confirmSheet({
         title: `${missing} ${missing === 1 ? 'part is' : 'parts are'} still only suggested`,
-        sub: 'De-rigging now records the sail and board and anything you pressed "Use this" on. The rest will not appear on the checklist.',
+        sub: 'De-rigging records the sail and board and anything you pressed "Use this" on. The rest will not appear on the checklist or log.',
         confirmLabel: 'De-rig anyway',
       });
       if (!yes) return;

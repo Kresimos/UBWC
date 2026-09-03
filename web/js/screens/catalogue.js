@@ -709,8 +709,8 @@ export async function render(root) {
 
     const target = await chooser({
       title: `Move ${piece(n)}`,
-      sub: 'A site overwrites where the kit lives. Adding it to a trip just '
-         + 'marks it going: the kit stays on its rack.',
+      sub: 'Moving site overwrites where the kit lives. Moving to a trip will '
+         + "automatically return the kit when the trip's ended.",
       rows: [
         ...store.sites.map((site) => ({
           value: `site:${site.name}`, label: site.name,
@@ -755,7 +755,6 @@ export async function render(root) {
     if (target === '__new') {
       const values = await formSheet({
         title: 'New location',
-        sub: 'Committee keeps this list, so the catalogue filter stays clean.',
         fields: [
           { name: 'site', label: 'Site name', required: true, placeholder: 'Nottingham' },
           { name: 'spot', label: 'Spot within it (optional)', placeholder: 'van' },
@@ -768,7 +767,6 @@ export async function render(root) {
     } else {
       const values = await formSheet({
         title: `Move to ${site}`,
-        sub: 'A spot is optional. After a trip, kit often needs its fine spot re-setting.',
         fields: [{ name: 'spot', label: 'Spot within the site', placeholder: 'wooden rack' }],
         submitLabel: 'Move',
       });

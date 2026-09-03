@@ -115,7 +115,7 @@ function screen(data) {
         ${kit.length
           ? html`<div class="usetable">${kit.map(kitRow)}</div>`
           : html`<p class="calc" style="margin:0">Nothing yet. The kit on your logged sessions
-              collects here, with what you last thought of it.</p>`}
+              collects here, along with your ratings.</p>`}
       </div>
 
       <div class="sect">

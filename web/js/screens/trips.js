@@ -43,7 +43,7 @@ export async function render(root) {
 
   onClick(root, 'data-trip', (value) => go(`/trip/${value}`));
   onClick(root, 'data-newtrip', async () => {
-    if (!(await needCommittee('Starting a trip is the kit sec\'s job.'))) return;
+    if (!(await needCommittee('Starting a trip is a committee action.'))) return;
     go('/newtrip');
   });
 

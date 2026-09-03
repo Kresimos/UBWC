@@ -110,8 +110,8 @@ function screen(setup) {
 
       <div class="guide">
         ${icon('info')}
-        <p>These spots are where each piece is recorded as living. Nothing here changes the
-          catalogue: if a piece genuinely lives somewhere else now, a committee member moves it.</p>
+        <p>It's important you return each item to the spot it lives, otherwise kit gets lost. If you
+          can't find its container please ask a committee member for help.</p>
       </div>
     </div>
 

@@ -21,12 +21,12 @@
  * is a long-press on a tile; the picks survive every filter change after that,
  * counted even when a filter has scrolled them out of view.
  */
-import { html, mount, num, numFixed, onClick, on, stampDate } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { html, mount, toHtml, onClick, on, stampDate } from '../dom.js';
+import { icon } from '../icons.js';
 import { api } from '../api.js';
-import { store, siteLabel, subscribe } from '../store.js';
-import { worstFault, fullName, wireWhoPill } from '../ui/bits.js';
-import { itemTile, faultPopup } from '../ui/itemTile.js';
+import { store, siteLabel, setTrip, subscribe } from '../store.js';
+import { fullName, wireWhoPill } from '../ui/bits.js';
+import { cardTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite, needCommittee, openIdentity } from '../ui/chrome.js';
 import { chooser, formSheet, toast } from '../ui/overlay.js';
 import { haptic, PICK } from '../ui/haptics.js';
@@ -90,6 +90,8 @@ const state = {
   cams: new Set(),
   lens: new Set(),
   faults: new Set(DEFAULT_FAULTS),
+  // Which trip the list is narrowed to (or null) is app-wide state now, held in
+  // store.trip and driven by the location chip — see store.js and chrome.js.
   panel: null, // null | 'filter' | 'sort'
   selecting: false,
   selected: new Set(),
@@ -120,6 +122,7 @@ export async function render(root) {
   const panelSearch = root.querySelector('[data-panelsearch]');
 
   let items = [];
+  let trips = [];
   let loading = false;
   let press = null;
   let suppressClick = false;
@@ -192,7 +195,9 @@ export async function render(root) {
     loading = true;
     paint();
     try {
-      const data = await api.items({ site: store.site });
+      // A trip's kit is spread across every store it was fetched from, so
+      // narrowing to one asks for the lot and filters in the browser.
+      const data = await api.items(store.trip ? {} : { site: store.site });
       items = data.items;
     } catch (error) {
       toast(error.message, true);
@@ -200,6 +205,29 @@ export async function render(root) {
     }
     loading = false;
     paint();
+  }
+
+  /**
+   * The trips a piece of kit can be away with. Only the two middle stages: a
+   * trip still taking requests holds nothing back, and a finished one has
+   * handed everything in.
+   */
+  async function loadTrips() {
+    try {
+      const data = await api.trips();
+      trips = data.trips.filter((trip) =>
+        ['packing', 'active'].includes(trip.status));
+      // Keep the app-wide toggle list current off the same fetch.
+      store.trips = trips.map((trip) => ({
+        id: trip.id, name: trip.name, destination: trip.destination,
+        lat: trip.lat, lon: trip.lon, status: trip.status, n_items: trip.n_items,
+      }));
+      if (store.trip && !trips.some((t) => t.id === store.trip.id)) {
+        setTrip(null); // the selected trip ended while the catalogue was open
+      }
+    } catch {
+      trips = store.trips; // the boot-time snapshot is enough to draw the panel
+    }
   }
 
   // ------------------------------------------------------------- filtering
@@ -211,6 +239,8 @@ export async function render(root) {
   function matches(item) {
     if (state.type !== 'all' && item.component_type !== state.type) return false;
     if (!state.faults.has(bucketOf(item))) return false;
+    // Narrowed to one trip, the list IS that trip's kit and nothing else.
+    if (store.trip && item.away !== store.trip.name) return false;
     if (state.subs.size && !state.subs.has(item.raw_type)) return false;
     if (state.boxes.size && !state.boxes.has(item.box_type)) return false;
     if (state.diams.size && !state.diams.has(item.diameter)) return false;
@@ -236,10 +266,23 @@ export async function render(root) {
     return when ? when.getTime() : 0;
   }
 
+  /**
+   * Where a piece sits on the rating sort. A fault outranks a missing rating
+   * as a reason to sit low: nobody has looked at an unrated piece, but a
+   * flagged one has been looked at and found wrong. So anything carrying an
+   * open fault sorts below every unrated piece, which in turn sorts below one
+   * star. (A red flag is sunk to the very bottom separately, in `shown`.)
+   */
+  function ratingRank(item) {
+    if (bucketOf(item) !== 'none') return -2;
+    if (!item.rating || !item.rating.n) return -1;
+    return item.rating.stars || 0;
+  }
+
   function compare(a, b) {
     switch (state.sort) {
       case 'rating':
-        return (a.rating.stars || 0) - (b.rating.stars || 0);
+        return ratingRank(a) - ratingRank(b);
       case 'size':
         return sizeNumber(a) - sizeNumber(b);
       case 'name':
@@ -271,6 +314,7 @@ export async function render(root) {
   function activeFilterCount() {
     let n = 0;
     if (state.type !== 'all') n += 1;
+    if (store.trip) n += 1;
     n += state.subs.size + state.boxes.size + state.diams.size
        + state.cams.size + state.lens.size;
     const faultsDefault = state.faults.size === DEFAULT_FAULTS.length
@@ -300,9 +344,7 @@ export async function render(root) {
     dot.hidden = active === 0;
     dot.textContent = active;
 
-    const countNode = root.querySelector('[data-count]');
-    countNode.classList.toggle('sel', state.selecting);
-    mount(countNode, countLabel(rows.length, loading));
+    paintCount(rows.length);
 
     const hint = root.querySelector('[data-selecthint]');
     hint.hidden = state.selecting || Boolean(localStorage.getItem(SELECT_HINT_KEY));
@@ -327,7 +369,18 @@ export async function render(root) {
       mount(listNode, html`
         <div class="${grid ? 'itemgrid' : 'itemlist'}">${rows.map((item) => tile(item, grid))}</div>`);
     }
-    paintMoveBar();
+    syncMoveBar();
+  }
+
+  /**
+   * The selected-count reading in the middle of the control row. Pulled out of
+   * paint() so a tap in select mode can refresh it on its own, without the
+   * whole grid re-rendering underneath the tick that just animated.
+   */
+  function paintCount(count) {
+    const node = root.querySelector('[data-count]');
+    node.classList.toggle('sel', state.selecting);
+    mount(node, countLabel(count == null ? shown().length : count, loading));
   }
 
   function countLabel(count, isLoading) {
@@ -344,25 +397,50 @@ export async function render(root) {
     return html`<b>${count}</b> ${noun}`;
   }
 
-  function paintMoveBar() {
+  function moveBtnLabel() {
+    const n = state.selected.size;
+    return n ? `Move ${n} ${n === 1 ? 'piece' : 'pieces'}` : 'Tap kit to select';
+  }
+
+  /**
+   * The move bar rides in a slot outside the scrolling body, so it can slide in
+   * and out on its own without the grid reflowing. It is idempotent like the
+   * trip screen's pack bar: the first time selecting turns on it mounts and
+   * rises, every repaint after that only re-labels the button, and turning
+   * selecting off sinks it and clears the slot a beat later.
+   */
+  function syncMoveBar() {
     const slot = root.querySelector('[data-movebar]');
-    if (!state.selecting) {
-      slot.innerHTML = '';
+    const bar = slot.firstElementChild;
+
+    if (state.selecting && !bar) {
+      mount(slot, html`
+        <div class="actionbar">
+          <div class="selrow">
+            <button class="bigbtn ${state.selected.size ? '' : 'mute'}" data-move>${moveBtnLabel()}</button>
+            <button class="donebtn" data-doneselect>Done</button>
+          </div>
+        </div>`);
+      if (!reduceMotion) slot.firstElementChild.classList.add('rise');
+      slot.querySelector('[data-move]').addEventListener('click', moveSelected);
+      slot.querySelector('[data-doneselect]').addEventListener('click', exitSelect);
       return;
     }
-    const count = state.selected.size;
-    mount(slot, html`
-      <div class="actionbar">
-        <div class="selrow">
-          <button class="bigbtn ${count ? '' : 'mute'}" data-move>
-            ${icon('move')}${count ? `Move ${count} ${count === 1 ? 'piece' : 'pieces'}` : 'Tap kit to select'}
-          </button>
-          <button class="donebtn" data-doneselect>Done</button>
-        </div>
-        <span class="helper">Packing a trip is moving kit to that location. Filters stay on — picks you can't see are still counted.</span>
-      </div>`);
-    slot.querySelector('[data-move]').addEventListener('click', moveSelected);
-    slot.querySelector('[data-doneselect]').addEventListener('click', exitSelect);
+
+    if (state.selecting && bar) {
+      bar.classList.remove('sink'); // a fast off→on caught it mid-exit
+      const btn = bar.querySelector('[data-move]');
+      btn.classList.toggle('mute', !state.selected.size);
+      btn.textContent = moveBtnLabel();
+      return;
+    }
+
+    if (bar) {
+      if (reduceMotion) { slot.innerHTML = ''; return; }
+      bar.classList.remove('rise');
+      bar.classList.add('sink');
+      setTimeout(() => { if (!disposed && !state.selecting) slot.innerHTML = ''; }, 220);
+    }
   }
 
   // ----------------------------------------------------------- the panel
@@ -537,6 +615,7 @@ export async function render(root) {
   }
 
   function resetFilters() {
+    const wasTrip = Boolean(store.trip);
     state.type = 'all';
     clearContextFilters();
     state.faults = new Set(DEFAULT_FAULTS);
@@ -549,7 +628,10 @@ export async function render(root) {
     panelSearch.value = '';
     root.querySelector('.appbar .searchbar').classList.remove('filled');
     renderPanelBody();
-    paint();
+    // Coming out of a trip is a different set of rows, so the subscribe handler
+    // takes the reload; otherwise a repaint is enough.
+    if (wasTrip) setTrip(null);
+    else paint();
   }
 
   // ------------------------------------------------------------ selecting
@@ -567,31 +649,113 @@ export async function render(root) {
     paint();
   }
 
-  function openItem(id) {
+  function openItem(id, card) {
     if (state.selecting) {
-      if (state.selected.has(id)) state.selected.delete(id);
-      else state.selected.add(id);
-      paint();
+      const on = !state.selected.has(id);
+      if (on) state.selected.add(id);
+      else state.selected.delete(id);
+      applyTick(card, on);
+      paintCount();
+      syncMoveBar();
+      haptic(PICK);
       return;
     }
     go(`/item/${id}`);
+  }
+
+  /**
+   * Tick or untick one card in place, so the fill animates and nothing else on
+   * the screen moves. Ported from the trip checklist: list view rides the
+   * `.picked` class the CSS keys the box fill off; grid view carries a tick
+   * disc in the corner, added or removed here. The `.pop` is held back under
+   * reduced motion.
+   */
+  function applyTick(card, on) {
+    if (!card) return;
+    card.classList.toggle('picked', on);
+    let mark = card.querySelector('.tickdisc') || card.querySelector('.selbox');
+    if (state.view === 'grid') {
+      const disc = card.querySelector('.tickdisc');
+      if (on && !disc) {
+        card.querySelector('.shot')?.insertAdjacentHTML('beforeend',
+          toHtml(html`<span class="tickdisc" aria-hidden="true">${icon('tick')}</span>`));
+        mark = card.querySelector('.tickdisc');
+      } else if (!on && disc) {
+        disc.remove();
+        mark = null;
+      }
+    }
+    if (on && mark && !reduceMotion) {
+      mark.classList.add('pop');
+      mark.addEventListener('animationend', () => mark.classList.remove('pop'), { once: true });
+    }
   }
 
   async function moveSelected() {
     if (!state.selected.size) return;
     if (!(await needCommittee('Moving kit is a committee action.'))) return;
 
+    const ids = [...state.selected];
+    const n = ids.length;
+    const piece = (k) => `${k} ${k === 1 ? 'piece' : 'pieces'}`;
+
+    // Every trip that has not finished is a place kit can be going. A request
+    // reserves nothing, but "add it to a trip" is still the honest way to say a
+    // board is spoken for by the Cheddar Saturday crowd.
+    let dests = [];
+    try {
+      dests = (await api.trips()).trips
+        .filter((t) => !['done', 'cancelled'].includes(t.status));
+    } catch {
+      dests = trips; // the packing/active snapshot is enough to draw the list
+    }
+    const tripSub = (t) => (t.status === 'active' ? 'Out on the water now'
+      : t.status === 'packing' ? 'Packing now' : 'Taking requests');
+
     const target = await chooser({
-      title: `Move ${state.selected.size} ${state.selected.size === 1 ? 'piece' : 'pieces'}`,
-      sub: 'Moving overwrites where the kit lives. A trip is just a location kit was moved to.',
+      title: `Move ${piece(n)}`,
+      sub: 'A site overwrites where the kit lives. Adding it to a trip just '
+         + 'marks it going: the kit stays on its rack.',
       rows: [
-        ...store.sites.map((site) => ({ value: site.name, label: site.name, sub: `${site.n_items} pieces now` })),
-        { value: '__new', label: 'A new location', sub: 'Add it to the club list' },
+        ...store.sites.map((site) => ({
+          value: `site:${site.name}`, label: site.name,
+          sub: `${site.n_items} pieces now`, avatar: icon('pin'),
+        })),
+        { value: '__new', label: 'A new location', sub: 'Add it to the club list', avatar: icon('plus') },
+        ...dests.map((t) => ({
+          value: `trip:${t.id}`, label: t.name, sub: tripSub(t), avatar: icon('flag'),
+        })),
+        { value: 'newtrip', label: 'Add to a new trip', sub: 'Start one with this kit on it', avatar: icon('plus') },
       ],
     });
     if (!target) return;
 
-    let site = target;
+    if (target === 'newtrip') {
+      go(`/newtrip?kit=${ids.join(',')}`);
+      return;
+    }
+
+    if (target.startsWith('trip:')) {
+      const tripId = Number(target.slice(5));
+      const byId = new Map(items.map((i) => [i.id, i]));
+      try {
+        await api.addTripItems(tripId, ids.map((iid) => ({
+          item_id: iid,
+          role: (byId.get(iid) || {}).rig_kind || null,
+          source: 'chosen',
+        })));
+        const t = dests.find((x) => x.id === tripId);
+        toast(`Added ${piece(n)} to ${t ? t.name : 'the trip'}.`);
+        state.selected.clear();
+        state.selecting = false;
+        await Promise.all([load(), loadTrips()]);
+      } catch (error) {
+        toast(error.message, true);
+      }
+      return;
+    }
+
+    let site = target === '__new' ? '' : target.slice(5);
     let spot = '';
     if (target === '__new') {
       const values = await formSheet({
@@ -618,9 +782,9 @@ export async function render(root) {
     }
 
     try {
-      const result = await api.moveItems([...state.selected], site, spot);
+      const result = await api.moveItems(ids, site, spot);
       store.sites = result.sites;
-      toast(`Moved ${result.moved} ${result.moved === 1 ? 'piece' : 'pieces'} to ${site}.`);
+      toast(`Moved ${piece(result.moved)} to ${site}.`);
       state.selected.clear();
       state.selecting = false;
       await load();
@@ -630,9 +794,10 @@ export async function render(root) {
   }
 
   // ---------------------------------------------------------------- events
-  root.querySelector('[data-pick-site]').addEventListener('click', async () => {
-    if (await pickSite()) load();
-  });
+  // The pill just sets the app-wide location; the subscribe handler below is
+  // what notices the change and reloads, so a pick from here and a pick from
+  // anywhere else behave the same.
+  root.querySelector('[data-pick-site]').addEventListener('click', () => pickSite());
 
   const syncSearch = (value) => {
     state.q = value;
@@ -799,28 +964,38 @@ export async function render(root) {
   // question about the item rather than a tap on the item itself.
   const onFlag = (event) => Boolean(event.target.closest('[data-flag]'));
 
-  onClick(root, 'data-item', (value, _node, event) => {
+  onClick(root, 'data-item', (value, node, event) => {
     if (suppressClick) {
       suppressClick = false;
       return;
     }
-    if (!onFlag(event)) openItem(Number(value));
+    if (!onFlag(event)) openItem(Number(value), node);
   });
   on(root, 'keydown', '[data-item]', (event, node) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     if (onFlag(event)) return;
     event.preventDefault();
-    openItem(Number(node.getAttribute('data-item')));
+    openItem(Number(node.getAttribute('data-item')), node);
   });
 
+  // The location (a site or a trip) is app-wide, so a change to it — from this
+  // screen's pill, its filter panel, or anywhere else — lands here. The label
+  // always follows; a real change of place also reloads the grid and re-renders
+  // the panel body so its "on" states are right.
+  let locKey = store.trip ? `t${store.trip.id}` : store.site;
   const unsubscribe = subscribe(() => {
     const label = root.querySelector('[data-sitelabel]');
     if (label) label.textContent = siteLabel();
+    const next = store.trip ? `t${store.trip.id}` : store.site;
+    if (next === locKey) return;
+    locKey = next;
+    if (state.panel) renderPanelBody();
+    load();
   });
   // The app opens here, so this is where signing in has to be reachable.
   const unwire = wireWhoPill(root, openIdentity, { compact: true });
 
-  await load();
+  await Promise.all([load(), loadTrips()]);
   return () => {
     disposed = true;
     if (press) clearTimeout(press.timer);
@@ -853,7 +1028,7 @@ function shell() {
     </div>
 
     <div class="selecthint" data-selecthint hidden>
-      Hold a piece to pick several — for packing a trip.
+      Hold a piece to pick several, to move them somewhere else.
     </div>
 
     <div class="body" data-scroll>
@@ -918,25 +1093,21 @@ function emptyState() {
     </div>`;
 }
 
+/**
+ * The tile is the shared one (js/ui/itemTile.js). Out of select mode it is the
+ * plain catalogue tile plus the grey "Out" chip for kit away with a trip. In
+ * select mode it borrows the trip checklist's dressing: a tick (a disc in grid,
+ * a filling box in list) and, in list, the fault as a bubble on the thumb so
+ * the tick has the corner. The stars stay where the catalogue keeps them —
+ * `place` is a trip idea and is never passed here.
+ */
 function tile(item, grid) {
-  return itemTile({
-    grid,
-    pickAttr: 'item',
-    id: item.id,
-    art: item.image_path
-      ? html`<img src="${item.image_path}" alt="">`
-      : artFor(item.rig_kind || item.component_type),
-    size: item.size_value != null
-      ? { value: item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value),
-          unit: item.size_unit }
-      : { label: item.size_label },
-    name: fullName(item),
-    type: item.type,
-    rating: item.rating.n ? { stars: item.rating.stars, n: item.rating.n } : null,
-    fault: worstFault(item.faults),
-    saved: item.favourite,
-    faultNoun: item.type,
-    picked: state.selected.has(item.id),
-    selecting: state.selecting,
+  const picked = state.selected.has(item.id);
+  return cardTile(item, grid, {
+    // Inside a trip's own kit the chip says nothing: everything there is out.
+    out: store.trip ? null : (item.away || null),
+    ...(state.selecting
+      ? { checked: picked, checkable: !picked, dotFault: !grid }
+      : {}),
   });
 }

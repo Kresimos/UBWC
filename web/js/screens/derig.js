@@ -7,8 +7,10 @@
  *
  * It can be finished two ways with the same result — tick every box, or press
  * confirm straight away if the kit is already away. The checklist is an aid,
- * not a gate. On confirmation the member lands in the logbook, where the
- * un-logged-session prompt is waiting.
+ * not a gate. On confirmation the member lands straight in the composer, with
+ * the session prefilled: writing it up is the moment it is freshest, so the
+ * screen comes to them rather than waiting behind a prompt. Both ways out of
+ * the composer (Skip, Don't save) still lead to the logbook.
  */
 import { html, mount, onClick } from '../dom.js';
 import { icon } from '../icons.js';
@@ -44,10 +46,10 @@ export async function render(root) {
     progress.textContent = `${done.size} of ${total} away`;
     const all = done.size === total;
     button.classList.toggle('done', all);
-    button.firstChild.nodeValue = all ? 'Everything away, take me to the log' : 'All away, take me to the log';
+    button.firstChild.nodeValue = all ? 'Everything away, log this session' : 'All away, log this session';
     helper.textContent = all
-      ? 'Every piece is back. Confirming opens the logbook with this session ready.'
-      : 'Tick everything, or just confirm. Either way you land in the logbook.';
+      ? 'Every piece is back. Confirming opens the session, already filled in.'
+      : 'Tick everything, or just confirm. Either way the session opens next.';
   }
 
   root.querySelector('[data-back]').addEventListener('click', () => back('/setup'));
@@ -71,8 +73,8 @@ export async function render(root) {
       // The rig is over, so the half-built one Build and Your rig share goes
       // with it — otherwise the Rig tab reopens a setup already put away.
       building.clear();
-      toast('De-rigged. Your session is waiting in the log.');
-      go('/log', { replace: true });
+      toast('De-rigged. Here is your session, ready to write up.');
+      go('/compose', { replace: true });
     } catch (error) {
       toast(error.message, true);
     }
@@ -87,7 +89,7 @@ function screen(setup) {
       <div class="row">
         <button class="backbtn" data-back aria-label="Back">${icon('back')}</button>
         <span class="ttl">De-rig</span>
-        <span class="site">${icon('pin')}${setup.site || store.site}</span>
+        <span class="site">${icon('pin')}${(store.trip && store.trip.name) || setup.site || store.site}</span>
       </div>
     </div>
 
@@ -114,9 +116,9 @@ function screen(setup) {
     </div>
 
     <div class="actionbar">
-      <button class="bigbtn" data-confirm>All away, take me to the log
+      <button class="bigbtn" data-confirm>All away, log this session
         ${icon('arrowRight')}</button>
-      <span class="helper" data-helper>Tick everything, or just confirm. Either way you land in the logbook.</span>
+      <span class="helper" data-helper>Tick everything, or just confirm. Either way the session opens next.</span>
     </div>`;
 }
 

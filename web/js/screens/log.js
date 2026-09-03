@@ -1,10 +1,15 @@
 /**
- * Log — the club feed, and the un-logged nudge.
+ * Log — the club feed, and your own rig above it.
  *
- * Sessions are a club-visible feed: everyone sees everyone's. The one personal
- * thing at the top is the nudge — a setup you de-rigged but have not written
- * up. It persists until logged (there is no dismiss), because a save is always
- * a deliberate act and the nudge is what turns a finished sail into one.
+ * Sessions are a club-visible feed: everyone sees everyone's. The personal
+ * thing at the top is whichever of two states your setup is in, never both:
+ *
+ *  - **out now**, a rig you have not de-rigged. The Log tab is where a member
+ *    looks to see what the club is doing, so it is also where "and what am I
+ *    on" belongs;
+ *  - **the nudge**, a setup you de-rigged but have not written up. It persists
+ *    until logged (there is no dismiss), because a save is always a deliberate
+ *    act and the nudge is what turns a finished sail into one.
  */
 import { html, mount, num, numFixed, ago, clockTime, spanned, stampDate, onClick, initial } from '../dom.js';
 import { icon } from '../icons.js';
@@ -22,8 +27,9 @@ let feedCache = [];
 export async function render(root) {
   const setup = store.user ? (store.setup || (await refreshSetup())) : null;
   const unlogged = setup && setup.status === 'derigged' ? setup : null;
+  const live = setup && setup.status === 'active' ? setup : null;
 
-  mount(root, shell(unlogged));
+  mount(root, shell(unlogged, live));
   const feedNode = root.querySelector('[data-feed]');
 
   async function loadFeed() {
@@ -56,6 +62,7 @@ export async function render(root) {
   });
 
   onClick(root, 'data-log', () => go('/compose'));
+  onClick(root, 'data-yourrig', () => go('/setup'));
   onClick(root, 'data-kititem', (value) => { if (value) go(`/item/${value}`); });
 
   // The stat strip is the toggle: tapping it opens the full spec list (every
@@ -100,7 +107,7 @@ export async function render(root) {
   return unwire;
 }
 
-function shell(unlogged) {
+function shell(unlogged, live) {
   return html`
     <div class="appbar">
       <div class="row">
@@ -113,21 +120,42 @@ function shell(unlogged) {
       </div>
     </div>
     <div class="body pad">
+      ${live ? outNow(live) : ''}
       ${unlogged ? nudge(unlogged) : ''}
       <div data-feed></div>
     </div>`;
 }
 
-function nudge(setup) {
+/**
+ * The rig you are on right now. Same card as the nudge below, because it is the
+ * same fact one step earlier: this is the session, before it has ended.
+ */
+function outNow(setup) {
+  return html`
+    <div class="nudge live">
+      <div class="nt">
+        <span class="dotpulse"></span><b>Out now</b>
+      </div>
+      <span class="kit">${rigWords(setup) || 'Your rig'}</span>
+      <div class="row2"><button class="go" data-yourrig>Your rig</button></div>
+    </div>`;
+}
+
+/** "5.8 Gaastra rig, Fanatic Freewave" from whatever the setup actually has. */
+function rigWords(setup) {
   const sail = setup.pieces.find((p) => p.role === 'sail');
   const board = setup.pieces.find((p) => p.role === 'board');
   const bits = [];
   if (sail && sail.item) bits.push(`${numFixed(sail.item.size_value)} ${(sail.item.model || '').split(' ')[0]} rig`);
   if (board && board.item) bits.push(board.item.model);
+  return bits.join(', ');
+}
+
+function nudge(setup) {
   return html`
     <div class="nudge">
       <div class="nt"><span class="dotpulse"></span><b>Out earlier, not logged</b></div>
-      <span class="kit">${bits.join(', ') || 'Your last rig'}</span>
+      <span class="kit">${rigWords(setup) || 'Your last rig'}</span>
       <span class="sub">You sailed this at ${setup.site || store.site}. Keep it as a session?</span>
       <div class="row2"><button class="go" data-log>Log this session</button></div>
     </div>`;

@@ -18,9 +18,9 @@ import { html, mount, num, numFixed, ago, onClick, initial } from '../dom.js';
 import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, isCommittee } from '../store.js';
-import { starRow, conditionClass, fullName } from '../ui/bits.js';
+import { starRow, conditionClass } from '../ui/bits.js';
 import { needUser, needCommittee } from '../ui/chrome.js';
-import { formSheet, confirmSheet, lightbox, chooser, toast } from '../ui/overlay.js';
+import { formSheet, lightbox, toast } from '../ui/overlay.js';
 import { go, back } from '../router.js';
 
 export async function render(root, params) {
@@ -35,7 +35,9 @@ export async function render(root, params) {
 
   function wire() {
     root.querySelector('[data-back]').addEventListener('click', () => back());
-    root.querySelector('[data-edit]').addEventListener('click', () => go(`/edit/${id}`));
+    // Editing is committee's, so the button is only drawn for them.
+    const edit = root.querySelector('[data-edit]');
+    if (edit) edit.addEventListener('click', () => go(`/edit/${id}`));
 
     onClick(root, 'data-spot', () => {
       lightbox({
@@ -45,11 +47,9 @@ export async function render(root, params) {
       });
     });
 
-    // Moving one piece is the commonest committee job on this page, since kit
-    // walks between racks constantly, so it gets its own pencil rather than
-    // being three taps down the committee menu. It asks for the PIN like any
-    // other way in, so the icon can be there for everyone.
-    onClick(root, 'data-move', () => moveOne());
+    // A trip tag in the chips row is a live link to the trip the piece is
+    // packed for.
+    onClick(root, 'data-trip', (value) => go(`/trip/${value}`));
 
     onClick(root, 'data-fault-toggle', (_, node) => {
       node.closest('.faultitem').classList.toggle('open');
@@ -143,8 +143,8 @@ export async function render(root, params) {
           {
             name: 'severity', label: 'Severity', type: 'select', value: 'usable',
             options: [
-              { value: 'usable', label: 'Usable — amber flag, still sailable' },
-              { value: 'out_of_action', label: 'Out of action — red flag, hidden from the rig picker' },
+              { value: 'usable', label: 'Usable (amber flag, still sailable)' },
+              { value: 'out_of_action', label: 'Out of action (red flag, hidden from the rig picker)' },
             ],
           },
         ],
@@ -162,86 +162,20 @@ export async function render(root, params) {
       paint();
       if (historyOpen) root.querySelector('.fhist').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-
-    onClick(root, 'data-admin', async () => {
-      const choice = await chooser({
-        title: fullName(item),
-        sub: 'Committee actions on this piece.',
-        rows: [
-          { value: 'move', label: 'Change location', sub: `Now at ${item.site}${item.spot ? ' · ' + item.spot : ''}` },
-          item.archived
-            ? { value: 'unarchive', label: 'Restore this item', sub: 'Brings it back into the active catalogue' }
-            : { value: 'archive', label: 'Archive this item', sub: 'Hides it from the catalogue and rig picker; keeps its history' },
-          { value: 'delete', label: 'Delete this item', sub: 'Removes it and its faults, notes and ratings' },
-        ],
-      });
-      if (choice === 'move') return moveOne();
-      if (choice === 'archive') return archiveOne();
-      if (choice === 'unarchive') return unarchiveOne();
-      if (choice === 'delete') return deleteOne();
-    });
-  }
-
-  async function archiveOne() {
-    if (!(await needCommittee('Archiving kit is a committee action.'))) return;
-    const values = await formSheet({
-      title: `Archive ${fullName(item)}?`,
-      sub: 'Hides it from the catalogue and rig picker. Its faults, notes and ratings stay on record, and it can be restored later.',
-      fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'Snapped mast, written off' }],
-      submitLabel: 'Archive it',
-    });
-    if (!values) return;
-    await api.archiveItem(id, values.reason);
-    item = await api.item(id);
-    paint();
-    toast('Archived.');
-  }
-
-  async function unarchiveOne() {
-    if (!(await needCommittee('Restoring kit is a committee action.'))) return;
-    await api.unarchiveItem(id);
-    item = await api.item(id);
-    paint();
-    toast('Restored to the active catalogue.');
-  }
-
-  async function moveOne() {
-    if (!(await needCommittee('Moving kit is a committee action.'))) return;
-    const site = await chooser({
-      title: 'Move this piece',
-      sub: 'Moving overwrites where it lives. A trip is just a location.',
-      rows: store.sites.map((s) => ({
-        value: s.name, label: s.name, sub: `${s.n_items} pieces now`, on: s.name === item.site,
-      })),
-    });
-    if (!site) return;
-    const values = await formSheet({
-      title: `Move to ${site}`,
-      fields: [{ name: 'spot', label: 'Spot within the site', value: site === item.site ? item.spot || '' : '', placeholder: 'wooden rack' }],
-      submitLabel: 'Move it',
-    });
-    if (!values) return;
-    const result = await api.moveItems([id], site, values.spot);
-    store.sites = result.sites;
-    item = await api.item(id);
-    paint();
-    toast(`Moved to ${site}.`);
-  }
-
-  async function deleteOne() {
-    if (!(await needCommittee('Deleting kit is a committee action.'))) return;
-    const sure = await confirmSheet({
-      title: `Delete ${fullName(item)}?`,
-      sub: 'Its faults, notes and ratings go with it. There is no undo.',
-      confirmLabel: 'Delete it',
-    });
-    if (!sure) return;
-    await api.deleteItem(id);
-    toast('Deleted.');
-    go('/catalogue');
   }
 
   paint();
+}
+
+/**
+ * The trip a piece is packed for, as a chip in the head. `item.away` is the
+ * trip's name; a matching entry in the boot-time trip list turns it into a link.
+ */
+function tripPill(name) {
+  const trip = (store.trips || []).find((t) => t.name === name);
+  return trip
+    ? html`<button class="pill trip" data-trip="${trip.id}">${icon('flag')}${name}</button>`
+    : html`<span class="pill trip">${icon('flag')}${name}</span>`;
 }
 
 // ------------------------------------------------------------------ markup
@@ -269,7 +203,9 @@ function screen(item, historyOpen) {
                     aria-label="${item.favourite ? 'Remove from your kit' : 'Save to your kit'}">
               ${icon(item.favourite ? 'heart' : 'heartOutline')}
             </button>
-            <button class="iconbtn" data-edit aria-label="Edit">${icon('edit')}</button>
+            ${isCommittee()
+              ? html`<button class="iconbtn" data-edit aria-label="Edit">${icon('edit')}</button>`
+              : ''}
           </span>
         </div>
         ${item.image_path
@@ -297,22 +233,19 @@ function screen(item, historyOpen) {
             ${item.condition
               ? html`<span class="pill cond ${conditionClass(item.condition)}">${item.condition} condition</span>`
               : ''}
+            ${item.away ? tripPill(item.away) : ''}
           </div>
           <div class="locrow">
             <button class="loc" data-spot>
               ${icon('pin')}<b>${item.site || 'Location unknown'}</b>${item.spot ? ` · ${item.spot}` : ''}
               <span class="spotcam">${icon('camera')}</span>
             </button>
-            <button class="locedit" data-move aria-label="Change where this lives">${icon('edit')}</button>
           </div>
         </div>
 
         <div class="cta">
           ${buildable(item)
             ? html`<button class="btn primary" data-rig>Rig this kit${icon('arrowRight')}</button>`
-            : ''}
-          ${isCommittee()
-            ? html`<button class="btn ghost" data-admin aria-label="Committee actions">${icon('move')}</button>`
             : ''}
         </div>
 

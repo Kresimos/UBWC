@@ -21,6 +21,9 @@ import * as compose from './screens/compose.js';
 import * as add from './screens/add.js';
 import * as form from './screens/form.js';
 import * as profile from './screens/profile.js';
+import * as trips from './screens/trips.js';
+import * as trip from './screens/trip.js';
+import * as tripform from './screens/tripform.js';
 
 const ROUTES = [
   { path: '/catalogue', screen: 'catalogue', tab: 'catalogue', render: catalogue.render },
@@ -37,6 +40,19 @@ const ROUTES = [
   // at four tabs. It sits under Log because a member's own sailing is what the
   // Log tab's "Mine" is about.
   { path: '/me', screen: 'profile', tab: 'log', render: profile.render },
+
+  { path: '/trips', screen: 'trip', tab: 'trips', render: trips.render },
+  { path: '/trip/:id', screen: 'trip', tab: 'trips', render: trip.render },
+  // Confirm the kit and the wizard are the two halves of one move, out of
+  // taking requests and into packing, so they are stops on the trip rather than
+  // screens of their own: each back arrow steps one stop out of the flow, and
+  // the last of them lands on the trip.
+  { path: '/trip/:id/confirm', screen: 'trip', tab: 'trips', render: trip.renderConfirm },
+  { path: '/trip/:id/wizard', screen: 'trip', tab: 'trips', render: trip.renderWizard },
+  // The new-trip form is the add-kit form with different fields, so it borrows
+  // that screen's styling by name.
+  { path: '/newtrip', screen: 'form', tab: 'trips', render: tripform.render },
+  { path: '/trip/:id/edit', screen: 'form', tab: 'trips', render: tripform.render },
 
   { path: '/add', screen: 'add', tab: 'add', render: add.render },
   { path: '/new/:type', screen: 'form', tab: 'add', render: form.render },

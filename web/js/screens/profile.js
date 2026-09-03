@@ -39,7 +39,8 @@ export async function render(root) {
   root.querySelector('[data-back]').addEventListener('click', () => back('/catalogue'));
   root.querySelector('[data-account]').addEventListener('click', openIdentity);
   root.querySelector('[data-pick-site]').addEventListener('click', async () => {
-    if (await pickSite({ allowAll: true })) go('/me', { replace: true });
+    // No trips here: this screen's stats are per storage site.
+    if (await pickSite({ allowAll: true, allowTrips: false })) go('/me', { replace: true });
   });
 
   onClick(root, 'data-item', (id) => go(`/item/${id}`));

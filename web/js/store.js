@@ -11,9 +11,25 @@
  *
  * The site choice is remembered on the device: a member at Cheddar is at
  * Cheddar next time too, and being asked again every visit would be noise.
+ *
+ * A **trip** the club is packing or out on is a place kit can be, so it sits in
+ * the same toggle as the sites. Picking one narrows the catalogue and the rig
+ * assistant to that trip's kit; `store.site` is left untouched underneath as
+ * the place a member falls back to when the trip is cleared or ends.
  */
 
 const SITE_KEY = 'ubwc.site';
+const TRIP_KEY = 'ubwc.trip';
+
+function readTrip() {
+  try {
+    const raw = localStorage.getItem(TRIP_KEY);
+    const trip = raw ? JSON.parse(raw) : null;
+    return trip && trip.id ? trip : null;
+  } catch {
+    return null;
+  }
+}
 
 const listeners = new Set();
 
@@ -30,6 +46,10 @@ export const store = {
   required: {},
   typeLabels: {},
   site: localStorage.getItem(SITE_KEY) || 'all',
+  // The packing/active trips offered in the location toggle, and the one that
+  // is currently selected (a small {id, name, destination, lat, lon}) or null.
+  trips: [],
+  trip: readTrip(),
   setup: null,
   ready: false,
 };
@@ -55,10 +75,16 @@ export function applyBootstrap(data) {
   store.forms = data.forms;
   store.required = data.required;
   store.typeLabels = data.type_labels;
+  store.trips = data.trips || [];
   // A remembered site that has since been renamed away falls back to "all"
   // rather than silently filtering the catalogue down to nothing.
   if (store.site !== 'all' && !data.sites.some((s) => s.name === store.site)) {
     setSite('all');
+  }
+  // A remembered trip that has since ended (or was never packing/active) drops
+  // back to the site underneath rather than scoping everything to nothing.
+  if (store.trip && !store.trips.some((t) => t.id === store.trip.id)) {
+    setTrip(null);
   }
   store.ready = true;
   emit();
@@ -67,6 +93,23 @@ export function applyBootstrap(data) {
 export function setSite(name) {
   store.site = name;
   localStorage.setItem(SITE_KEY, name);
+  // Picking a real place means leaving the trip.
+  store.trip = null;
+  localStorage.removeItem(TRIP_KEY);
+  emit();
+}
+
+/** Focus the whole app on one trip's kit, or clear back to the site. */
+export function setTrip(trip) {
+  store.trip = trip || null;
+  if (trip) {
+    localStorage.setItem(TRIP_KEY, JSON.stringify({
+      id: trip.id, name: trip.name, destination: trip.destination ?? null,
+      lat: trip.lat ?? null, lon: trip.lon ?? null,
+    }));
+  } else {
+    localStorage.removeItem(TRIP_KEY);
+  }
   emit();
 }
 
@@ -81,7 +124,8 @@ export function setSetup(setup) {
   emit();
 }
 
-export const siteLabel = () => (store.site === 'all' ? 'All locations' : store.site);
+export const siteLabel = () => (store.trip ? store.trip.name
+  : store.site === 'all' ? 'All locations' : store.site);
 
 /** The spot sentence shown when a member taps a location, if we have one. */
 export function spotNote(site, spot) {

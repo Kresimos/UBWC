@@ -9,22 +9,38 @@
    ========================================================================== */
 
 /* ======================================================== CATALOGUE: browse */
-/* The panel slides up inside this element, so it is the positioning context. */
-[data-screen="catalogue"] { position: relative; }
+/* The panel slides up inside this element, so it is the positioning context.
+   The Trips tab is named alongside the Catalogue on the rules below it shares:
+   the type rail and the slide-up sheet, which the kit picker IS rather than
+   merely resembles. Everything else in this section stays the Catalogue's
+   alone — .chips in particular is a condition picker on the add form and a
+   pill row on an item page, which is why these are aliased one selector at a
+   time rather than the section being promoted to a bare class. */
+[data-screen="catalogue"],
+[data-screen="trip"],
+[data-screen="form"] { position: relative; }
 
 /* The type rail: a quick one-tap switch, sized to match Build's subtype chips
    so the two screens' chip rows read as the same control. */
-[data-screen="catalogue"] .chips {
+[data-screen="catalogue"] .chips,
+[data-screen="trip"] .chips,
+[data-screen="form"] .chips {
   flex: none; display: flex; gap: 7px; overflow-x: auto; padding: 10px var(--gutter);
   scrollbar-width: none; background: var(--app-bg);
 }
-[data-screen="catalogue"] .chips::-webkit-scrollbar { display: none; }
-[data-screen="catalogue"] .chip {
+[data-screen="catalogue"] .chips::-webkit-scrollbar,
+[data-screen="trip"] .chips::-webkit-scrollbar,
+[data-screen="form"] .chips::-webkit-scrollbar { display: none; }
+[data-screen="catalogue"] .chip,
+[data-screen="trip"] .chip,
+[data-screen="form"] .chip {
   flex: none; font-size: 11.5px; font-weight: 600; color: var(--app-muted);
   background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 999px;
   padding: 5px 10px; cursor: pointer; white-space: nowrap;
 }
-[data-screen="catalogue"] .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+[data-screen="catalogue"] .chip.on,
+[data-screen="trip"] .chip.on,
+[data-screen="form"] .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
 
 /* The rail and the control row: a sticky layer pinned to the top of the grid's
    scroll box, *not* part of its flow. Tucking slides it up under the app bar
@@ -80,6 +96,16 @@
   color: var(--app-ink); font-weight: 700; font-size: 14px; border-radius: 15px;
   padding: 0 18px; cursor: pointer;
 }
+/* The bar lives outside the scroll body, so it can slide past the bottom edge
+   without the grid noticing. It rises once when selecting turns on and sinks
+   when it turns off. */
+[data-screen="catalogue"] .actionbar.rise { animation: packbar-rise .22s ease-out; }
+[data-screen="catalogue"] .actionbar.sink { animation: packbar-sink .2s ease-in forwards; }
+@keyframes packbar-sink { to { transform: translateY(100%); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="catalogue"] .actionbar.rise,
+  [data-screen="catalogue"] .actionbar.sink { animation: none; }
+}
 
 /* -------------------------------------------------- CATALOGUE: filter panel */
 /* One surface behind both the filter and the sort icon. It slides up over the
@@ -88,10 +114,18 @@
    bar is opaque white and a scrim only made a hard grey-on-white seam; the
    sheet's own shadow is what separates it. The strip of screen left showing
    above the sheet still closes it on a tap. */
-[data-screen="catalogue"] .filterpanel { position: absolute; inset: 0; z-index: 30; }
-[data-screen="catalogue"] .filterpanel[hidden] { display: none; }
-[data-screen="catalogue"] .fp-scrim { position: absolute; inset: 0; background: transparent; }
-[data-screen="catalogue"] .fp-sheet {
+[data-screen="catalogue"] .filterpanel,
+[data-screen="trip"] .filterpanel,
+[data-screen="form"] .filterpanel { position: absolute; inset: 0; z-index: 30; }
+[data-screen="catalogue"] .filterpanel[hidden],
+[data-screen="trip"] .filterpanel[hidden],
+[data-screen="form"] .filterpanel[hidden] { display: none; }
+[data-screen="catalogue"] .fp-scrim,
+[data-screen="trip"] .fp-scrim,
+[data-screen="form"] .fp-scrim { position: absolute; inset: 0; background: transparent; }
+[data-screen="catalogue"] .fp-sheet,
+[data-screen="trip"] .fp-sheet,
+[data-screen="form"] .fp-sheet {
   position: absolute; left: 0; right: 0; bottom: 0; top: 40px;
   background: var(--app-bg); border-radius: 18px 18px 0 0;
   display: flex; flex-direction: column;
@@ -101,62 +135,106 @@
      upper strip — the shadow is a seam, not a spotlight. */
   box-shadow: 0 -0.5px 0 rgba(9, 22, 25, .07), 0 -3px 9px rgba(9, 22, 25, .12);
 }
-[data-screen="catalogue"] .filterpanel.open .fp-sheet { transform: translateY(0); }
+[data-screen="catalogue"] .filterpanel.open .fp-sheet,
+[data-screen="trip"] .filterpanel.open .fp-sheet,
+[data-screen="form"] .filterpanel.open .fp-sheet { transform: translateY(0); }
 @media (prefers-reduced-motion: reduce) {
-  [data-screen="catalogue"] .fp-sheet { transition: none; }
+  [data-screen="catalogue"] .fp-sheet,
+  [data-screen="trip"] .fp-sheet,
+  [data-screen="form"] .fp-sheet { transition: none; }
 }
 /* The whole top of the sheet is the drag surface — grab handle and search row
    both. `pan-x` lets the browser keep horizontal gestures (and leaves the
    input tappable) while the vertical pull is ours to handle. */
-[data-screen="catalogue"] .fp-top {
+[data-screen="catalogue"] .fp-top,
+[data-screen="trip"] .fp-top,
+[data-screen="form"] .fp-top {
   flex: none; touch-action: pan-x;
 }
-[data-screen="catalogue"] .fp-grab {
+[data-screen="catalogue"] .fp-grab,
+[data-screen="trip"] .fp-grab,
+[data-screen="form"] .fp-grab {
   width: 36px; height: 4px; border-radius: 999px; background: #D5DEDE;
   margin: 8px auto 4px; cursor: grab;
 }
-[data-screen="catalogue"] .fp-top:active .fp-grab { cursor: grabbing; }
-[data-screen="catalogue"] .fp-head {
+[data-screen="catalogue"] .fp-top:active .fp-grab,
+[data-screen="trip"] .fp-top:active .fp-grab,
+[data-screen="form"] .fp-top:active .fp-grab { cursor: grabbing; }
+[data-screen="catalogue"] .fp-head,
+[data-screen="trip"] .fp-head,
+[data-screen="form"] .fp-head {
   flex: none; padding: 4px var(--gutter) 10px; border-bottom: 1px solid var(--app-line);
 }
-[data-screen="catalogue"] .fp-head .searchbar { width: 100%; }
-[data-screen="catalogue"] .fp-body {
+[data-screen="catalogue"] .fp-head .searchbar,
+[data-screen="trip"] .fp-head .searchbar,
+[data-screen="form"] .fp-head .searchbar { width: 100%; }
+[data-screen="catalogue"] .fp-body,
+[data-screen="trip"] .fp-body,
+[data-screen="form"] .fp-body {
   flex: 1; overflow-y: auto; padding: 2px var(--gutter) 16px;
 }
 
-[data-screen="catalogue"] .fpsect {
+[data-screen="catalogue"] .fpsect,
+[data-screen="trip"] .fpsect,
+[data-screen="form"] .fpsect {
   padding: 13px 0 12px; border-bottom: 1px solid var(--app-line);
 }
-[data-screen="catalogue"] .fpsect:last-child { border-bottom: 0; }
-[data-screen="catalogue"] .fplab {
+[data-screen="catalogue"] .fpsect:last-child,
+[data-screen="trip"] .fpsect:last-child,
+[data-screen="form"] .fpsect:last-child { border-bottom: 0; }
+[data-screen="catalogue"] .fplab,
+[data-screen="trip"] .fplab,
+[data-screen="form"] .fplab {
   font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
   color: var(--app-faint); font-weight: 700; margin-bottom: 9px;
 }
-[data-screen="catalogue"] .fpopts { display: flex; flex-wrap: wrap; gap: 7px; }
-[data-screen="catalogue"] .fpopt {
+[data-screen="catalogue"] .fpopts,
+[data-screen="trip"] .fpopts,
+[data-screen="form"] .fpopts { display: flex; flex-wrap: wrap; gap: 7px; }
+[data-screen="catalogue"] .fpopt,
+[data-screen="trip"] .fpopt,
+[data-screen="form"] .fpopt {
   font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px;
   border: 1px solid var(--app-line); background: var(--app-bg); color: var(--app-muted);
   cursor: pointer;
 }
-[data-screen="catalogue"] .fpopt.on { background: var(--teal); border-color: var(--teal); color: #fff; }
-[data-screen="catalogue"] .fpopt.amber.on { background: var(--warn); border-color: var(--warn); }
-[data-screen="catalogue"] .fpopt.red.on { background: var(--crit); border-color: var(--crit); }
-[data-screen="catalogue"] .fpopt.wide { flex: 1; min-width: 130px; text-align: center; }
+[data-screen="catalogue"] .fpopt.on,
+[data-screen="trip"] .fpopt.on,
+[data-screen="form"] .fpopt.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+[data-screen="catalogue"] .fpopt.amber.on,
+[data-screen="trip"] .fpopt.amber.on,
+[data-screen="form"] .fpopt.amber.on { background: var(--warn); border-color: var(--warn); }
+[data-screen="catalogue"] .fpopt.red.on,
+[data-screen="trip"] .fpopt.red.on,
+[data-screen="form"] .fpopt.red.on { background: var(--crit); border-color: var(--crit); }
+[data-screen="catalogue"] .fpopt.wide,
+[data-screen="trip"] .fpopt.wide,
+[data-screen="form"] .fpopt.wide { flex: 1; min-width: 130px; text-align: center; }
 
-[data-screen="catalogue"] .fp-foot {
+[data-screen="catalogue"] .fp-foot,
+[data-screen="trip"] .fp-foot,
+[data-screen="form"] .fp-foot {
   flex: none; display: flex; align-items: center; gap: 12px;
   padding: 10px var(--gutter) max(12px, env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--app-line);
 }
-[data-screen="catalogue"] .fp-reset {
+[data-screen="catalogue"] .fp-reset,
+[data-screen="trip"] .fp-reset,
+[data-screen="form"] .fp-reset {
   border: 0; background: transparent; color: var(--teal); font-weight: 700;
   font-size: 13px; cursor: pointer; flex: none;
 }
-[data-screen="catalogue"] .fp-count {
+[data-screen="catalogue"] .fp-count,
+[data-screen="trip"] .fp-count,
+[data-screen="form"] .fp-count {
   flex: 1; text-align: center; font-size: 12.5px; color: var(--app-muted);
 }
-[data-screen="catalogue"] .fp-count b { color: var(--app-ink); font-weight: 700; }
-[data-screen="catalogue"] .fp-done {
+[data-screen="catalogue"] .fp-count b,
+[data-screen="trip"] .fp-count b,
+[data-screen="form"] .fp-count b { color: var(--app-ink); font-weight: 700; }
+[data-screen="catalogue"] .fp-done,
+[data-screen="trip"] .fp-done,
+[data-screen="form"] .fp-done {
   flex: none; border: 0; background: var(--teal); color: #fff; font-weight: 750;
   font-size: 13px; padding: 9px 20px; border-radius: 11px; cursor: pointer;
 }
@@ -228,21 +306,21 @@
 [data-screen="item"] .pill.cond.fair { color: var(--warn); background: var(--warn-tint); }
 [data-screen="item"] .pill.cond.poor { color: var(--crit); background: var(--crit-tint); }
 [data-screen="item"] .pill.cam { color: var(--teal-ink); background: var(--teal-tint); }
+/* The trip a piece is packed for. A link when the trip is known, a plain chip
+   otherwise. */
+[data-screen="item"] .pill.trip {
+  display: inline-flex; align-items: center; gap: 5px; border: 0; font: inherit;
+  font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 999px;
+  color: var(--teal-ink); background: var(--teal-tint);
+}
+[data-screen="item"] button.pill.trip { cursor: pointer; }
+[data-screen="item"] .pill.trip svg { width: 12px; height: 12px; flex: none; }
 [data-screen="item"] .locrow { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 [data-screen="item"] .loc {
   display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px;
   color: var(--app-muted); border: 0; background: transparent;
   padding: 0; cursor: pointer; text-align: left;
 }
-/* The pencil that moves this one piece. Sized to the line it sits on, not to a
-   toolbar: it is a footnote to the location, not a second action beside it. */
-[data-screen="item"] .locedit {
-  flex: none; width: 26px; height: 26px; border-radius: 50%; padding: 0; cursor: pointer;
-  border: 1px solid var(--app-line); background: var(--app-bg); color: var(--teal);
-  display: grid; place-items: center;
-}
-[data-screen="item"] .locedit svg { width: 13px; height: 13px; }
-[data-screen="item"] .locedit:active { background: var(--app-bg2); }
 [data-screen="item"] .loc svg { width: 15px; height: 15px; color: var(--teal); flex: none; }
 [data-screen="item"] .loc b { color: var(--app-ink); font-weight: 600; }
 [data-screen="item"] .spotcam {
@@ -503,12 +581,8 @@
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
 }
 [data-screen="build"] .tagscroll::-webkit-scrollbar { display: none; }
-[data-screen="build"] .clearall {
-  flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--app-line);
-  background: var(--app-bg); color: var(--app-faint); display: grid; place-items: center;
-  cursor: pointer; padding: 0;
-}
-[data-screen="build"] .clearall svg { width: 11px; height: 11px; }
+/* An "on" chip differs by colour alone: same font, same padding, same box, so
+   the row does not resize or shuffle under the finger when one is picked. */
 [data-screen="build"] .tag {
   flex: none; font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px;
   border: 1px solid var(--app-line); background: var(--app-bg); color: var(--app-muted);
@@ -516,9 +590,7 @@
 }
 [data-screen="build"] .tag.on {
   background: var(--teal); border-color: var(--teal); color: #fff;
-  display: inline-flex; align-items: center; gap: 5px;
 }
-[data-screen="build"] .tag.on .x { font-size: 13px; font-weight: 800; opacity: .85; }
 
 [data-screen="build"] .subbar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -537,10 +609,6 @@
 }
 [data-screen="build"] .sizehint svg { width: 13px; height: 13px; flex: none; color: var(--teal); }
 
-[data-screen="build"] .helper {
-  font-size: 11px; color: var(--app-faint); text-align: center; line-height: 1.45;
-  padding: 0 calc(var(--gutter) + 8px); margin: 0;
-}
 
 /* ======================================================== RIG: your rig */
 /* The rig you have, and the four things it implies. Selected kit is drawn big
@@ -1181,6 +1249,25 @@
 }
 [data-screen="compose"] .pcomment input:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
 
+/* Top-right way out: keep the session, write it up another time. */
+[data-screen="compose"] .appbar .row > .skipbtn {
+  margin-left: auto; flex: none; border: 0; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--app-muted);
+  background: var(--app-line); padding: 6px 13px; border-radius: 999px;
+}
+[data-screen="compose"] .appbar .row > .skipbtn:active { opacity: .8; }
+
+/* The other way out, under everything: drop the session for good. Quiet text
+   rather than a button, since it is the one thing here nobody should hit by
+   reaching for the save bar. */
+[data-screen="compose"] .discard {
+  align-self: center; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 650; color: var(--app-faint);
+  padding: 10px 16px; margin: 2px auto 0; text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--app-line);
+}
+[data-screen="compose"] .discard:active { color: var(--crit); }
+
 /* ============================================================= ADD: pick type */
 [data-screen="add"] .lead { font-size: 13px; color: var(--app-muted); line-height: 1.45; padding: 0 2px; margin: 0; }
 [data-screen="add"] .typegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
@@ -1252,8 +1339,49 @@
 [data-screen="form"] .inp.sel .v.p { color: #AFB9B9; }
 [data-screen="form"] .inp.sel svg { width: 18px; height: 18px; color: var(--app-faint); flex: none; }
 [data-screen="form"] .inp.bad { border-color: var(--crit); }
+/* The new-trip form's kit list. The shared .itemlist insets itself by the
+   gutter so its thumbs line up with a grid's shots; inside .body.pad that
+   gutter has already been applied once, and twice is a list running down the
+   middle of the page. */
+[data-screen="form"] .itemlist { padding-left: 0; padding-right: 0; }
 [data-screen="form"] .two { display: flex; gap: 10px; }
 [data-screen="form"] .two > .grp { flex: 1; min-width: 0; }
+
+/* "Pin the spot": a place search that resolves to a lat/lon, and the pinned
+   chip it becomes. The forecast on the trip page is drawn from the pin. */
+[data-screen="form"] .inp.geo .gi { flex: none; display: flex; color: var(--app-faint); }
+[data-screen="form"] .inp.geo .gi svg { width: 16px; height: 16px; }
+[data-screen="form"] .geores { display: flex; flex-direction: column; }
+[data-screen="form"] .geores:empty { display: none; }
+[data-screen="form"] .geores .geohint {
+  font-size: 11.5px; color: var(--app-faint); padding: 6px 3px 0; line-height: 1.4;
+}
+[data-screen="form"] .geores .georow {
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  text-align: left; padding: 9px 11px; border: 0; background: transparent;
+  border-bottom: 1px solid var(--app-line); cursor: pointer; font: inherit;
+}
+[data-screen="form"] .geores .georow:first-child { border-top: 1px solid var(--app-line); }
+[data-screen="form"] .geores .georow:last-child { border-bottom: 0; }
+[data-screen="form"] .geores .georow:active { background: var(--app-bg2); }
+[data-screen="form"] .geores .georow b { font-size: 14px; font-weight: 650; }
+[data-screen="form"] .geores .georow span { font-size: 11.5px; color: var(--app-faint); }
+[data-screen="form"] .pinchip {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  border: 1px solid var(--teal); border-radius: 11px; padding: 11px 13px;
+  background: var(--app-bg); cursor: pointer; font: inherit; text-align: left;
+}
+[data-screen="form"] .pinchip .i { flex: none; display: flex; color: var(--teal); }
+[data-screen="form"] .pinchip .i svg { width: 16px; height: 16px; }
+[data-screen="form"] .pinchip .t {
+  flex: 1; min-width: 0; font-size: 14px; font-weight: 650; color: var(--app-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-screen="form"] .pinchip .c {
+  flex: none; font-size: 11.5px; color: var(--app-faint); font-variant-numeric: tabular-nums;
+}
+[data-screen="form"] .pinchip .x { flex: none; display: flex; color: var(--app-faint); }
+[data-screen="form"] .pinchip .x svg { width: 15px; height: 15px; }
 
 [data-screen="form"] .subcard {
   border: 1px solid var(--app-line); border-radius: 14px; padding: 12px; display: flex;
@@ -1481,3 +1609,652 @@
 /* These used to set only flex: none, so the stars inherited a ~16px font size
    and were quietly the largest rating row in the app. */
 [data-screen="profile"] .urate { flex: none; --star-size: 14px; }
+
+/* ============================================================== TRIPS */
+/* The Trips tab: an index of trips, and one trip through five stages.
+   [data-screen="trip"] is named alongside the Catalogue at the top of this
+   file on the two things it reuses outright - the type rail and the slide-up
+   sheet - so what is defined here is only furniture the app did not have.
+   The tile's own new decorations (the voter stack, the tick disc, the fault
+   bubble, the grey "out" chip) live in tokens.css with the rest of the tile. */
+
+/* The trip action button. Not screen-scoped: it is a new class, it collides
+   with nothing, and the trip screens and the new-trip form both use it.
+   A <button> shrink-wraps even as a block-level flex box, so the width is
+   asked for explicitly rather than left to the layout. */
+.askbtn {
+  flex: none; box-sizing: border-box; width: calc(100% - var(--gutter) * 2);
+  margin: 0 var(--gutter) 12px; display: flex; align-items: center;
+  justify-content: center; gap: 7px; height: 44px; border: 0; border-radius: 12px;
+  background: var(--teal); color: #fff; font: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+.askbtn svg { width: 17px; height: 17px; flex: none; }
+.askbtn:active { transform: scale(.99); }
+.askbtn[disabled] { opacity: .5; cursor: default; }
+.askbtn.ghost {
+  background: var(--app-bg); color: var(--app-muted); border: 1px solid var(--app-line);
+}
+[data-screen="form"] .askbtn { width: 100%; margin: 0 0 4px; }
+
+/* --- the trip's own header -------------------------------------------------
+   A photo band: the shot of the spot, given real height. The band sits in
+   normal flow and scrolls away with the page like any other row; the photo
+   layer inside it (.hpar) is dragged back at a fraction of the scroll - a
+   parallax, written by the screen from the band's position in its scroll box.
+   .hpar is oversized well past the band on every side so the lag never
+   uncovers an edge, and it holds still if the script does not run.
+   It carries where and when, not the trip's name: the app bar already holds
+   that, and printing it twice on one screen says nothing the second time. */
+/* The kit list is the page, so the trip screen sits on white like the
+   Catalogue does rather than on the app's grey ground - otherwise every type
+   heading reads as a band rather than a label. */
+[data-screen="trip"] .body { background: var(--app-bg); }
+
+/* The trip's own two actions live together at the far end of the bar, opposite
+   the back arrow: End trip, then the edit pencil at the very edge. The title is
+   what pushes them there, rather than the first button claiming the space, so
+   the pair stays put whether or not the End button is showing. .backbtn already
+   carries a -6px left margin for the back arrow's optical alignment, which is
+   what closes the 12px bar gap between them to a sensible 6. */
+[data-screen="trip"] .appbar .row > .ttl { margin-right: auto; }
+[data-screen="trip"] .appbar .row > [data-edit] { margin-right: -6px; }
+
+[data-screen="trip"] .triphero {
+  position: relative;
+  height: 168px; background: var(--shot); flex: none;
+  display: flex; align-items: flex-end; overflow: hidden;
+}
+[data-screen="trip"] .triphero .hpar {
+  position: absolute; left: 0; right: 0; top: -45%; bottom: -45%;
+  background-size: cover; background-position: center 45%;
+  transform: translate3d(0, var(--hpar, 0px), 0);
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="trip"] .triphero .hpar { transform: none; }
+}
+/* With no photo on file the band is the flat shot fill and the wash would only
+   grey it, so the wash is drawn over a picture and nothing else. */
+[data-screen="trip"] .triphero .wash {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(8,32,36,0) 34%, rgba(8,32,36,.72) 100%);
+}
+[data-screen="trip"] .triphero .htxt { position: relative; padding: 12px var(--gutter); color: #fff; }
+/* No photo on file: the band is the flat shot fill, the text is set in ink
+   rather than white, and the trip glyph stands in for the picture so the space
+   reads as a photo that has not been added rather than as a gap. */
+[data-screen="trip"] .triphero.blank .htxt { color: var(--app-ink); }
+[data-screen="trip"] .triphero .blankmark {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -62%);
+  color: var(--teal); opacity: .16;
+}
+[data-screen="trip"] .triphero .blankmark svg { width: 54px; height: 54px; }
+[data-screen="trip"] .triphero .htxt b { font-size: 21px; font-weight: 750; letter-spacing: -.02em; display: block; }
+[data-screen="trip"] .triphero .htxt span { font-size: 12.5px; opacity: .93; }
+
+/* The summary rides every stage of a trip - it is the thing that does not
+   change - so it is kept tight enough that the kit list underneath is still on
+   screen with it. */
+[data-screen="trip"] .tripmeta {
+  flex: none; display: flex; flex-direction: column; gap: 6px;
+  padding: 11px var(--gutter) 12px; background: var(--app-bg);
+}
+[data-screen="trip"] .tripmeta .mrow {
+  display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--app-muted);
+}
+[data-screen="trip"] .tripmeta .mrow svg { width: 15px; height: 15px; flex: none; color: var(--teal); }
+[data-screen="trip"] .tripmeta .mrow b { color: var(--app-ink); font-weight: 650; }
+[data-screen="trip"] .tripmeta .info {
+  font-size: 12.5px; color: var(--app-muted); line-height: 1.5; margin-top: 1px;
+  white-space: pre-line;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+[data-screen="trip"] .tripmeta .info.open { -webkit-line-clamp: unset; }
+[data-screen="trip"] .tripmeta .more {
+  align-self: flex-start; font: inherit; font-size: 12.5px; font-weight: 650;
+  color: var(--teal); background: none; border: 0; padding: 0; margin-top: -4px; cursor: pointer;
+}
+
+/* --- the forecast ----------------------------------------------------------
+   A Windguru-style read of the trip's own day: a grid of coloured cells, one
+   column per hour through the sailing day, gust stacked above mean, each cell
+   coloured by how hard it is blowing and carrying its number. The columns
+   touch. Windguru's ramp is deliberate and not ours to improve on - pale blue
+   through cyan, green, yellow and orange into red is a scale this club can
+   already read at a glance, and a prettier one would only have to be learned. */
+[data-screen="trip"] .wind {
+  margin: 0 var(--gutter) 12px; padding: 9px 11px 7px; border-radius: 12px;
+  background: var(--app-bg2);
+}
+[data-screen="trip"] .wind .wtop {
+  display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 7px;
+}
+[data-screen="trip"] .wind .wtop b { font-size: 12px; font-weight: 750; letter-spacing: -.01em; }
+[data-screen="trip"] .wind .wtop span { font-size: 11px; color: var(--app-faint); }
+[data-screen="trip"] .wind svg { display: block; width: 100%; height: auto; }
+/* One strip per day of the trip, stacked. The weekday sits where a single-day
+   chart names the wind direction; a thin rule separates one day from the next. */
+[data-screen="trip"] .wind .wday + .wday {
+  margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--app-line);
+}
+[data-screen="trip"] .wind .wday b {
+  display: block; margin-bottom: 3px;
+  font-size: 12px; font-weight: 750; letter-spacing: -.01em;
+}
+
+/* --- the list's own heading ------------------------------------------------
+   One ruled row carrying all three things: how much there is on the left, what
+   this list is in the middle, and how to look at it on the right. The rule is
+   the seam between the trip and its kit - above it is the same on every stage,
+   below it is the part that changes. */
+[data-screen="trip"] .listhead {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 11px var(--gutter) 10px; background: var(--app-bg);
+  border-top: 1px solid var(--app-line);
+}
+[data-screen="trip"] .listhead .count {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--app-muted); text-align: left;
+}
+[data-screen="trip"] .listhead .count b { color: var(--app-ink); font-weight: 700; }
+[data-screen="trip"] .listhead b.ttx {
+  font-size: 16px; font-weight: 750; letter-spacing: -.02em; flex: none;
+}
+/* The switch is pushed right by a wrapper, not by stretching the control: the
+   .viewtoggle paints its own segmented background and would stretch with it. */
+[data-screen="trip"] .listhead .tail { flex: 1; display: flex; justify-content: flex-end; }
+
+/* The picker sheet keeps a plain bar: it has no title to sit between. */
+[data-screen="trip"] .kitbar,
+[data-screen="form"] .kitbar {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--gutter) 10px; background: var(--app-bg);
+}
+[data-screen="trip"] .kitbar .count,
+[data-screen="form"] .kitbar .count { font-size: 12.5px; color: var(--app-muted); }
+[data-screen="trip"] .kitbar .count b,
+[data-screen="form"] .kitbar .count b { color: var(--app-ink); font-weight: 700; }
+/* Inside the picker the gutter belongs to each child, not to the scroll box.
+   The obvious way round is the other one - inset the body once and zero the
+   children - but then a selected row's tint stops at that inset and reads as a
+   floating band rather than a row. Here the rows run the full width of the
+   sheet and hold their text in with their own padding, so the highlight goes
+   all the way to the glass and everything still lines up on one left edge. */
+[data-kitpicker] .fp-body { padding-left: 0; padding-right: 0; }
+[data-kitpicker] .fp-body > .chips,
+[data-kitpicker] .kitbar,
+[data-kitpicker] .emptystate { padding-left: var(--gutter); padding-right: var(--gutter); }
+[data-kitpicker] .itemlist { padding-left: 0; padding-right: 0; }
+[data-kitpicker] .itemlist .card { padding-left: var(--gutter); padding-right: var(--gutter); }
+
+/* The type rail inside the picker is the Catalogue's small scrolling rail, on
+   both screens. It has to be said again here because the add-item form gives
+   the same .chips/.chip names to its condition picker further up this file -
+   fat wrapping pills - and that rule, being later, was winning inside the
+   sheet too and blowing the rail up. Scoping to the sheet settles it without
+   renaming either. */
+[data-screen="form"] .fp-body .chips {
+  flex: none; display: flex; flex-wrap: nowrap; gap: 7px; overflow-x: auto;
+  padding: 10px var(--gutter); scrollbar-width: none; background: var(--app-bg);
+}
+[data-screen="form"] .fp-body .chip {
+  flex: none; font-size: 11.5px; font-weight: 600; color: var(--app-muted);
+  background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 999px;
+  padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+[data-screen="form"] .fp-body .chip.on {
+  background: var(--teal); border-color: var(--teal); color: #fff;
+}
+
+/* The picker holds the WHOLE inventory - every site, every type, a few hundred
+   rows, each an inline SVG - inside a sheet that itself slides on a transform.
+   First-painting that list in the same frames the sheet is moving is what made
+   the open and close stutter however the JS staged it. `content-visibility`
+   takes the layout and paint of every off-screen row off the table, so only
+   the handful actually on screen is rendered while the sheet animates (and
+   while it scrolls). `contain-intrinsic-size` is the placeholder height a
+   skipped row reports, close enough that the scrollbar barely moves as real
+   sizes resolve. Scoped to the picker so the Catalogue's own list is untouched. */
+[data-kitpicker] .itemlist .card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
+}
+/* The sheet is promoted to its own layer only while it is actually moving
+   (kitpicker.js adds this on open/close/drag and drops it once the sheet is
+   home): a permanent layer for a full-height sheet holds a lot of texture
+   memory for no gain once it is sitting still. */
+[data-screen="trip"] [data-kitpicker] .fp-sheet.lift,
+[data-screen="form"] [data-kitpicker] .fp-sheet.lift { will-change: transform; }
+
+/* The bar that appears with the last tick, to move the trip on a stage. It is
+   added to the page the moment that tick lands, so it rises in rather than
+   snapping under the thumb that just packed the last piece. */
+[data-screen="trip"] .packbar {
+  flex: none; padding: 10px var(--gutter) 14px; background: var(--app-bg);
+  border-top: 1px solid var(--app-line); display: flex; flex-direction: column;
+}
+[data-screen="trip"] .packbar.rise { animation: packbar-rise .22s ease-out; }
+@keyframes packbar-rise {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+[data-screen="trip"] .packbar .askbtn { margin-bottom: 0; width: 100%; margin-left: 0; margin-right: 0; }
+[data-screen="trip"] .progline {
+  display: flex; align-items: center; gap: 10px; padding: 0 var(--gutter) 12px;
+  font-size: 12px; color: var(--app-muted); background: var(--app-bg);
+}
+[data-screen="trip"] .progline .bar {
+  flex: 1; height: 6px; border-radius: 999px; background: var(--app-line); overflow: hidden;
+}
+[data-screen="trip"] .progline .bar i { display: block; height: 100%; background: var(--teal); }
+
+/* Type headings in a grouped kit list: tight, because they divide one trip's
+   kit into sections rather than separating unrelated things. */
+[data-screen="trip"] .grouplab {
+  padding: var(--group-gap) var(--gutter) 4px; font-size: 11px; font-weight: 750;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--app-faint);
+}
+/* Stage headings on the trips index: a different job, so a different gap.
+   These separate whole groups of trips and need the air. */
+[data-screen="trip"] .grouplab.stage { padding-top: var(--stage-gap); }
+
+/* The facts line is held to one line. The stack and the fixed size column take
+   real width out of the middle, and a row that answered by growing a second
+   line would break the even rhythm the list is built on. white-space, not just
+   flex-wrap: the type text is a bare text node, so it becomes its own flex item
+   and will happily wrap inside itself. */
+[data-screen="trip"] .itemlist .lm .s {
+  flex-wrap: nowrap; white-space: nowrap; overflow: hidden;
+}
+/* The rack name is the one part of that line with no upper bound on its
+   length, so it is the part allowed to shrink, and it ellipsises rather than
+   being cut mid-word. */
+[data-screen="trip"] .itemlist .lm .s .rt { flex: 0 1 auto; min-width: 0; }
+[data-screen="trip"] .itemlist .lm .s .rt .pl {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The size column, fixed so the voter stacks against it align. Trip screens
+   only: the catalogue has no stacks to line up and its rows ship as they are. */
+[data-screen="trip"] .itemlist .lr {
+  min-width: var(--size-col-w); justify-content: flex-end;
+}
+/* A selected row runs to the glass. .itemlist insets its rows by the gutter so
+   thumbs line up with the grid's shots, and a tint that stops at that inset
+   reads as a floating band - so the row paints two more copies of itself either
+   side to carry the colour out to the screen edge. Nothing moves: no margin, no
+   padding, no reflow. */
+[data-screen="trip"] .itemlist .card.picked,
+[data-screen="catalogue"] .itemlist .card.picked {
+  box-shadow: calc((var(--gutter) - 2px) * -1) 0 0 var(--teal-tint),
+              calc(var(--gutter) - 2px) 0 0 var(--teal-tint);
+}
+/* The row tint and its bleed ease in with the box, so ticking a piece reads as
+   one smooth highlight settling over the row rather than a hard colour flip.
+   The catalogue's select mode is a checklist too now, so it shares this. */
+[data-screen="trip"] .itemlist .card,
+[data-screen="catalogue"] .itemlist .card {
+  transition: background-color .2s ease, box-shadow .2s ease;
+}
+/* ...but not in the picker, where the row already runs the whole width of the
+   sheet: the two extra copies would hang off either side of it. Has to sit
+   after the rule above to win, being no more specific than it. */
+[data-kitpicker] .itemlist .card.picked { box-shadow: none; }
+
+/* One wide way out. The count is inside the label (see paintPicked), so the bar
+   holds a single full-width button instead of a number floating opposite it.
+   The Catalogue's footer sets an even 10/12 that reads as centred around a
+   small button and top-heavy around a wide one; this bar holds nothing else,
+   so it is trimmed to the same inset all round and the button sits in the
+   middle of it. Shorter bar, anchored at the bottom, so the button also comes
+   down the page a little. */
+[data-kitpicker] .fp-foot {
+  padding: 7px var(--gutter) max(7px, env(safe-area-inset-bottom, 0px));
+}
+[data-kitpicker] .fp-done { flex: 1; padding: 11px 20px; font-size: 13.5px; }
+[data-kitpicker] .fp-done .n { font-weight: 600; opacity: .72; }
+[data-kitpicker] .fp-done .n::before { content: "· "; }
+
+/* --- declined kit ----------------------------------------------------------
+   Only ever on an active trip, and only ever last: this is somebody on the
+   beach looking for a board and finding out the answer was no. */
+[data-screen="trip"] .declined { margin-top: 18px; border-top: 1px solid var(--app-line); padding-top: 4px; }
+[data-screen="trip"] .declined .grouplab { color: var(--app-faint); }
+[data-screen="trip"] .declined .itemlist,
+[data-screen="trip"] .declined .itemgrid { opacity: .48; filter: grayscale(1); }
+[data-screen="trip"] .declined .dnote {
+  padding: 0 var(--gutter) 8px; font-size: 11.5px; color: var(--app-faint); line-height: 1.45;
+}
+
+/* --- the index -------------------------------------------------------------
+   One row per trip. The group heading is the stage, so there is no chip to read
+   as well: the one thing a grouped list cannot say, it says by having groups. */
+[data-screen="trip"] .trow {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 11px var(--gutter); background: var(--app-bg); border: 0;
+  border-bottom: 1px solid var(--app-line); font: inherit; color: inherit; cursor: pointer;
+}
+[data-screen="trip"] .trow:active { background: var(--app-bg2); }
+[data-screen="trip"] .trow .tsq {
+  flex: none; width: 46px; height: 46px; border-radius: 10px; background: var(--shot);
+  display: flex; align-items: center; justify-content: center; color: var(--teal);
+  overflow: hidden;
+}
+[data-screen="trip"] .trow .tsq svg { width: 22px; height: 22px; }
+[data-screen="trip"] .trow .tsq img { width: 100%; height: 100%; object-fit: cover; }
+[data-screen="trip"] .trow .tm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+[data-screen="trip"] .trow .tm b { font-size: 14px; font-weight: 700; }
+[data-screen="trip"] .trow .tm span {
+  font-size: 11.5px; color: var(--app-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-screen="trip"] .trow > svg { width: 18px; height: 18px; flex: none; color: var(--app-faint); }
+
+/* --- the Confirm screen and the rigging wizard ---------------------------
+   The two halves of the move out of taking requests and into packing:
+   `renderConfirm` tops up the chosen sails and boards, `renderWizard`
+   re-runs the trailer solver (web/js/rig/pack.js) on every touch.
+
+   The knobs below mirror misc/trip-wizard-mock/src/design.css — the mockup is
+   where they get tuned, then copied here. The wizard's controller reads the
+   motion timings and the pack presets straight off :root with getComputedStyle,
+   exactly as the mockup does. */
+:root {
+  --wz-roll-ms: 440ms;         /* count-up: a headline number reaching its new value */
+  --wz-roll-ease: cubic-bezier(.22,1,.36,1);
+  --wz-recompute-ms: 200ms;    /* the results panel's dip while the solver runs */
+  --wz-recompute-dim: .5;      /* how far it dips (1 = no dip) */
+  --wz-recompute-debounce: 90; /* ms held before a solve fires (read by JS) */
+  --wz-tint-ms: 300ms;         /* hero green <-> amber crossfade */
+  --wz-row-ms: 260ms;          /* a combination row entering or leaving a band */
+  --wz-row-ease: cubic-bezier(.4,0,.2,1);
+  --wz-chip-ms: 200ms;         /* a test-combination size fading to green/amber */
+  --wz-band-pad: 10px;         /* a highlight row's vertical padding */
+  --wz-hero-fig: 44px;         /* the RIGS AT ONCE number */
+  --wz-hero-pad: 13px;
+  /* five solver weights each, in order:  spare  short  match  sessions  light */
+  --wz-preset-light:    22 25 30 15 4;
+  --wz-preset-standard: 36 25 30 15 3;
+  --wz-preset-generous: 75 25 30 15 1;
+  --cf-row-pad: 6px 14px;      /* a Confirm inventory row's padding */
+}
+
+/* ===== the Confirm screen (src/confirm.css) ===== */
+[data-screen="trip"] .cf {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 12px 0 18px; background: var(--app-bg);
+}
+[data-screen="trip"] .cf .grouplab { padding: 2px 0 6px; }
+
+[data-screen="trip"] .cf-sum {
+  margin: 0 var(--gutter); display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: var(--app-bg2); border-radius: 12px; overflow: hidden;
+}
+[data-screen="trip"] .cf-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 11px 6px; text-align: center;
+  font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer;
+  box-shadow: inset 1px 0 0 rgba(20, 33, 31, .07);
+  transition: background-color .16s ease;
+}
+[data-screen="trip"] .cf-tile:first-child { box-shadow: none; }
+[data-screen="trip"] .cf-tile:active { background: var(--app-bg); }
+[data-screen="trip"] .cf-tile .k {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--app-faint);
+}
+[data-screen="trip"] .cf-tile b {
+  font-size: 22px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-screen="trip"] .cf-sect { margin: 0 var(--gutter); scroll-margin-top: 12px; }
+[data-screen="trip"] .cf-list { margin: 0 calc(var(--gutter) * -1); }
+[data-screen="trip"] .cf-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  font: inherit; border: 0; background: transparent; cursor: pointer;
+  padding: var(--cf-row-pad); color: var(--app-ink);
+  transition: background-color .16s ease, color .16s ease;
+}
+[data-screen="trip"] .cf-row + .cf-row { box-shadow: inset 0 1px 0 var(--app-line); }
+[data-screen="trip"] .cf-row:active { background: var(--app-bg2); }
+[data-screen="trip"] .cf-row.sel { background: var(--teal-tint); }
+[data-screen="trip"] .cf-row .sz {
+  flex: none; min-width: 42px; font-size: 13px; font-weight: 750;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+[data-screen="trip"] .cf-row .sz i {
+  font-style: normal; font-size: 10px; font-weight: 600; color: var(--app-faint); margin-left: 1px;
+}
+[data-screen="trip"] .cf-row .nm {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600; color: var(--app-muted);
+}
+[data-screen="trip"] .cf-row.sel .sz,
+[data-screen="trip"] .cf-row.sel .nm { color: var(--teal-ink); }
+[data-screen="trip"] .cf-row .cam { color: var(--app-faint); margin-left: 2px; }
+[data-screen="trip"] .cf-row.sel .cam { color: var(--teal-ink); opacity: .6; }
+/* Kit down for another trip: shown so the empty rack is visible, never pickable. */
+[data-screen="trip"] .cf-row.away { cursor: default; opacity: .5; }
+[data-screen="trip"] .cf-row.away:active { background: transparent; }
+[data-screen="trip"] .cf-row .out {
+  margin-left: auto; flex: none; font-size: 10px; font-weight: 700;
+  color: var(--app-faint); text-transform: uppercase; letter-spacing: .04em;
+}
+
+/* ===== the rigging wizard (src/wizard.css) ===== */
+/* Top-right way out: drop the solver and pack the confirmed kit by hand. */
+[data-screen="trip"] .appbar .row > .wz-skip {
+  margin-left: auto; flex: none; border: 0; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--app-muted);
+  background: var(--app-line); padding: 6px 13px; border-radius: 999px;
+}
+[data-screen="trip"] .appbar .row > .wz-skip:active { opacity: .8; }
+
+[data-screen="trip"] .wz {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 12px 0 18px; background: var(--app-bg);
+}
+[data-screen="trip"] .wz .grouplab { padding: 2px 0 7px; }
+
+[data-screen="trip"] .wz [data-dim] {
+  transition: opacity var(--wz-recompute-ms) ease;
+}
+[data-screen="trip"] .wz.recomputing [data-dim] { opacity: var(--wz-recompute-dim); }
+
+[data-screen="trip"] .wz-strip {
+  margin: 0 var(--gutter); display: grid; grid-template-columns: repeat(3, 1fr);
+  background: var(--app-bg2); border-radius: 12px; overflow: hidden;
+}
+[data-screen="trip"] .wz-stat {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 11px 6px; text-align: center;
+  box-shadow: inset 1px 0 0 rgba(20, 33, 31, .07);
+}
+[data-screen="trip"] .wz-stat:first-child { box-shadow: none; }
+[data-screen="trip"] .wz-stat .k {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--app-faint);
+}
+[data-screen="trip"] .wz-stat b {
+  font-size: 22px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+[data-screen="trip"] .wz-stat b i {
+  font-style: normal; font-size: 13px; font-weight: 700; color: var(--app-faint); margin-left: 1px;
+}
+
+[data-screen="trip"] .wz-hero {
+  margin: 0 var(--gutter); padding: var(--wz-hero-pad); border-radius: 14px; text-align: center;
+  background: var(--ok-tint); color: var(--ok);
+  transition: background-color var(--wz-tint-ms) ease, color var(--wz-tint-ms) ease;
+}
+[data-screen="trip"] .wz-hero.short { background: var(--warn-tint); color: var(--warn-ink); }
+[data-screen="trip"] .wz-heronum {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+}
+[data-screen="trip"] .wz-heronum .fig {
+  font-size: var(--wz-hero-fig); font-weight: 800; line-height: 1; letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums; min-width: 1.3em;
+}
+[data-screen="trip"] .wz-step {
+  width: 44px; height: 40px; flex: none; border: 0; background: transparent; color: inherit;
+  font-size: 27px; font-weight: 300; line-height: 1; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; opacity: .42;
+}
+[data-screen="trip"] .wz-step:active { opacity: .8; transform: scale(.9); }
+[data-screen="trip"] .wz-step[disabled] { opacity: .14; cursor: default; }
+[data-screen="trip"] .wz-herocap { display: block; font-size: 12.5px; font-weight: 650; margin-top: 5px; }
+
+[data-screen="trip"] .wz-fill { margin: 0 var(--gutter); }
+[data-screen="trip"] .wz-seg {
+  display: flex; gap: 4px; background: var(--app-bg2); border-radius: 11px; padding: 3px;
+}
+[data-screen="trip"] .wz-seg button {
+  flex: 1; border: 0; background: transparent; font: inherit; font-size: 12.5px; font-weight: 700;
+  color: var(--app-muted); padding: 8px 6px; border-radius: 8px; cursor: pointer;
+  transition: background .16s ease, color .16s ease;
+}
+[data-screen="trip"] .wz-seg button.on {
+  background: var(--app-bg); color: var(--teal-ink); box-shadow: 0 1px 3px rgba(10, 80, 92, .15);
+}
+[data-screen="trip"] .wz-fillhint {
+  margin: 8px 2px 0; font-size: 11.5px; line-height: 1.45; color: var(--app-faint);
+}
+/* A tight count-per-kind table under the dial: the whole packing list at a glance. */
+[data-screen="trip"] .wz-kit {
+  margin: 10px var(--gutter) 0; width: calc(100% - 2 * var(--gutter));
+  border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+[data-screen="trip"] .wz-kit th,
+[data-screen="trip"] .wz-kit td {
+  padding: 3px 0; border-bottom: 1px solid var(--app-bg2);
+}
+[data-screen="trip"] .wz-kit th { text-align: left; font-weight: 600; color: var(--app-muted); }
+[data-screen="trip"] .wz-kit td { text-align: right; font-weight: 700; }
+[data-screen="trip"] .wz-kit tr:last-child th,
+[data-screen="trip"] .wz-kit tr:last-child td { border-bottom: 0; }
+[data-screen="trip"] .wz-kit tr.short th,
+[data-screen="trip"] .wz-kit tr.short td { color: var(--warn-ink); }
+
+[data-screen="trip"] .wz-combos {
+  margin: 0 var(--gutter); display: flex; flex-direction: column; gap: 12px;
+}
+[data-screen="trip"] .wz-lead {
+  margin: 0; font-size: 12px; line-height: 1.5; color: var(--app-muted);
+}
+[data-screen="trip"] .wz-lead b { color: var(--app-ink); font-weight: 700; }
+
+[data-screen="trip"] .wz-bands { display: flex; flex-direction: column; gap: 12px; }
+[data-screen="trip"] .wz-band[hidden] { display: none; }
+[data-screen="trip"] .wz-band .grouplab { padding: 0 2px 5px; }
+[data-screen="trip"] .wz-band.req .grouplab { color: var(--ok); }
+[data-screen="trip"] .wz-band.bad .grouplab { color: var(--warn-ink); }
+
+[data-screen="trip"] .wz-rows { list-style: none; margin: 0; padding: 0; }
+[data-screen="trip"] .wz-crow {
+  display: flex; align-items: center; gap: 9px; font-size: 13px;
+  padding: var(--wz-band-pad) 13px; border-radius: 12px;
+  max-height: 60px; overflow: hidden;
+  transition: max-height var(--wz-row-ms) var(--wz-row-ease),
+              opacity var(--wz-row-ms) ease,
+              transform var(--wz-row-ms) var(--wz-row-ease),
+              margin var(--wz-row-ms) var(--wz-row-ease),
+              padding var(--wz-row-ms) var(--wz-row-ease);
+}
+[data-screen="trip"] .wz-crow + .wz-crow { margin-top: 6px; }
+[data-screen="trip"] .wz-crow.enter,
+[data-screen="trip"] .wz-crow.leave {
+  max-height: 0; opacity: 0; transform: translateY(-4px);
+  padding-top: 0; padding-bottom: 0; margin-top: 0;
+}
+[data-screen="trip"] .wz-band.req .wz-crow { background: var(--ok-tint); color: var(--ok); }
+[data-screen="trip"] .wz-band.bad .wz-crow { background: var(--warn-tint); color: var(--warn-ink); }
+[data-screen="trip"] .wz-crow .combo {
+  font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .01em; color: inherit;
+}
+[data-screen="trip"] .wz-crow .combo .cam { opacity: .55; margin-left: 1px; }
+[data-screen="trip"] .wz-crow .st {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+[data-screen="trip"] .wz-crow .st svg { width: 13px; height: 13px; flex: none; }
+[data-screen="trip"] .wz-crow .st.warn { color: var(--warn-ink); }
+[data-screen="trip"] .wz-crow .x {
+  flex: none; margin-left: auto; width: 24px; height: 24px; border: 0; background: none;
+  padding: 0; color: inherit; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: .5;
+}
+[data-screen="trip"] .wz-crow .st + .x { margin-left: 4px; }
+[data-screen="trip"] .wz-crow .x svg { width: 14px; height: 14px; }
+
+[data-screen="trip"] .wz-pack {
+  flex: none; margin-left: auto; height: 24px; padding: 0 12px;
+  display: inline-flex; align-items: center; font: inherit; font-size: 11px; font-weight: 700;
+  border-radius: 7px; cursor: pointer;
+  color: var(--warn-ink); background: var(--app-bg); border: 1px solid var(--warn-line);
+}
+[data-screen="trip"] .wz-pack:active { opacity: .6; transform: scale(.97); }
+
+[data-screen="trip"] .wz-test { margin: 0; }
+[data-screen="trip"] .wz-test .wz-lead { margin: 0 0 6px; }
+
+[data-screen="trip"] .wz-srows { margin: 0 calc(var(--gutter) * -1); }
+[data-screen="trip"] .wz-srow {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  font: inherit; border: 0; background: transparent; cursor: pointer;
+  padding: 8px var(--gutter); color: var(--app-ink);
+  transition: background-color var(--wz-chip-ms) ease;
+}
+[data-screen="trip"] .wz-srow + .wz-srow { box-shadow: inset 0 1px 0 var(--app-line); }
+[data-screen="trip"] .wz-srow:active { background: var(--app-bg2); }
+[data-screen="trip"] .wz-srow.sel { background: var(--teal-tint); }
+[data-screen="trip"] .wz-srow.sel.ok { background: var(--ok-tint); }
+[data-screen="trip"] .wz-srow.sel.warn { background: var(--warn-tint); }
+[data-screen="trip"] .wz-srow .box {
+  flex: none; width: 20px; height: 20px; border-radius: 6px; border: 1.8px solid #C7D2D2;
+  display: flex; align-items: center; justify-content: center; color: transparent;
+  transition: background-color var(--wz-chip-ms) ease, border-color var(--wz-chip-ms) ease,
+              color var(--wz-chip-ms) ease;
+}
+[data-screen="trip"] .wz-srow .box svg { width: 12px; height: 12px; }
+[data-screen="trip"] .wz-srow.sel .box { background: var(--teal); border-color: var(--teal); color: #fff; }
+[data-screen="trip"] .wz-srow.sel.ok .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+[data-screen="trip"] .wz-srow.sel.warn .box { background: var(--warn); border-color: var(--warn); color: #fff; }
+[data-screen="trip"] .wz-srow .sz {
+  flex: none; min-width: 34px; font-size: 14px; font-weight: 750;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+[data-screen="trip"] .wz-srow .nm {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600; color: var(--app-muted);
+}
+[data-screen="trip"] .wz-srow .nm .cam { color: var(--app-faint); margin-left: 2px; }
+
+[data-screen="trip"] .wz-verdict {
+  margin-top: 11px; border: 1px solid; border-radius: 11px; padding: 10px 12px;
+  font-size: 12px; line-height: 1.5; animation: wz-fade .2s ease;
+}
+[data-screen="trip"] .wz-verdict[hidden] { display: none; }
+[data-screen="trip"] .wz-verdict.ok { background: var(--ok-tint); border-color: var(--ok-line); color: var(--ok); }
+[data-screen="trip"] .wz-verdict.bad { background: var(--warn-tint); border-color: var(--warn-line); color: var(--warn-ink); }
+[data-screen="trip"] .wz-verdict .vh { display: flex; gap: 6px; align-items: flex-start; font-weight: 700; }
+[data-screen="trip"] .wz-verdict .vh svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+[data-screen="trip"] .wz-verdict .vh b { font-weight: 800; }
+[data-screen="trip"] .wz-verdict .vkit {
+  margin-top: 6px; font-size: 11px; color: var(--app-muted); font-variant-numeric: tabular-nums;
+}
+[data-screen="trip"] .wz-verdict .vpack {
+  margin-top: 9px; font: inherit; font-size: 11.5px; font-weight: 700; border: 0; cursor: pointer;
+  border-radius: 8px; padding: 6px 12px; background: var(--warn); color: #fff;
+}
+[data-screen="trip"] .wz-verdict .vpack:active { opacity: .7; }
+
+[data-screen="trip"] .wz-dead {
+  margin: 0; border: 1px solid var(--crit-line); background: var(--crit-tint);
+  color: var(--crit-ink); border-radius: 11px; padding: 10px 12px; font-size: 12px; line-height: 1.5;
+  display: flex; gap: 7px;
+}
+[data-screen="trip"] .wz-dead[hidden] { display: none; }
+[data-screen="trip"] .wz-dead svg { width: 14px; height: 14px; flex: none; color: var(--crit); margin-top: 1px; }
+
+@keyframes wz-fade { from { opacity: 0; transform: translateY(-4px); } }

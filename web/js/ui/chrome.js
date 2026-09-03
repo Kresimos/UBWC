@@ -10,14 +10,18 @@
 import { html, mount, initial } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
-import { store, setSite, setIdentity, subscribe, emit } from '../store.js';
+import { store, setSite, setTrip, setIdentity, subscribe, emit } from '../store.js';
 import { chooser, formSheet, confirmSheet, toast } from './overlay.js';
 import { go } from '../router.js';
 
+// Trips sits between Log and Add rather than in the middle: Add is the end of
+// the bar because it is the one tab that writes to the inventory, and a trip is
+// closer to the club's own record than to filing a new board.
 const TABS = [
   { key: 'catalogue', label: 'Catalogue', icon: 'gridIcon', path: '/catalogue' },
   { key: 'rig', label: 'Rig', icon: 'sailNav', path: '/rig' },
   { key: 'log', label: 'Log', icon: 'doc', path: '/log' },
+  { key: 'trips', label: 'Trips', icon: 'flag', path: '/trips' },
   { key: 'add', label: 'Add', icon: 'plusCircle', path: '/add' },
 ];
 
@@ -66,28 +70,62 @@ function startClock() {
 }
 
 /**
- * The site selector. One answer drives both "what is in the catalogue" and
+ * The location selector. One answer drives both "what is in the catalogue" and
  * "what will the rig assistant offer", because at the boathouse they are the
  * same question.
+ *
+ * Below the club's own stores sit the trips it is packing or out on: a trip is
+ * a place kit can be, the one place that is not a rack. Picking one scopes the
+ * catalogue and the rig picker to that trip's kit and leaves `store.site` as
+ * the place to fall back to.
  */
-export async function pickSite({ allowAll = true } = {}) {
+export async function pickSite({ allowAll = true, allowTrips = true } = {}) {
   const rows = [];
   if (allowAll) {
-    rows.push({ value: 'all', label: 'All locations', sub: 'Everything the club owns', on: store.site === 'all' });
+    rows.push({ value: 'all', label: 'All locations', sub: 'Everything the club owns', on: !store.trip && store.site === 'all' });
   }
   store.sites.forEach((site) => rows.push({
     value: site.name,
     label: site.name,
     sub: `${site.n_items} ${site.n_items === 1 ? 'piece' : 'pieces'} of kit`,
-    on: store.site === site.name,
+    on: !store.trip && store.site === site.name,
   }));
+
+  if (allowTrips) {
+    // The list can move on while the app is open (a trip marked active, one
+    // ended), so refresh it here rather than trusting the boot-time snapshot.
+    try {
+      const data = await api.trips();
+      store.trips = data.trips
+        .filter((trip) => ['packing', 'active'].includes(trip.status))
+        .map((trip) => ({
+          id: trip.id, name: trip.name, destination: trip.destination,
+          lat: trip.lat, lon: trip.lon, status: trip.status,
+          n_items: trip.n_items,
+        }));
+    } catch { /* the boot-time snapshot stands in */ }
+    store.trips.forEach((trip) => rows.push({
+      value: `trip:${trip.id}`,
+      label: trip.name,
+      sub: trip.status === 'active'
+        ? `On the water${trip.destination ? ` · ${trip.destination}` : ''}`
+        : `Packing · ${trip.n_items} ${trip.n_items === 1 ? 'piece' : 'pieces'}`,
+      on: Boolean(store.trip && store.trip.id === trip.id),
+    }));
+  }
 
   const chosen = await chooser({
     title: 'Where are you?',
     sub: 'This filters the catalogue and keeps the rig assistant to kit that is actually near you.',
     rows,
   });
-  if (chosen) setSite(chosen);
+  if (!chosen) return chosen;
+  if (chosen.startsWith('trip:')) {
+    const id = Number(chosen.slice(5));
+    setTrip(store.trips.find((trip) => trip.id === id) || null);
+  } else {
+    setSite(chosen);
+  }
   return chosen;
 }
 
@@ -163,7 +201,7 @@ export async function signUp() {
       { name: 'display_name', label: 'Display name', autocomplete: 'name',
         hint: 'Optional. Defaults to your username.' },
       { name: 'password', label: 'Password', type: 'password', required: true,
-        autocomplete: 'new-password', hint: 'At least 8 characters.' },
+        autocomplete: 'new-password' },
     ],
     submitLabel: 'Create account',
     alt: 'I already have one',
@@ -199,7 +237,7 @@ async function changePassword() {
       { name: 'current', label: 'Current password', type: 'password', required: true,
         autocomplete: 'current-password' },
       { name: 'password', label: 'New password', type: 'password', required: true,
-        autocomplete: 'new-password', hint: 'At least 8 characters.' },
+        autocomplete: 'new-password' },
     ],
     submitLabel: 'Change it',
     onSubmit: (values) => api.changePassword(values.current, values.password),
@@ -268,7 +306,7 @@ async function memberActions(member) {
         title: `Set a password for ${name}`,
         sub: 'Tell them what it is, and to change it once they are in. Signs them out everywhere.',
         fields: [{ name: 'password', label: 'New password', type: 'password', required: true,
-                   autocomplete: 'new-password', hint: 'At least 8 characters.' }],
+                   autocomplete: 'new-password' }],
         submitLabel: 'Set it',
         onSubmit: (values) => api.setMemberPassword(member.id, values.password),
       });

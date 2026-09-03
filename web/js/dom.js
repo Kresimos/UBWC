@@ -149,7 +149,12 @@ export function initial(name) {
  */
 export function stampDate(stamp) {
   if (!stamp) return null;
-  const text = String(stamp);
+  const text = String(stamp).trim();
+  // A plain calendar date with no time - a trip's start/end. Read it as local
+  // midnight: it should display as the day that was written, and appending "Z"
+  // to a date-only string only makes it a value `new Date` rejects outright.
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (ymd) return new Date(+ymd[1], +ymd[2] - 1, +ymd[3]);
   const parsed = new Date(text.replace(' ', 'T') + (text.includes('Z') ? '' : 'Z'));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

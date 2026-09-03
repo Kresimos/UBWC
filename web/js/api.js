@@ -81,27 +81,51 @@ export const api = {
   reportFix: (faultId, body) => request('POST', `/api/faults/${faultId}/fix`, { body }),
   clearFault: (faultId) => request('POST', `/api/faults/${faultId}/clear`, {}),
 
-  rigKit: (site) => get('/api/rig/kit', { site }),
+  // `trip` narrows the rig kit to one trip's inventory (its away flag ignored);
+  // pass it instead of `site`, not as well.
+  rigKit: (site, trip) => get('/api/rig/kit', { site, trip }),
   rigSuggest: (site) => get('/api/rig/suggest', { site }),
   profile: (site) => get('/api/profile', { site }),
   setup: () => get('/api/setup'),
-  saveSetup: (site, pieces) => request('POST', '/api/setup', { site, pieces }),
+  saveSetup: (site, pieces, tripId) =>
+    request('POST', '/api/setup', { site, pieces, trip_id: tripId || null }),
   derig: (setupId) => request('POST', `/api/setup/${setupId}/derig`, {}),
   binSetup: (setupId) => request('POST', `/api/setup/${setupId}/bin`, {}),
 
   tripKit: () => get('/api/trips/kit'),
   trips: () => get('/api/trips'),
   trip: (id) => get(`/api/trips/${id}`),
+  tripForecast: (id) => get(`/api/trips/${id}/forecast`),
+  geocode: (q) => get('/api/geocode', { q }),
   createTrip: (payload) => request('POST', '/api/trips', payload),
-  setTripItems: (id, items) => request('POST', `/api/trips/${id}/items`, { items }),
   editTrip: (id, fields) => request('POST', `/api/trips/${id}/edit`, fields),
-  tripReturned: (id, itemId, on) =>
-    request('POST', `/api/trips/${id}/returned`, { item_id: itemId, on }),
+  // Replace is what the packing wizard saves; add and remove are what the
+  // picker sheet and a long-press do, so one open sheet cannot overwrite a
+  // list somebody else added to while it was open.
+  setTripItems: (id, items) => request('POST', `/api/trips/${id}/items`, { items }),
+  addTripItems: (id, items) => request('POST', `/api/trips/${id}/items/add`, { items }),
+  removeTripItem: (id, itemId) =>
+    request('POST', `/api/trips/${id}/items/remove`, { item_id: itemId }),
+  // The Confirm screen's Continue: fix the chosen kit, drop the requests for
+  // anything the kit sec did not take through.
+  finaliseTripKit: (id, items) => request('POST', `/api/trips/${id}/finalise`, { items }),
+  // The kit sec clearing one piece off the wishlist before Confirm.
+  dropRequest: (id, itemId) =>
+    request('POST', `/api/trips/${id}/request/drop`, { item_id: itemId }),
+  setTripStage: (id, status) => request('POST', `/api/trips/${id}/stage`, { status }),
+  tripPacked: (id, itemId, on) =>
+    request('POST', `/api/trips/${id}/packed`, { item_id: itemId, on }),
+  // Ending a trip is one act: every piece on the list goes back to being
+  // available at the rack it never left. There is no per-piece return tick.
   closeTrip: (id, payload) => request('POST', `/api/trips/${id}/close`, payload || {}),
-  tripVote: (id, itemId, on) =>
-    request('POST', `/api/trips/${id}/vote`, { item_id: itemId, on }),
+  tripRequest: (id, itemId, on) =>
+    request('POST', `/api/trips/${id}/request`, { item_id: itemId, on }),
 
   sessions: (scope) => get('/api/sessions', { scope }),
   logSession: (payload) => request('POST', '/api/sessions', payload),
-  wind: (site, start, end) => get('/api/wind', { site, start, end }),
+  // `coords` is a trip's own pin ({lat, lon}), used when the session was sailed
+  // on a trip whose destination has no site row to look coordinates up on.
+  wind: (site, start, end, coords) => get('/api/wind', {
+    site, start, end, lat: coords && coords.lat, lon: coords && coords.lon,
+  }),
 };

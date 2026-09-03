@@ -29,7 +29,7 @@ import { itemTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite } from '../ui/chrome.js';
 import { toast } from '../ui/overlay.js';
 import { haptic, TICK, PICK } from '../ui/haptics.js';
-import { go } from '../router.js';
+import { go, path } from '../router.js';
 import { building } from '../rig/session.js';
 import {
   TARGETS, TARGET_KEYS, SLOTS, matches, tagsFor, nearestStocked, clampTarget,
@@ -42,6 +42,15 @@ const VIEW_KEY = 'ubwc.buildview';
 const DRAG_PER_STEP = 22;
 const WHEEL_PER_STEP = 40;
 
+/* Throw and catch. Letting go of the wheel mid-flick keeps it running and
+   slowing, the way a real detented dial would, so the whole size range is
+   reachable from one gesture instead of several short drags. All three are in
+   pixels per millisecond of finger travel except the decay, which is the time
+   constant the speed falls off over. */
+const FLING_START = 0.4;   // below this a lift is a stop, not a throw
+const FLING_STOP = 0.05;   // slow enough to be finished
+const FLING_DECAY = 240;   // ms for the speed to fall to ~a third
+
 export async function render(root, params) {
   // Coming back to the Rig tab part-way through means "show me my rig", not
   // "start again". An explicit step (the Change link on Your rig) or a pinned
@@ -52,12 +61,14 @@ export async function render(root, params) {
   }
 
   const site = store.site === 'all' ? null : store.site;
+  const trip = store.trip;
   // The suggestion is a nicety, not a dependency: if it cannot be worked out
   // (offline, no coordinates for the site, nobody signed in) the wheels open
-  // where they always did.
+  // where they always did. On a trip it is skipped outright — its wording is
+  // about the wind at a home site, which is not where the member is.
   const [data, hint] = await Promise.all([
-    api.rigKit(site),
-    api.rigSuggest(store.site).catch(() => null),
+    api.rigKit(trip ? null : site, trip ? trip.id : null),
+    trip ? Promise.resolve(null) : api.rigSuggest(store.site).catch(() => null),
   ]);
   const kit = data.kit;
 
@@ -125,7 +136,6 @@ export async function render(root, params) {
   const tagsNode = root.querySelector('[data-tags]');
   const countNode = root.querySelector('[data-count]');
   const resultsNode = root.querySelector('[data-results]');
-  const helperNode = root.querySelector('[data-helper]');
 
   // ---------------------------------------------------------------- painting
   function paint() {
@@ -144,16 +154,15 @@ export async function render(root, params) {
       ? html`<p class="sizehint">${icon('chart')}${state.hinted[key].why}</p>`
       : '');
 
+    // A chip is the same size whether or not it is on, and nothing is added
+    // beside the row when one is: the bar used to shuffle sideways the moment
+    // you picked something, which moved the chip you were about to tap next.
+    // Tapping a chip again drops it, so there is no × and no reset button.
     mount(tagsNode, state.chips[key].length ? html`
       <div class="tagrow">
-        ${active.length
-          ? html`<button class="clearall" data-clear-tags aria-label="Clear all filters">${icon('close')}</button>`
-          : ''}
         <div class="tagscroll">
           ${state.chips[key].map((tag) => html`
-            <button class="tag ${active.includes(tag) ? 'on' : ''}" data-tag="${tag}">
-              ${active.includes(tag) ? html`<span class="x">×</span>` : ''}${tag}
-            </button>`)}
+            <button class="tag ${active.includes(tag) ? 'on' : ''}" data-tag="${tag}">${tag}</button>`)}
         </div>
       </div>` : '');
 
@@ -167,9 +176,6 @@ export async function render(root, params) {
           ${found.map((piece) => tile(key, piece))}</div>`
       : emptyState(key, active));
 
-    mount(helperNode, active.length
-      ? html`<p class="helper">Cleared a chip by mistake? Tap the × on it, or the circle to reset the lot.</p>`
-      : '');
   }
 
   /** The number alone, for the frames of a drag between full repaints. */
@@ -258,12 +264,55 @@ export async function render(root, params) {
     settleTimer = setTimeout(paint, 160);
   }
 
-  onClick(root, 'data-nudge', (value) => nudge(Number(value)));
+  onClick(root, 'data-nudge', (value) => { stopFling(); nudge(Number(value)); });
+
+  /**
+   * The throw. `speed` is the finger's last velocity in px/ms, carrying the
+   * sign of the drag it came from; `carry` is the part of a step the drag had
+   * already travelled, so the first detent after the lift lands where the
+   * finger would have put it. It runs on animation frames and dies either when
+   * it slows to nothing or when the size hits the end of its range, and any
+   * new touch catches it (see touchstart below).
+   */
+  let fling = null;
+  function stopFling() {
+    if (!fling) return;
+    cancelAnimationFrame(fling.frame);
+    fling = null;
+    paint();
+  }
+
+  function throwWheel(speed, carry) {
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced || Math.abs(speed) < FLING_START) return false;
+    fling = { v: speed, acc: carry, t: performance.now(), frame: 0 };
+    const tick = (now) => {
+      if (!fling) return;
+      const dt = Math.min(now - fling.t, 50); // a backgrounded tab must not leap
+      fling.t = now;
+      fling.acc += fling.v * dt;
+      fling.v *= Math.exp(-dt / FLING_DECAY);
+      const steps = Math.trunc(fling.acc / DRAG_PER_STEP);
+      if (steps) {
+        fling.acc -= steps * DRAG_PER_STEP;
+        const before = state.target[state.step];
+        nudge(steps, { settle: false });
+        // Nothing moved, so the wheel is against the end of its range and
+        // there is nothing left to coast through.
+        if (state.target[state.step] === before) { stopFling(); return; }
+      }
+      if (Math.abs(fling.v) < FLING_STOP) { stopFling(); return; }
+      fling.frame = requestAnimationFrame(tick);
+    };
+    fling.frame = requestAnimationFrame(tick);
+    return true;
+  }
 
   // Scrolling up, or right, counts up.
   const wheel = { acc: 0 };
   on(root, 'wheel', '.picker', (event) => {
     event.preventDefault();
+    stopFling();
     wheel.acc += (-event.deltaY + event.deltaX);
     const steps = Math.trunc(wheel.acc / WHEEL_PER_STEP);
     if (!steps) return;
@@ -278,11 +327,20 @@ export async function render(root, params) {
   on(root, 'touchstart', '.picker', (event) => {
     const touch = event.touches[0];
     const button = event.target.closest('[data-nudge]');
+    // A finger on a wheel that is still coasting catches it, and that touch
+    // does nothing else: you stopped it, you did not also press what was under
+    // it. `caught` is what carries that as far as touchend.
+    const caught = Boolean(fling);
+    stopFling();
     // Remembered so a tap that never turns into a drag can still be honoured
     // on touchend, rather than left to a synthesised click that a phone's own
     // tap-vs-scroll threshold (typically well under our own step size) may
     // have already decided not to send.
-    drag = { x: touch.clientX, y: touch.clientY, acc: 0, moved: false, nudge: button && button.getAttribute('data-nudge') };
+    drag = {
+      x: touch.clientX, y: touch.clientY, acc: 0, moved: false, caught,
+      nudge: button && button.getAttribute('data-nudge'),
+      v: 0, t: event.timeStamp,
+    };
   }, { passive: true });
 
   on(root, 'touchmove', '.picker', (event) => {
@@ -294,7 +352,15 @@ export async function render(root, params) {
     drag.y = touch.clientY;
     // Whichever axis the finger is actually travelling on, so a diagonal drag
     // does not count twice.
-    drag.acc += Math.abs(down) >= Math.abs(left) ? down : left;
+    const travel = Math.abs(down) >= Math.abs(left) ? down : left;
+    drag.acc += travel;
+    // Speed for the throw, smoothed so one jittery frame at the moment of
+    // lifting off does not decide how far the wheel runs on.
+    const dt = event.timeStamp - drag.t;
+    if (dt > 0) {
+      drag.v = drag.v * 0.7 + (travel / dt) * 0.3;
+      drag.t = event.timeStamp;
+    }
     const steps = Math.trunc(drag.acc / DRAG_PER_STEP);
     // Only a move that actually turns into a step is cancelled, and cancelling
     // is what tells the browser this touch was a drag rather than a tap. Doing
@@ -310,21 +376,26 @@ export async function render(root, params) {
 
   const endDrag = (event) => {
     if (!drag) return;
-    const { moved, nudge: pressed } = drag;
+    const { moved, nudge: pressed, caught, v, acc } = drag;
+    // A finger that went stale between frames was resting, not travelling, so
+    // the wheel stops where it is rather than being thrown by an old reading.
+    const stale = event.timeStamp - drag.t > 90;
     drag = null;
     // A tap that stayed under the step threshold still moved the finger more
     // than a phone's own (smaller) tolerance for calling it a tap, so the
-    // click this touch would have synthesised cannot be relied on — the app
+    // click this touch would have synthesised cannot be relied on. The app
     // takes the press itself rather than a gesture the browser may or may not
-    // forward.
-    if (!moved && pressed) {
+    // forward. A tap that only caught a coasting wheel is not that press.
+    if (!moved && pressed && !caught) {
       event.preventDefault();
       nudge(Number(pressed));
     }
+    // Let go mid-flick and the wheel keeps running, slowing as it goes.
+    if (moved && !stale && throwWheel(v, acc)) return;
     paint();
   };
   on(root, 'touchend', '.picker', endDrag, { passive: false });
-  on(root, 'touchcancel', '.picker', () => { drag = null; paint(); }, { passive: true });
+  on(root, 'touchcancel', '.picker', () => { drag = null; stopFling(); }, { passive: true });
 
   // ---------------------------------------------------------------- events
   root.querySelector('[data-pick-site]').addEventListener('click', async () => {
@@ -347,11 +418,6 @@ export async function render(root, params) {
     const at = active.indexOf(tag);
     if (at >= 0) active.splice(at, 1);
     else active.push(tag);
-    paint();
-  });
-
-  onClick(root, 'data-clear-tags', () => {
-    state.tags[state.step] = [];
     paint();
   });
 
@@ -383,10 +449,13 @@ export async function render(root, params) {
     building.pick(key, Number(value));
     building.setTarget(key, state.target[key]);
     haptic(PICK);
-    // Picking is the only way forward: on to the step still open, or out to the
-    // rig once both are answered.
-    const next = TARGET_KEYS.find((k) => !resolved(k));
+    // Picking is the only way forward, and it is the only thing that counts as
+    // an answer: a step that was skipped past still has to be picked, so land
+    // on it (dropping the skip so it reads as the live step, not a stepped-past
+    // one) rather than falling through to the rig with a hole in it.
+    const next = TARGET_KEYS.find((k) => !resolvedPiece(k));
     if (next) {
+      building.reopen(next);
       state.step = next;
       paint();
       root.querySelector('[data-body]').scrollTop = 0;
@@ -413,7 +482,20 @@ export async function render(root, params) {
   });
 
   paint();
-  return () => { unsubscribe(); clearTimeout(settleTimer); };
+  return () => {
+    unsubscribe();
+    clearTimeout(settleTimer);
+    // Leaving the screen mid-throw must not leave a frame loop repainting a
+    // tree that is no longer on the page.
+    if (fling) { cancelAnimationFrame(fling.frame); fling = null; }
+    // Walking away from Build throws the half-made pick away: opening the Rig
+    // tab again should ask the size question fresh, not resume a sail you
+    // half-chose and wandered off from. Finishing Build hands the picks on to
+    // Your rig, and the in-place moves (the site picker, a step tab) stay on
+    // /rig — those keep what is chosen; anything else clears it.
+    const dest = path().split('?')[0];
+    if (dest !== '/rig' && dest !== '/setup') building.clear();
+  };
 }
 
 // ------------------------------------------------------------------ markup
@@ -449,7 +531,6 @@ function shell() {
         </div>
       </div>
       <div data-results></div>
-      <div data-helper></div>
     </div>`;
 }
 

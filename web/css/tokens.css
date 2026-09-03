@@ -40,6 +40,36 @@
      shelf of kit: if the two ever differ, the tiles are different widths and
      the same board is a different size on the two screens. */
   --gutter: 18px;
+
+  /* --- the trip decorations -------------------------------------------------
+     The four marks a piece picks up once it is on a trip: who asked for it, a
+     tick when it is on the trailer, its fault as a bubble when the row has no
+     width left for a chip, and a grey chip when it is away with somebody else.
+     These are knobs rather than literals because they were tuned together
+     against the shipped tile — see misc/trips-mockup, whose tuner drives
+     exactly these names. */
+  --voter-size: 18px;        /* diameter of one requester disc, grid */
+  --voter-size-list: 18px;   /* the same, on a list row */
+  --voter-overlap: 10px;     /* how far each disc slides under the one before */
+  --voter-cap: 3;            /* how many discs the pile shows (read by JS too) */
+  --voter-ring: 1.5px;       /* the ring that separates stacked discs */
+  --voter-font: 9.5px;
+  --voter-fade: 0.3;         /* opacity of the LAST disc; earlier ones interpolate */
+  /* The size column is given a fixed width so the stacks that sit against it
+     line up down the list, whatever the size text underneath them reads. */
+  --size-col-w: 48px;
+  --tick-size: 22px;
+  --tick-inset: 7px;
+  --faultdot-size: 15px;
+  --faultdot-inset: -4px;    /* negative = overhangs the thumb's corner */
+  --cluster-gap: 3px;        /* heart to fault, sharing one corner */
+  /* Two different gaps, because they separate two different things: a type
+     heading inside one trip's kit sits tight to the rows above it, while the
+     stage headings on the trips index separate whole groups of trips. */
+  --group-gap: 3px;
+  --stage-gap: 18px;
+  --out-bg: #E7EBEB;         /* the "away with a trip" chip */
+  --out-ink: #5C6A6A;
 }
 
 * { box-sizing: border-box; }
@@ -505,6 +535,10 @@ button:active, [role="button"]:active {
 }
 .itemgrid .card { display: flex; flex-direction: column; transition: transform .12s ease; }
 .itemgrid .card:active { transform: scale(.985); }
+/* :active climbs to every ancestor, so pressing the fault chip pressed the
+   whole tile with it and read as picking the piece. The chip has its own press
+   below; the tile holds still under it. */
+.itemgrid .card:active:has(.flagchip:active) { transform: none; }
 
 .itemgrid .shot {
   position: relative; aspect-ratio: 1 / 1.14; background: var(--shot);
@@ -549,6 +583,8 @@ button:active, [role="button"]:active {
 /* Divider-glued row: tint, not shrink. A row that scales away from the
    divider it shares with the row below reads as the list coming apart. */
 .itemlist .card:active { background: var(--app-bg2); transform: none; }
+.itemlist .card:active:has(.flagchip:active) { background: transparent; }
+.itemlist .card.picked:active:has(.flagchip:active) { background: var(--teal-tint); }
 .itemlist .card.picked { background: var(--teal-tint); }
 .itemlist .thumb {
   flex: none; width: 42px; height: 42px; border-radius: 7px; background: var(--shot);
@@ -559,9 +595,24 @@ button:active, [role="button"]:active {
 .itemlist .selbox {
   flex: none; width: 22px; height: 22px; border-radius: 7px; border: 1.8px solid #C7D2D2;
   display: flex; align-items: center; justify-content: center; color: transparent;
+  /* The blue fill is the slow half: an eased fade so the highlight arrives
+     rather than snaps. The check mark's own colour catches up a touch quicker
+     so it is legible by the time the box is dark. */
+  transition: background-color .2s ease, border-color .2s ease, color .12s ease;
 }
 .itemlist .card.picked .selbox { background: var(--teal); border-color: var(--teal); color: #fff; }
 .itemlist .selbox svg { width: 14px; height: 14px; }
+/* The check mark landing: a fast fan-in with a hair of overshoot, done in an
+   eighth of a second so it reads as the tap registering, not as an animation
+   playing. Added by js/screens/trip.js only on the tap, so a list of
+   already-packed kit is not a row of pops when the screen opens. */
+.itemlist .selbox.pop svg,
+.itemgrid .tickdisc.pop { animation: tickpop .13s ease-out; }
+@keyframes tickpop {
+  0% { transform: scale(.5); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 .itemlist .lm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .itemlist .lm .t { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
 .itemlist .lm .s {
@@ -587,6 +638,119 @@ button:active, [role="button"]:active {
 .itemlist .lr .sz u {
   font-size: 10.5px; font-weight: 600; color: var(--app-faint); text-decoration: none; margin-left: 2px;
 }
+
+/* ------------------------------------------------- the tile, on a trip
+   Four decorations a piece picks up once a trip has an opinion about it. All
+   of them are drawn by js/ui/itemTile.js behind an option, so a tile with no
+   trip in sight is byte for byte the tile that shipped. */
+
+/* Who asked for this piece. The leftmost disc sits on top and each one behind
+   it is a step fainter, so the stack reads as a pile with a front to it rather
+   than a row that happens to overlap. Depth and opacity are written per disc
+   from JS, because both depend on how many are shown, which is --voter-cap.
+   No +N counter: three discs fading back already says "several people asked",
+   and the exact number is not a decision anybody makes from a row. */
+.whostack { display: inline-flex; align-items: center; flex: none; cursor: pointer; }
+.whostack .av {
+  position: relative;
+  width: var(--voter-size); height: var(--voter-size); border-radius: 50%;
+  background: var(--teal); color: #fff; font-size: var(--voter-font); font-weight: 750;
+  display: flex; align-items: center; justify-content: center; flex: none;
+  box-shadow: 0 0 0 var(--voter-ring) var(--shot);
+}
+.whostack .av + .av { margin-left: calc(var(--voter-overlap) * -1); }
+
+/* Over a product shot the ring is white, because that is what is behind it. */
+.itemgrid .whostack { position: absolute; right: 7px; bottom: 7px; z-index: 3; }
+.itemgrid .whostack .av { box-shadow: 0 0 0 var(--voter-ring) #fff; }
+
+/* In a row the stack sits against the size column, which is why that column is
+   given a fixed width on the trip screens: the stacks then line up down the
+   list however long the size text under them happens to read. */
+.itemlist .whostack { margin: 0 6px 0 3px; }
+.itemlist .whostack .av {
+  width: var(--voter-size-list); height: var(--voter-size-list);
+  box-shadow: 0 0 0 var(--voter-ring) var(--app-bg);
+}
+.itemlist .card.picked .whostack .av { box-shadow: 0 0 0 var(--voter-ring) var(--teal-tint); }
+
+/* The check disc: kit ticked onto the trailer on a packing list. It takes the
+   top-right corner the fault chip normally holds, and the fault moves into the
+   top-left cluster below. The tile itself is already .picked, so this disc is
+   confirmation rather than the whole signal. */
+.itemgrid .tickdisc {
+  position: absolute; top: var(--tick-inset); right: var(--tick-inset); z-index: 3;
+  width: var(--tick-size); height: var(--tick-size); border-radius: 50%;
+  background: var(--teal); color: #fff; display: flex; align-items: center;
+  justify-content: center; box-shadow: 0 2px 6px rgba(10, 40, 45, .2);
+}
+.itemgrid .tickdisc svg { width: 55%; height: 55%; }
+
+/* In checklist mode the heart and the fault chip share the top-left corner,
+   laid out in a row rather than floated independently, so they cannot collide. */
+.itemgrid .cluster {
+  position: absolute; top: 7px; left: 7px; z-index: 3;
+  display: flex; align-items: center; gap: var(--cluster-gap);
+}
+.itemgrid .cluster .savedmark,
+.itemgrid .cluster .flagchip { position: static; }
+
+/* Fault and "out" can both be true, so the grid's top-right corner becomes a
+   column instead of a single slot. */
+.itemgrid .chipstack {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.itemgrid .chipstack .flagchip { position: static; }
+
+/* The fault bubble. List view only: the voter tags need the right-hand column,
+   so the fault gives up its inline chip and becomes a bubble on the thumb. Not
+   a button - at this size it is below a reliable tap target, and tapping the
+   row opens the item page where the fault is written out in full.
+
+   The bubble deliberately overhangs the thumb's corner, and .thumb carries
+   overflow:hidden to crop the product shot, so it cannot be a child of the
+   thumb or the crop clips it away. .lead is the positioning box round both.
+
+   It sits top-RIGHT rather than left: on a checklist the left of the row
+   belongs to the circle, and a bubble there lands on top of it.
+
+   Pale ground, deep glyph - the same amber and red pairing the fault chip
+   already uses, so a bubble and a chip read as one warning at two sizes. */
+.itemlist .lead { position: relative; flex: none; display: flex; }
+.itemlist .faultdot {
+  position: absolute; top: var(--faultdot-inset); right: var(--faultdot-inset); z-index: 2;
+  width: var(--faultdot-size); height: var(--faultdot-size); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--warn-tint); color: var(--warn); box-shadow: 0 0 0 2px var(--app-bg);
+}
+.itemlist .card.picked .faultdot { box-shadow: 0 0 0 2px var(--teal-tint); }
+.itemlist .faultdot.oos { background: var(--crit-tint); color: var(--crit); }
+.itemlist .faultdot svg { width: 62%; height: 62%; }
+/* A checkable row keeps its thumbnail: a trailer is packed by looking at kit,
+   so the circle is added to the row rather than put in the picture's place.
+   The pair is tightened by 4px to buy that back off the row's own gap. */
+.itemlist .selbox + .lead { margin-left: -4px; }
+
+/* Kit that has left its rack with a trip. Grey, and deliberately not a button:
+   there is nothing to read that the trip page does not say better, and a second
+   button on a tile that already has one is a mis-tap waiting to happen. */
+.flagchip.out { background: var(--out-bg); color: var(--out-ink); cursor: default; }
+.flagchip.out:active { transform: none; }
+
+/* Where a piece lives, in place of its rating. While packing, the rack is the
+   useful fact and the star score is not. Same slot, same type scale, so no row
+   changes height when a trip moves on a stage. */
+/* A button, not a span, so the spot description is one tap away. It is given
+   the surrounding text's own styling rather than a button's, because it has to
+   sit in the rating's slot without changing the tile's rhythm. */
+.itemgrid .rating.place {
+  color: var(--app-muted); font-weight: 650; font: inherit; font-size: 12px;
+  border: 0; background: none; padding: 0; margin: 0; text-align: left;
+  cursor: pointer; min-width: 0;
+}
+.itemgrid .rating.place svg { width: 11px; height: 11px; flex: none; }
+.itemlist .lm .s .rt svg { width: 11px; height: 11px; }
 
 .spinner {
   width: 22px; height: 22px; border-radius: 50%;
@@ -634,9 +798,26 @@ button:active, [role="button"]:active {
   position: absolute; inset: 0; z-index: 40; background: rgba(9, 22, 25, .58);
   -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
   display: flex; align-items: flex-end; justify-content: center;
+  transition: background-color .2s ease, backdrop-filter .2s ease,
+              -webkit-backdrop-filter .2s ease;
 }
 .overlay[hidden] { display: none; }
 .overlay.centred { align-items: center; padding: 26px; }
+
+/* Leaving: the backdrop clears and the card slides down (or, when centred,
+   settles back a touch) before the node is removed. */
+.overlay.closing {
+  background: rgba(9, 22, 25, 0);
+  -webkit-backdrop-filter: blur(0); backdrop-filter: blur(0);
+}
+.overlay.closing .sheet { animation: sink .22s cubic-bezier(.32, .72, 0, 1) forwards; }
+.overlay.closing .lbcard { animation: lbsink .16s ease forwards; }
+@keyframes sink { to { transform: translateY(16px); opacity: 0; } }
+@keyframes lbsink { to { transform: scale(.96); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .overlay { transition: none; }
+  .overlay.closing .sheet, .overlay.closing .lbcard { animation: none; }
+}
 
 .sheet {
   width: 100%; background: var(--app-bg); border-radius: 24px 24px 0 0;
@@ -715,6 +896,9 @@ button:active, [role="button"]:active {
 .lbphoto.warning {
   background: var(--warn-tint); color: var(--warn); aspect-ratio: auto; padding: 20px 0;
 }
+/* A fault that has taken the piece out of action opens red, the same colour
+   as the chip that was tapped to get here. */
+.lbphoto.warning.crit { background: var(--crit-tint); color: var(--crit); }
 .lbclose {
   display: block; width: calc(100% - 30px); margin: 12px 15px 15px; padding: 11px;
   border-radius: 11px; border: 0; background: var(--app-bg2); font-size: 13.5px;

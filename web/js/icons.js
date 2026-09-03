@@ -55,6 +55,11 @@ export const icons = {
   box: stroke('<rect x="4" y="2.5" width="16" height="19" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/>', 1.6),
   trash: stroke('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/>'),
   move: stroke('<path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4"/>', 1.8),
+  // Trips: a destination flag, its top and bottom edges given a gentle flutter
+  // so it reads as somewhere the club is heading, not a static marker. Distinct
+  // from pin (a storage spot) and box (a form); shrinks cleanly to the "Out"
+  // chip, where it means "away with a trip".
+  flag: stroke('<path d="M5 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1Z"/><path d="M5 21v-6"/>', 2),
   chart: stroke('<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 4-6"/>', 2),
   // The saved mark, everywhere a piece can be saved. Two things are tuned here.
   // The bottom point is filleted with r=1.025, which is the star's own

@@ -55,7 +55,8 @@ export async function render(root) {
   }
 
   const site = store.site === 'all' ? null : store.site;
-  const kit = (await api.rigKit(site)).kit;
+  const trip = store.trip;
+  const kit = (await api.rigKit(trip ? null : site, trip ? trip.id : null)).kit;
   const byId = (id) => kit.find((piece) => piece.id === id) || null;
 
   const ui = {
@@ -570,6 +571,10 @@ export async function render(root) {
 
   onClick(root, 'data-change', async (key) => {
     if (key === 'sail' || key === 'board') {
+      // Change means "I have not chosen this": clear the pick so Build opens on
+      // an empty step with a hollow badge, not the old one still ticked.
+      building.reopen(key);
+      delete ui.openSel[key];
       go(`/rig?step=${key}`);
       return;
     }
@@ -658,8 +663,13 @@ export async function render(root) {
       add(slot.k, piece, settings);
     });
     if (!pieces.length) return;
+    // A rig built on a trip is saved against the trip: its destination stands
+    // in for the site (for the de-rig and feed lines), and trip_id is what lets
+    // the logbook pull wind for the trip's pin after a de-rig.
+    const setupSite = trip ? (trip.destination || null)
+      : (store.site === 'all' ? null : store.site);
     try {
-      const saved = await api.saveSetup(store.site === 'all' ? null : store.site, pieces);
+      const saved = await api.saveSetup(setupSite, pieces, trip ? trip.id : null);
       setSetup(saved.setup);
     } catch (error) {
       toast(error.message, true);

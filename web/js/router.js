@@ -13,6 +13,12 @@ const routes = [];
 let current = null;
 let root = null;
 let onChange = () => {};
+// How many screens deep in this app's own history the current entry is. It is
+// stamped onto the history entry itself, so the browser hands it back on a
+// back/forward move and `back()` can tell "there is a screen of ours under
+// this one" from "this is where the app was opened".
+let depth = -1;
+let replacing = false;
 
 export function route(pattern, options) {
   // '/item/:id' -> a regex with named groups, in declaration order.
@@ -37,19 +43,29 @@ export function go(path, { replace = false } = {}) {
     resolve();
     return;
   }
+  replacing = replace;
   if (replace) location.replace(target);
   else location.hash = target;
 }
 
+/**
+ * The back arrow: return to whatever screen we actually came from.
+ *
+ * Anything the app itself opened sits on top of at least one entry of ours, so
+ * the browser's own history is the honest answer, the same move as the phone's
+ * back gesture. The fallback is only for a screen that was the entry point (a
+ * deep link, a home-screen shortcut, a reload), where there is nothing of ours
+ * underneath and stepping back would leave the app.
+ */
 export function back(fallback = '/catalogue') {
-  if (history.length > 1 && document.referrer !== '') history.back();
-  else if (history.state && history.length > 1) history.back();
+  if (depth > 0) history.back();
   else go(fallback, { replace: true });
 }
 
 export const path = () => location.hash.slice(1) || '/catalogue';
 
 function resolve() {
+  trackDepth();
   const full = path();
   const [target, queryString] = full.split('?');
   const query = Object.fromEntries(new URLSearchParams(queryString || ''));
@@ -100,6 +116,27 @@ function errorScreen(error) {
   wrap.querySelector('span').textContent = error.message || String(error);
   wrap.querySelector('button').addEventListener('click', resolve);
   return wrap;
+}
+
+/**
+ * Work out how deep the entry now showing is, and stamp it so a later
+ * back/forward onto it reads the same number back.
+ *
+ * A hash the browser has seen before comes back with its stamp intact; an
+ * unstamped one is a move we have just made, one deeper than the screen we
+ * were on unless it replaced it.
+ */
+function trackDepth() {
+  const stamped = history.state && typeof history.state.depth === 'number';
+  if (stamped) {
+    depth = history.state.depth;
+  } else {
+    depth = replacing ? Math.max(depth, 0) : depth + 1;
+    // Two arguments only: passing a URL of '' would resolve against the
+    // document and drop the fragment we are routing on.
+    history.replaceState({ ...history.state, depth }, '');
+  }
+  replacing = false;
 }
 
 /** Re-run the active route, after something changed underneath it. */

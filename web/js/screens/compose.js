@@ -1,10 +1,21 @@
 /**
  * Compose — writing a session up.
  *
- * Where de-rig lands you. The kit is prefilled from the setup you were out on,
- * the wind is auto-fetched for the rig-to-de-rig window (and stays editable),
- * and the only required decision is the one 1-5 star overall — author-only,
- * decorative in the feed, not a per-item review others rely on.
+ * Where de-rig lands you, straight off the checklist. The kit is prefilled from
+ * the setup you were out on, the wind is auto-fetched for the rig-to-de-rig
+ * window (and stays editable), and the only required decision is the one 1-5
+ * star overall — author-only, decorative in the feed, not a per-item review
+ * others rely on.
+ *
+ * Since the screen now opens itself rather than being asked for, it carries two
+ * ways out that are not "save", and they mean different things:
+ *
+ *  - **Skip**, top right, is "not now": the setup stays de-rigged-but-unlogged,
+ *    so the nudge is waiting in the log whenever the member comes back to it.
+ *  - **Don't save**, small text at the very bottom, is "never": the setup is
+ *    binned, and no nudge follows the member around for a sail they have
+ *    decided not to keep. It sits under everything else, and asks first,
+ *    because it is the only irreversible thing on the screen.
  *
  * The per-item pass is the main way kit gets rated: a quick thumb over each
  * piece you used, optionally a small note. A thumb here becomes your standing
@@ -16,7 +27,7 @@ import { icon, artFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
 import { refreshSetup, needUser } from '../ui/chrome.js';
-import { formSheet, toast } from '../ui/overlay.js';
+import { confirmSheet, formSheet, toast } from '../ui/overlay.js';
 import { go, back } from '../router.js';
 
 export async function render(root, _params, query) {
@@ -59,6 +70,28 @@ export async function render(root, _params, query) {
   fetchWind();
 
   root.querySelector('[data-back]').addEventListener('click', () => back('/log'));
+
+  // Not now: the setup stays unlogged, so the log's nudge holds it for later.
+  onClick(root, 'data-skip', () => go('/log', { replace: true }));
+
+  // Never: bin the setup outright, so nothing keeps asking to be written up.
+  onClick(root, 'data-discard', async () => {
+    const yes = await confirmSheet({
+      title: 'Don’t save this session?',
+      sub: 'It disappears for good. There’s no going back.',
+      confirmLabel: 'Don’t save it',
+      cancelLabel: 'Keep writing it up',
+    });
+    if (!yes) return;
+    try {
+      await api.binSetup(setup.id);
+      setSetup(null);
+      toast('Session dropped.');
+      go('/log', { replace: true });
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
 
   root.querySelectorAll('[data-star]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -141,7 +174,7 @@ export async function render(root, _params, query) {
         <span class="big">${icon('wind')}</span>
         <span class="wm">
           <span class="v">—</span>
-          <span class="src manual"><span class="dot"></span>${draft.windEdited ? 'Set by hand' : 'No reading — add it by hand'}</span>
+          <span class="src manual"><span class="dot"></span>${draft.windEdited ? 'Set by hand' : 'No reading, add it by hand'}</span>
         </span>
         <button class="editbtn" data-editwind>${draft.windEdited ? 'Edit' : 'Add'}</button>`);
       return;
@@ -155,7 +188,7 @@ export async function render(root, _params, query) {
         <span class="src ${draft.wind.source === 'manual' ? 'manual' : ''}">
           <span class="dot"></span>${draft.wind.source === 'manual'
             ? 'Set by hand'
-            : `Auto from Open-Meteo · ${setup.site || store.site}${draft.wind.at ? ', ' + clockTime(draft.wind.at) : ''}`}
+            : `Auto from Open-Meteo · ${(setup.trip && setup.trip.name) || setup.site || store.site}${draft.wind.at ? ', ' + clockTime(draft.wind.at) : ''}`}
         </span>
       </span>
       <button class="editbtn" data-editwind>Edit</button>`);
@@ -163,12 +196,18 @@ export async function render(root, _params, query) {
 
   async function fetchWind() {
     if (draft.windEdited) return;
-    const site = setup.site || (store.site !== 'all' ? store.site : null);
-    if (!site) { paintWind(); return; }
+    // A rig built on a trip carries the trip and its pin, which is what lets the
+    // wind come through for a destination that has no site row of its own.
+    const trip = setup.trip;
+    const coords = trip && trip.lat != null && trip.lon != null
+      ? { lat: trip.lat, lon: trip.lon } : null;
+    const site = (trip && (trip.destination || trip.name))
+      || setup.site || (store.site !== 'all' ? store.site : null);
+    if (!site && !coords) { paintWind(); return; }
     const start = setup.rigged_at;
     const end = setup.derigged_at || new Date().toISOString();
     try {
-      const data = await api.wind(site, start, end);
+      const data = await api.wind(site, start, end, coords);
       if (data.wind) { draft.wind = data.wind; paintWind(); }
     } catch {
       // A missing reading is fine — the member adds it by hand.
@@ -178,7 +217,8 @@ export async function render(root, _params, query) {
   async function save() {
     const payload = {
       setup_id: setup.id,
-      site: setup.site || (store.site !== 'all' ? store.site : null),
+      site: setup.site || (setup.trip && setup.trip.name)
+        || (store.site !== 'all' ? store.site : null),
       started_at: setup.rigged_at,
       ended_at: setup.derigged_at || new Date().toISOString(),
       wind_kn: draft.wind ? draft.wind.kn : null,
@@ -220,6 +260,7 @@ function screen(setup, draft) {
       <div class="row">
         <button class="backbtn" data-back aria-label="Back">${icon('back')}</button>
         <span class="ttl sm">Log this session</span>
+        <button class="skipbtn" data-skip>Skip</button>
       </div>
     </div>
 
@@ -267,11 +308,12 @@ function screen(setup, draft) {
           ${draft.pieces.map(pieceRow)}
         </div>
       </div>
+
+      <button class="discard" data-discard>Don’t save</button>
     </div>
 
     <div class="actionbar">
       <button class="bigbtn" data-save>Save session${icon('tick')}</button>
-      <span class="helper">Saves to your logbook and the club feed. Your thumbs feed each item's rating; a note attaches to that item.</span>
     </div>`;
 }
 

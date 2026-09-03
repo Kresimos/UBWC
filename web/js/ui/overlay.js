@@ -11,20 +11,42 @@ import { icon } from '../icons.js';
 const layer = () => document.getElementById('overlay');
 
 let closeCurrent = null;
+// While a sheet is animating out, the node is still in the DOM. This holds the
+// timer that finally clears it, so a new present() can cancel the exit and
+// reuse the node rather than have it wiped out from under the new sheet.
+let teardown = null;
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function wipe(node) {
+  if (teardown) { clearTimeout(teardown); teardown = null; }
+  node.hidden = true;
+  node.className = 'overlay';
+  node.style.pointerEvents = '';
+  node.onclick = null;
+  node.innerHTML = '';
+}
 
 export function closeOverlay() {
   const node = layer();
-  node.hidden = true;
-  node.className = 'overlay';
-  node.innerHTML = '';
   const fn = closeCurrent;
   closeCurrent = null;
   if (fn) fn();
+
+  if (node.hidden || teardown) return;
+  const card = node.querySelector('.sheet, .lbcard');
+  if (reduceMotion() || !card) { wipe(node); return; }
+  // Let the promise resolve now; the node slides out behind it and clears when
+  // the animation is done.
+  node.classList.add('closing');
+  node.style.pointerEvents = 'none';
+  teardown = setTimeout(() => { teardown = null; wipe(node); }, 240);
 }
 
 function present(markup, { centred = false, onClose = null, onDismiss = null } = {}) {
   const node = layer();
+  if (teardown) { clearTimeout(teardown); teardown = null; }
   closeCurrent = onClose;
+  node.style.pointerEvents = '';
   node.className = centred ? 'overlay centred' : 'overlay';
   mount(node, markup);
   node.hidden = false;
@@ -227,13 +249,15 @@ export function confirmSheet({ title, sub, confirmLabel = 'Confirm', cancelLabel
 
 /**
  * The photo popup. Used for a spot ("where does this live?") and for a fault
- * photo — both are diagnosis aids, so they get the same frame and a caption
- * that explains what is being shown.
+ * photo. Both are diagnosis aids, so they get the same frame and a caption
+ * that explains what is being shown. `tone` recolours the band for a caller
+ * that carries a severity of its own: "crit" for a fault that has taken the
+ * piece out of action.
  */
-export function lightbox({ title, sub, image, glyph = 'camera' }) {
+export function lightbox({ title, sub, image, glyph = 'camera', tone = '' }) {
   present(html`
     <div class="lbcard" role="dialog" aria-label="${title}">
-      <div class="lbphoto ${glyph === 'camera' ? '' : glyph}">
+      <div class="lbphoto ${glyph === 'camera' ? '' : glyph} ${tone}">
         ${image ? html`<img src="${image}" alt="">` : icon(glyph)}
       </div>
       <div class="lbcap"><b>${title}</b>${sub ? html`<span>${sub}</span>` : ''}</div>

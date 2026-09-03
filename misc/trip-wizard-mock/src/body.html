@@ -11,19 +11,61 @@
   <header class="masthead">
     <p class="eyebrow">UBWC Kit · Trips</p>
     <h1>The rigging wizard</h1>
-    <p>The kit sec has chosen the sails. This screen is where the app works out
-      the masts, extensions and booms that go with them, and it re-runs the
-      whole search on every touch, so <strong>watch it move</strong>: press the
-      stepper, flip the preset, pack a mix, and the numbers roll and the two
-      lists reshuffle to the new answer.</p>
-    <p>It is live. The real solver (<code>web/js/rig/pack.mjs</code>) is running
-      in the page against the fixture rack, so nothing here is a drawn number.</p>
+    <p>Two handsets, in flow order. <strong>Confirm the kit</strong> comes
+      first, straight off the approve/decline deck: it shows what came through
+      packed and lets the kit sec tick on any extra sail or board the club owns.
+      <strong>The rigging wizard</strong> then works out the masts, extensions
+      and booms, re-running the whole search on every touch, so
+      <strong>watch it move</strong>: press the stepper, flip the preset, pack a
+      mix, and the numbers roll and the two lists reshuffle.</p>
+    <p>The wizard is live: the real solver
+      (<code>web/js/rig/pack.mjs</code>) runs in the page against the fixture
+      rack, so nothing there is a drawn number. The confirm screen's board list
+      is a mockup-local stand-in until the <code>Boards</code> sheet is
+      modelled.</p>
   </header>
 
   <div class="stage">
 
     <div class="holder">
-      <p class="caption"><b>Cheddar Reservoir, Saturday.</b> Eight sails on the
+      <p class="caption"><b>1 · Confirm the kit.</b> Straight off the deck: 4
+        sails and 3 boards came through packed. The full club inventory below,
+        packed rows in blue, tap to add or drop. Continue hands the list to the
+        wizard.</p>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="statusbar">
+            <span>9:41</span>
+            <span class="dots">
+              <svg class="sig" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1"/></svg>
+              <span class="batt"></span>
+            </span>
+          </div>
+          <div class="app" data-screen="trip">
+            <div class="appbar">
+              <div class="row">
+                <button class="backbtn" aria-label="Back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
+                </button>
+                <span class="ttl sm">Confirm the kit</span>
+              </div>
+            </div>
+            <div class="body" data-cfbody></div>
+            <div class="packbar rise">
+              <button class="askbtn" data-continue>
+                Continue
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="home-ind"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="holder">
+      <p class="caption"><b>2 · The rigging wizard.</b> Eight sails on the
         trip, the two cammed ones marked ◆. Opens on five rigs at once, a
         Standard pack.</p>
       <div class="phone">
@@ -59,6 +101,27 @@
     </div>
 
     <div class="notes">
+      <div class="note">
+        <h3>Confirm the kit: seeded, then topped up</h3>
+        <p>The two tiles are what the deck delivered, in words: <b>sails
+          packed</b>, <b>boards packed</b>. They count live as rows toggle.</p>
+        <p>Below them the <b>whole club inventory</b>, sails by size then boards
+          by volume. Packed rows are blue; the rest are plain and one tap adds
+          them. So a trip that only requested 4 sails can leave with 10 without
+          anyone re-opening the picker. Which sizes start packed, and how tight
+          the rows sit, are knobs in <code>src/design.css</code>
+          (<code>--cf-start-sails</code>, <code>--cf-start-boards</code>,
+          <code>--cf-row-pad</code>).</p>
+      </div>
+      <div class="note">
+        <h3>Denser than the wizard's list</h3>
+        <p>No checkbox: size and name only, the row itself carrying the blue.
+          Rows are ~31px against the wizard tester's ~36px, because this list is
+          the full inventory and the wizard's is only the trip.</p>
+        <p><b>Continue</b> is where the list passes to the wizard. In the app
+          the wizard then derives one mast, extension and boom per sail and
+          (follow-on) one fin and base per board.</p>
+      </div>
       <div class="note">
         <h3>Two controls, the rest is the answer</h3>
         <p><b>Rigs at once</b> is the stepper and the headline in one: the
@@ -96,10 +159,12 @@
       </div>
       <div class="note">
         <h3>Where this goes</h3>
-        <p>It replaces the static report at
-          <code>renderWizard()</code> in <code>web/js/screens/trip.js</code>.
-          <code>src/wizard.css</code> is written to drop into
-          <code>web/css/screens.css</code> unchanged.</p>
+        <p>The wizard replaces the static report at
+          <code>renderWizard()</code> in <code>web/js/screens/trip.js</code>;
+          the confirm screen becomes the stage before it, seeded from
+          <code>trip_items</code> and <code>/api/kit</code>.
+          <code>src/wizard.css</code> and <code>src/confirm.css</code> are both
+          written to drop into <code>web/css/screens.css</code> unchanged.</p>
       </div>
     </div>
 
@@ -108,8 +173,9 @@
   <p class="foot">
     Built page: <code>misc/trip-wizard-mock/trip-wizard-mock.html</code>.
     <code>node misc/trip-wizard-mock/build.mjs</code> splices
-    <code>web/css/tokens.css</code>, <code>web/css/screens.css</code> and
-    <code>web/js/icons.js</code> from this branch, plus <code>pack.mjs</code> +
+    <code>web/css/tokens.css</code>, <code>web/css/screens.css</code>,
+    <code>src/wizard.css</code>, <code>src/confirm.css</code> and
+    <code>web/js/icons.js</code>, plus <code>pack.mjs</code> +
     <code>pack.fixtures.mjs</code> from the <code>trip-packer-solver</code>
     worktree, verbatim. Retune via <code>src/design.css</code> or
     <code>/trip-wizard-mock</code>. Republish to the URL in

@@ -1,0 +1,223 @@
+/* ============================================================================
+   THE MOCKUP CANVAS — the wall the handsets are pinned to.
+
+   Everything below exists only to present the frames. It never reaches inside
+   .screen, so nothing here can flatter the design being reviewed. The one
+   thing it must undo is tokens.css centring a single handset in the viewport.
+
+   The wall is themed; the handsets are not. A phone is a physical object with
+   a lit screen, and the app it runs has no dark mode, so the frames stay light
+   on a wall that follows the reader.
+   ========================================================================== */
+:root {
+  --cv-bg: #E7ECEC;          /* the app's own laptop surround, cooled a shade */
+  --cv-panel: #FFFFFF;
+  --cv-ink: #141D1C;
+  --cv-muted: #55696A;
+  --cv-faint: #7B8D8D;
+  --cv-rule: #D2DBDB;
+  --cv-accent: #10788A;      /* inherited from the app, not invented */
+  --cv-on-accent: #FFFFFF;   /* text on the accent — flips with it */
+  --cv-accent-soft: #E4F1F2;
+  --cv-warn: #B5761A;
+  --cv-crit: #B23A2E;
+  --cv-code: #EDF2F2;
+}
+:root:not([data-theme="light"]) {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cv-bg: #101918;
+    --cv-panel: #182423;
+    --cv-ink: #E8EFEE;
+    --cv-muted: #A2B4B4;
+    --cv-faint: #7D9291;
+    --cv-rule: #2A3937;
+    --cv-accent: #4FC3D4;
+    --cv-on-accent: #06201F;
+    --cv-accent-soft: #16302F;
+    --cv-warn: #E0A24B;
+    --cv-crit: #E8776A;
+    --cv-code: #1E2C2B;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --cv-bg: #101918;
+  --cv-panel: #182423;
+  --cv-ink: #E8EFEE;
+  --cv-muted: #A2B4B4;
+  --cv-faint: #7D9291;
+  --cv-rule: #2A3937;
+  --cv-accent: #4FC3D4;
+  --cv-on-accent: #06201F;
+  --cv-accent-soft: #16302F;
+  --cv-warn: #E0A24B;
+  --cv-crit: #E8776A;
+  --cv-code: #1E2C2B;
+  color-scheme: dark;
+}
+
+/* tokens.css pins html/body to the viewport height and centres one handset in
+   it. A wall of thirteen needs the page to grow instead. */
+html, body { height: auto !important; min-height: 100%; }
+body {
+  display: block !important;
+  align-items: initial !important;
+  justify-content: initial !important;
+  padding: 0 !important;
+  background: var(--cv-bg) !important;
+}
+/* The wall's own voice. Scoped, never on body — body's font is the app's, and
+   everything inside .screen inherits it. */
+.canvas, .tuner {
+  font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  color: var(--cv-ink);
+}
+.canvas h1, .canvas h2, .canvas h3, .slot .cap b { font-family: "Archivo", "Public Sans", sans-serif; }
+.mono, .slot .cap .num, .knob output, .spec code, .card2 code, .canvas code {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+/* The handsets keep the app's system face whatever the wall is set in. */
+.phone { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; }
+
+.canvas { max-width: 1780px; margin: 0 auto; padding: 40px 30px 96px; }
+
+/* ------------------------------------------------------------------ masthead */
+.masthead { max-width: 62ch; padding-bottom: 30px; }
+.masthead .eyebrow {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--cv-accent); margin: 0 0 12px;
+}
+.masthead h1 {
+  font-size: clamp(30px, 4vw, 44px); font-weight: 800; letter-spacing: -.035em;
+  line-height: 1.02; margin: 0 0 16px; text-wrap: balance;
+}
+.masthead p { font-size: 15px; line-height: 1.65; color: var(--cv-muted); margin: 0 0 12px; }
+.masthead strong { color: var(--cv-ink); font-weight: 600; }
+.canvas code { background: var(--cv-code); padding: 1.5px 5px; border-radius: 4px; font-size: .88em; }
+
+/* ------------------------------------------------------------------ sections */
+.sectbar {
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  margin: 52px 0 22px; padding-bottom: 11px; border-bottom: 1.5px solid var(--cv-rule);
+}
+.sectbar h2 { font-size: 21px; font-weight: 700; letter-spacing: -.025em; margin: 0; }
+.sectbar .lede { font-size: 13.5px; color: var(--cv-muted); flex: 1; min-width: 220px; }
+.sectbar .tag {
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--cv-faint);
+}
+
+/* ---------------------------------------------------------- the rack of phones */
+.rack { display: flex; flex-wrap: wrap; gap: 40px 32px; align-items: flex-start; }
+.slot { width: 390px; }
+.slot .cap { padding: 0 2px 12px; }
+.slot .cap b {
+  display: block; font-size: 15px; font-weight: 700; letter-spacing: -.015em;
+  display: flex; align-items: baseline; gap: 9px;
+}
+.slot .cap .num {
+  font-size: 11.5px; font-weight: 600; color: var(--cv-accent); flex: none;
+  letter-spacing: .04em;
+}
+.slot .cap span { display: block; font-size: 12.5px; line-height: 1.55; color: var(--cv-muted); margin-top: 5px; }
+
+/* The frame's geometry is forced rather than left to tokens.css's desktop media
+   query, so a narrow window shrinks the wall without breaking the handsets. */
+.slot .phone {
+  width: 390px; height: 812px; margin: 0; padding: 13px; border-radius: 52px;
+  background: #0B0F0F; flex: none;
+  box-shadow: 0 1px 0 #3a4443 inset, 0 30px 60px -24px rgba(6, 26, 30, .5),
+              0 8px 22px -12px rgba(6, 26, 30, .38);
+}
+.slot .screen { border-radius: 40px; }
+
+/* a note pinned under a frame, for what a picture cannot say */
+.note {
+  margin-top: 13px; padding: 12px 14px; border-radius: 10px;
+  background: var(--cv-panel); border: 1px solid var(--cv-rule);
+  border-left: 3px solid var(--cv-accent);
+  font-size: 12.5px; line-height: 1.6; color: var(--cv-muted);
+}
+.note b { color: var(--cv-ink); font-weight: 600; }
+.note + .note { margin-top: 8px; }
+.note.ask { border-left-color: var(--cv-warn); }
+.note.ask b { color: var(--cv-warn); }
+
+/* ------------------------------------------------------------- tuner drawer */
+.tuner {
+  position: fixed; right: 20px; bottom: 20px; z-index: 90; width: 318px;
+  background: var(--cv-panel); border: 1px solid var(--cv-rule); border-radius: 14px;
+  box-shadow: 0 20px 48px -18px rgba(6, 26, 30, .5); overflow: hidden;
+}
+.tuner > summary {
+  list-style: none; cursor: pointer; padding: 13px 15px; font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--cv-accent); color: var(--cv-on-accent); font-family: "Archivo", sans-serif;
+}
+.tuner > summary::-webkit-details-marker { display: none; }
+.tuner > summary .chev { font-size: 10px; }
+.tuner[open] > summary .chev { transform: rotate(180deg); }
+.tunerbody { padding: 14px 15px 15px; max-height: 64vh; overflow-y: auto; }
+.tunerbody .grp {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--cv-faint);
+  margin: 16px 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--cv-rule);
+}
+.tunerbody .grp:first-child { margin-top: 0; }
+.knob { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: center; margin-bottom: 9px; }
+.knob label { font-size: 12px; color: var(--cv-muted); }
+.knob output { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cv-accent); }
+.knob input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--cv-accent); height: 16px; margin: 0; }
+.tunerfoot { display: flex; gap: 8px; margin-top: 14px; }
+.tunerfoot button {
+  flex: 1; height: 33px; border-radius: 8px; border: 1px solid var(--cv-rule);
+  background: var(--cv-bg); font: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; color: var(--cv-ink);
+}
+.tunerfoot button.pri { background: var(--cv-accent); border-color: var(--cv-accent); color: var(--cv-on-accent); }
+.tunerfoot button:focus-visible, .tuner summary:focus-visible { outline: 2px solid var(--cv-accent); outline-offset: 2px; }
+.tunerout {
+  margin-top: 11px; width: 100%; height: 128px; box-sizing: border-box;
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px; line-height: 1.5;
+  border: 1px solid var(--cv-rule); border-radius: 8px; padding: 9px; display: none;
+  white-space: pre; overflow: auto; background: var(--cv-code); color: var(--cv-ink);
+}
+
+/* ------------------------------------------------------------- flow diagram */
+.flow {
+  background: var(--cv-panel); border: 1px solid var(--cv-rule); border-radius: 14px;
+  padding: 26px 24px; overflow-x: auto;
+}
+.flow svg { display: block; min-width: 940px; }
+
+/* ------------------------------------------------------------------- panels */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; align-items: start; }
+.card2 {
+  background: var(--cv-panel); border: 1px solid var(--cv-rule); border-radius: 14px;
+  padding: 20px 22px;
+}
+.card2 h3 { margin: 0 0 10px; font-size: 15px; font-weight: 700; letter-spacing: -.015em; }
+.card2 p { font-size: 13px; line-height: 1.65; color: var(--cv-muted); margin: 0 0 8px; }
+.card2 ul { margin: 8px 0 0; padding-left: 17px; }
+.card2 li { font-size: 13px; line-height: 1.6; color: var(--cv-muted); margin-bottom: 7px; }
+.card2 li b, .card2 p b { color: var(--cv-ink); font-weight: 600; }
+
+.spec { background: var(--cv-panel); border: 1px solid var(--cv-rule); border-radius: 14px; overflow: hidden; }
+.specscroll { overflow-x: auto; }
+.spec table { border-collapse: collapse; width: 100%; font-size: 12.5px; min-width: 620px; }
+.spec th, .spec td { text-align: left; padding: 11px 15px; border-bottom: 1px solid var(--cv-rule); vertical-align: top; line-height: 1.55; }
+.spec th {
+  background: var(--cv-code); font-family: "IBM Plex Mono", monospace; font-weight: 600;
+  font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--cv-faint);
+}
+.spec td { color: var(--cv-muted); }
+.spec td:first-child { color: var(--cv-ink); font-weight: 500; }
+.spec tr:last-child td { border-bottom: 0; }
+.spec .miss { color: var(--cv-crit); font-weight: 600; }
+.spec .has { color: var(--cv-accent); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (max-width: 960px) { .canvas { padding: 24px 16px 72px; } .tuner { display: none; } }

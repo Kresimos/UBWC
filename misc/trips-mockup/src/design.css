@@ -1,0 +1,46 @@
+/* ============================================================================
+   THE DESIGN KNOBS  —  this is the only file you need to change to retune the
+   new trip decorations. Every value below is also a live slider in the tuner
+   drawer at the top of the page, so you can drag first and paste back after.
+
+   Nothing here restyles the shipped app. These variables are consumed only by
+   the new rules further down (.whostack, .tickdisc, .faultdot, .flagchip.out).
+
+   Values below are Johnny's first tuning pass, 2026-08-30.
+   ========================================================================== */
+:root {
+  /* --- voter tags: the stack of who asked for a piece --------------------- */
+  --voter-size: 18px;        /* diameter of one disc, grid */
+  --voter-size-list: 18px;   /* diameter of one disc, list rows */
+  --voter-overlap: 10px;     /* how far each disc slides under the one before */
+  --voter-cap: 3;            /* how many discs the pile shows at most (JS reads this) */
+  --voter-ring: 1.5px;       /* the ring that separates stacked discs */
+  --voter-font: 9.5px;
+  --voter-fade: 0.3;         /* opacity of the LAST disc; earlier ones interpolate */
+
+  /* The size column is given a fixed width so the stacks that sit against it
+     line up down the list, whatever the size text underneath them reads. */
+  --size-col-w: 48px;
+
+  /* --- the check disc: ticked kit on a packing/unpacking list ------------- */
+  --tick-size: 22px;
+  --tick-inset: 7px;
+
+  /* --- the fault bubble: list view, where a chip would crowd the row ------ */
+  --faultdot-size: 15px;
+  --faultdot-inset: -4px;    /* negative = overhangs the thumb's corner */
+
+  /* --- the top-left cluster: heart + fault sharing a corner --------------- */
+  --cluster-gap: 3px;
+
+  /* --- list rhythm -------------------------------------------------------
+     Two different gaps, because they separate two different things: a type
+     heading inside one trip's kit sits tight to the rows above it, while the
+     stage headings on the trips index separate whole groups of trips. */
+  --group-gap: 3px;          /* above a type heading in a kit list */
+  --stage-gap: 18px;         /* above a stage heading on the trips index */
+
+  /* --- the "out" chip: kit away with a trip ------------------------------- */
+  --out-bg: #E7EBEB;
+  --out-ink: #5C6A6A;
+}

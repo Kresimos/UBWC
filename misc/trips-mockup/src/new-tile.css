@@ -1,0 +1,397 @@
+/* ============================================================================
+   THE PROPOSAL — new tile decorations for the Trips tab.
+
+   This block is the handoff: it is written to be pasted into web/css/tokens.css
+   beneath the existing item-tile section, unchanged. It adds only new class
+   names, with the two deliberate exceptions marked OVERRIDE below.
+   All numbers come from the knobs in the design block above.
+
+   One thing NOT to paste as-is: the .triphero::before background-image is a
+   placeholder landscape for the mockup only. In the app the hero shows the
+   trip's own uploaded photo (or the flat --shot fill when there is none). The
+   parallax rule around it is real and paste-ready.
+   ========================================================================== */
+
+/* --- voter tags ------------------------------------------------------------
+   Who asked for this piece. The leftmost disc sits on top and each one behind
+   it is a step fainter, so the stack reads as a pile with a front to it rather
+   than a row that happens to overlap. Depth and opacity are written per disc
+   from JS (see whostack()), because both depend on how many are shown, which
+   is the --voter-cap knob. */
+.whostack { display: inline-flex; align-items: center; flex: none; }
+.whostack .av {
+  position: relative;
+  width: var(--voter-size); height: var(--voter-size); border-radius: 50%;
+  background: var(--teal); color: #fff; font-size: var(--voter-font); font-weight: 750;
+  display: flex; align-items: center; justify-content: center; flex: none;
+  box-shadow: 0 0 0 var(--voter-ring) var(--shot);
+}
+.whostack .av + .av { margin-left: calc(var(--voter-overlap) * -1); }
+
+/* Over a product shot the ring is white, because that is what is behind it. */
+.itemgrid .whostack { position: absolute; right: 7px; bottom: 7px; z-index: 3; }
+.itemgrid .whostack .av { box-shadow: 0 0 0 var(--voter-ring) #fff; }
+
+/* In a row the stack sits against the size column, which is why that column is
+   given a fixed width: the stacks then line up down the list however long the
+   size text under them happens to read. */
+.itemlist .whostack { margin: 0 6px 0 3px; }
+.itemlist .whostack .av {
+  width: var(--voter-size-list); height: var(--voter-size-list);
+  box-shadow: 0 0 0 var(--voter-ring) var(--app-bg);
+}
+.itemlist .card.picked .whostack .av { box-shadow: 0 0 0 var(--voter-ring) var(--teal-tint); }
+
+/* The facts line is held to one line. The stack and the fixed size column take
+   real width out of the middle, and a row that answers by growing a second line
+   would break the even rhythm the list is built on. */
+/* white-space, not just flex-wrap: the type text is a bare text node, which
+   becomes its own flex item and will happily wrap inside itself — that is what
+   was dropping a lone separator onto a second line. */
+[data-screen="trip"] .itemlist .lm .s {
+  flex-wrap: nowrap; white-space: nowrap; overflow: hidden;
+}
+[data-screen="trip"] .itemlist .lm .s .rt { flex: none; }
+
+/* The size column, fixed so the stacks align. Trip screens only: the catalogue
+   has no stacks to line up and its rows are left exactly as they ship. */
+[data-screen="trip"] .itemlist .lr {
+  min-width: var(--size-col-w); justify-content: flex-end;
+}
+
+/* --- the check disc --------------------------------------------------------
+   Ticked kit on a packing or unpacking list. Takes the top-right corner the
+   fault chip normally holds; the fault moves into the top-left cluster below.
+   The tile itself is already `.picked`, so this disc is confirmation, not the
+   whole signal. */
+.itemgrid .tickdisc {
+  position: absolute; top: var(--tick-inset); right: var(--tick-inset); z-index: 3;
+  width: var(--tick-size); height: var(--tick-size); border-radius: 50%;
+  background: var(--teal); color: #fff; display: flex; align-items: center;
+  justify-content: center; box-shadow: 0 2px 6px rgba(10, 40, 45, .2);
+}
+.itemgrid .tickdisc svg { width: 55%; height: 55%; }
+
+/* --- the top-left cluster --------------------------------------------------
+   In checklist mode the heart and the fault chip share one corner, laid out in
+   a row rather than floated independently, so they can never collide. */
+.itemgrid .cluster {
+  position: absolute; top: 7px; left: 7px; z-index: 3;
+  display: flex; align-items: center; gap: var(--cluster-gap);
+}
+.itemgrid .cluster .savedmark,
+.itemgrid .cluster .flagchip { position: static; }
+
+/* --- the chip stack --------------------------------------------------------
+   Fault and "out" can both be true, so the grid's top-right corner becomes a
+   column instead of a single slot. */
+.itemgrid .chipstack {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.itemgrid .chipstack .flagchip { position: static; }
+
+/* --- the fault bubble ------------------------------------------------------
+   List view. Voter tags need the right-hand column, so the fault gives up its
+   inline chip and becomes a bubble on the thumb. Not a button: at this size it
+   is below a reliable tap target, and tapping the row opens the item page where
+   the fault is written out in full.
+
+   The bubble deliberately overhangs the thumb's corner, and .thumb carries
+   overflow:hidden to crop the product shot — so it cannot be a child of the
+   thumb or it is clipped. .lead is the positioning box that wraps both.
+
+   It sits on the thumb's top-RIGHT rather than its left: on a checklist the
+   left of the row belongs to the circle, and a bubble there lands on top of
+   it. Nothing sits against the thumb's right but a gap.
+
+   Pale ground, deep glyph — the same amber and red pairing the fault chip
+   already uses, so a bubble and a chip read as the same warning at two sizes
+   rather than two different marks. */
+.itemlist .lead { position: relative; flex: none; display: flex; }
+.itemlist .faultdot {
+  position: absolute; top: var(--faultdot-inset); right: var(--faultdot-inset); z-index: 2;
+  width: var(--faultdot-size); height: var(--faultdot-size); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--warn-tint); color: var(--warn); box-shadow: 0 0 0 2px var(--app-bg);
+}
+.itemlist .card.picked .faultdot { box-shadow: 0 0 0 2px var(--teal-tint); }
+.itemlist .faultdot.oos { background: var(--crit-tint); color: var(--crit); }
+.itemlist .faultdot svg { width: 62%; height: 62%; }
+/* A checkable row keeps its thumbnail: a trailer is packed by looking at kit,
+   so the circle is added to the row rather than put in the picture's place.
+   The pair is tightened by 4px to buy that back off the row's own gap. */
+.itemlist .selbox + .lead { margin-left: -4px; }
+
+/* --- the "out" chip --------------------------------------------------------
+   Kit that has left its rack with a trip. Grey, and deliberately not a button:
+   there is nothing to read that the trip page does not say better. */
+.flagchip.out { background: var(--out-bg); color: var(--out-ink); cursor: default; }
+.flagchip.out:active { transform: none; }
+
+/* Inside the picker sheet the type rail, the results count and the grid all
+   line up on one left edge. The shipped .chips adds its own --gutter, which
+   here sat it in from everything else; the sheet's fp-body already supplies
+   that inset, so the rail runs edge to edge within it like the rows below. */
+[data-screen="trip"] .fp-body .chips { padding-left: 0; padding-right: 0; }
+
+/* A filter option naming a trip carries the trip glyph. The shipped .fpopt sets
+   no display and no svg size, so both are supplied here rather than overridden. */
+.fpopt { display: inline-flex; align-items: center; gap: 5px; }
+.fpopt svg { width: 12px; height: 12px; flex: none; }
+
+/* --- location in place of the rating ---------------------------------------
+   While packing, where a piece lives is the useful fact and its star score is
+   not. Same slot, same type scale, so no row changes height. */
+.itemgrid .rating.place { color: var(--app-muted); font-weight: 650; }
+.itemgrid .rating.place svg { width: 11px; height: 11px; flex: none; }
+.itemlist .lm .s .rt svg { width: 11px; height: 11px; }
+
+/* --- a selected row runs to the glass --------------------------------------
+   .itemlist insets its rows by the gutter so thumbs line up with the grid's
+   shots. A tint that stops at that inset reads as a floating band, so the row
+   paints two more copies of itself either side to carry the colour out to the
+   screen edge. Nothing moves: no margin, no padding, no reflow. */
+[data-screen="trip"] .itemlist .card.picked {
+  box-shadow: calc((var(--gutter) - 2px) * -1) 0 0 var(--teal-tint),
+              calc(var(--gutter) - 2px) 0 0 var(--teal-tint);
+}
+
+/* ============================================================================
+   TRIP SCREENS — chrome that has no equivalent in the shipped app yet.
+   [data-screen="trip"] inherits the catalogue's rails and panel via the scope
+   alias build.sh writes, so only genuinely new furniture is defined here.
+   ========================================================================== */
+
+/* The trip action button. Not screen-scoped: it is a new class, it collides
+   with nothing, and both the trip screens and the new-trip form use it.
+   A <button> shrink-wraps even as a block-level flex box, so the width is
+   asked for explicitly rather than left to the layout. */
+.askbtn {
+  flex: none; box-sizing: border-box; width: calc(100% - var(--gutter) * 2);
+  margin: 0 var(--gutter) 12px; display: flex; align-items: center;
+  justify-content: center; gap: 7px; height: 44px; border: 0; border-radius: 12px;
+  background: var(--teal); color: #fff; font: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+.askbtn svg { width: 17px; height: 17px; flex: none; }
+.askbtn.ghost {
+  background: var(--app-bg); color: var(--app-muted); border: 1px solid var(--app-line);
+}
+[data-screen="form"] .askbtn { width: 100%; margin: 0 0 4px; }
+
+/* --- the trip's own header -------------------------------------------------
+   A proper photo band: the shot of the spot, given real height. The band
+   itself sits in normal flow and scrolls away with the page like any other
+   row; the photo layer inside it (.hpar) is dragged back at a fraction of the
+   scroll — a parallax. The move is written by wireParallax() in body-app.js
+   from the band's position in the scroll box; .hpar is oversized well past
+   the band on every side so the lag never uncovers an edge, and it holds
+   still if the script does not run. The scene is a placeholder for the mockup
+   only; the app fills .hpar with the trip's own uploaded photo. */
+[data-screen="trip"] .triphero {
+  position: relative;
+  height: 168px; background: var(--shot); flex: none;
+  display: flex; align-items: flex-end; overflow: hidden;
+}
+[data-screen="trip"] .triphero .hpar {
+  position: absolute; left: 0; right: 0; top: -45%; bottom: -45%;
+  background-size: cover; background-position: center 45%;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27640%27%20height%3D%27280%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27sky%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%270%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%235E9DC6%27%2F%3E%3Cstop%20offset%3D%270.7%27%20stop-color%3D%27%23B9DBEA%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23DCEBF1%27%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%27water%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%270%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%236BA1C0%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%233A6C8C%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%27640%27%20height%3D%27280%27%20fill%3D%27url%28%23sky%29%27%2F%3E%3Ccircle%20cx%3D%27512%27%20cy%3D%2770%27%20r%3D%2728%27%20fill%3D%27%23FBF2D8%27%2F%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%2760%27%20rx%3D%2760%27%20ry%3D%2716%27%20fill%3D%27%23FFFFFF%27%20opacity%3D%270.55%27%2F%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%2772%27%20rx%3D%2744%27%20ry%3D%2713%27%20fill%3D%27%23FFFFFF%27%20opacity%3D%270.45%27%2F%3E%3Cpath%20d%3D%27M0%20168%20L140%20120%20L270%20162%20L390%20108%20L520%20156%20L640%20122%20L640%20182%20L0%20182%20Z%27%20fill%3D%27%2387B195%27%2F%3E%3Crect%20y%3D%27176%27%20width%3D%27640%27%20height%3D%27104%27%20fill%3D%27url%28%23water%29%27%2F%3E%3Cpath%20d%3D%27M298%20214%20L330%20150%20L340%20214%20Z%27%20fill%3D%27%23F2F6F3%27%2F%3E%3Cpath%20d%3D%27M330%20150%20L332%20214%27%20stroke%3D%27%232A4A54%27%20stroke-width%3D%272%27%2F%3E%3Cpath%20d%3D%27M300%20214%20L328%20152%27%20stroke%3D%27%232A4A54%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cg%20stroke%3D%27%23C6DCE6%27%20stroke-width%3D%272%27%20opacity%3D%270.55%27%3E%3Cline%20x1%3D%2760%27%20y1%3D%27230%27%20x2%3D%27170%27%20y2%3D%27230%27%2F%3E%3Cline%20x1%3D%27430%27%20y1%3D%27246%27%20x2%3D%27580%27%20y2%3D%27246%27%2F%3E%3Cline%20x1%3D%27210%27%20y1%3D%27262%27%20x2%3D%27330%27%20y2%3D%27262%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  transform: translate3d(0, var(--hpar, 0px), 0);
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="trip"] .triphero .hpar { transform: none; }
+}
+[data-screen="trip"] .triphero .wash {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(8,32,36,0) 34%, rgba(8,32,36,.72) 100%);
+}
+[data-screen="trip"] .triphero .htxt { position: relative; padding: 12px var(--gutter); color: #fff; }
+[data-screen="trip"] .triphero .htxt b { font-size: 21px; font-weight: 750; letter-spacing: -.02em; display: block; }
+[data-screen="trip"] .triphero .htxt span { font-size: 12.5px; opacity: .93; }
+
+/* The summary rides every stage of a trip — it is the thing that does not
+   change — so it is kept tight enough that the kit list underneath is still on
+   screen with it. */
+[data-screen="trip"] .tripmeta {
+  flex: none; display: flex; flex-direction: column; gap: 6px;
+  padding: 11px var(--gutter) 12px; background: var(--app-bg);
+}
+[data-screen="trip"] .tripmeta .mrow {
+  display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--app-muted);
+}
+[data-screen="trip"] .tripmeta .mrow svg { width: 15px; height: 15px; flex: none; color: var(--teal); }
+[data-screen="trip"] .tripmeta .mrow b { color: var(--app-ink); font-weight: 650; }
+[data-screen="trip"] .tripmeta .info {
+  font-size: 12.5px; color: var(--app-muted); line-height: 1.5; margin-top: 1px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+[data-screen="trip"] .tripmeta .more { font-size: 12.5px; font-weight: 650; color: var(--teal); margin-top: -4px; }
+
+/* --- the forecast ----------------------------------------------------------
+   A Windguru-style read of the trip's own dates: a grid of coloured cells, one
+   column per hour through the sailing day, gust stacked above mean, each cell
+   coloured by how hard it is blowing and carrying its number. The columns touch.
+   It answers the only question a member has before signing up. */
+[data-screen="trip"] .wind {
+  margin: 0 var(--gutter) 12px; padding: 9px 11px 7px; border-radius: 12px;
+  background: var(--app-bg2);
+}
+[data-screen="trip"] .wind .wtop {
+  display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 7px;
+}
+[data-screen="trip"] .wind .wtop b { font-size: 12px; font-weight: 750; letter-spacing: -.01em; }
+[data-screen="trip"] .wind .wtop span { font-size: 11px; color: var(--app-faint); }
+[data-screen="trip"] .wind svg { display: block; width: 100%; height: auto; }
+
+/* --- the list's own heading ------------------------------------------------
+   One ruled row carrying all three things: how much there is on the left, what
+   this list is in the middle, and how to look at it on the right. The rule is
+   the seam between the trip and its kit — above it is the same on every stage,
+   below it is the part that changes. */
+[data-screen="trip"] .listhead {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 11px var(--gutter) 10px; background: var(--app-bg);
+  border-top: 1px solid var(--app-line);
+}
+[data-screen="trip"] .listhead .count {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--app-muted); text-align: left;
+}
+[data-screen="trip"] .listhead .count b { color: var(--app-ink); font-weight: 700; }
+[data-screen="trip"] .listhead b.ttx {
+  font-size: 16px; font-weight: 750; letter-spacing: -.02em; flex: none;
+}
+/* The switch is pushed right by a wrapper, not by stretching the control: the
+   .viewtoggle paints its own segmented background and would stretch with it. */
+[data-screen="trip"] .listhead .tail { flex: 1; display: flex; justify-content: flex-end; }
+
+/* The picker sheet keeps a plain bar: it has no title to sit between. */
+[data-screen="trip"] .kitbar {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--gutter) 10px; background: var(--app-bg);
+}
+[data-screen="trip"] .kitbar .count { font-size: 12.5px; color: var(--app-muted); }
+[data-screen="trip"] .kitbar .count b { color: var(--app-ink); font-weight: 700; }
+
+[data-screen="trip"] .packbar {
+  flex: none; padding: 10px var(--gutter) 14px; background: var(--app-bg);
+  border-top: 1px solid var(--app-line); display: flex; flex-direction: column;
+}
+[data-screen="trip"] .packbar .askbtn { margin-bottom: 0; }
+[data-screen="trip"] .progline {
+  display: flex; align-items: center; gap: 10px; padding: 0 var(--gutter) 12px;
+  font-size: 12px; color: var(--app-muted); background: var(--app-bg);
+}
+[data-screen="trip"] .progline .bar {
+  flex: 1; height: 6px; border-radius: 999px; background: var(--app-line); overflow: hidden;
+}
+[data-screen="trip"] .progline .bar i { display: block; height: 100%; background: var(--teal); }
+
+/* Type headings in a grouped kit list: tight, because they divide one trip's
+   kit into sections rather than separating unrelated things. */
+[data-screen="trip"] .grouplab {
+  padding: var(--group-gap) var(--gutter) 4px; font-size: 11px; font-weight: 750;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--app-faint);
+}
+/* Stage headings on the trips index: a different job, so a different gap.
+   These separate whole groups of trips and need the air. */
+[data-screen="trip"] .grouplab.stage { padding-top: var(--stage-gap); }
+
+/* --- declined kit ----------------------------------------------------------
+   Only ever on an active trip, and only ever last: this is somebody on the
+   beach looking for a board and finding out the answer was no. */
+[data-screen="trip"] .declined { margin-top: 18px; border-top: 1px solid var(--app-line); padding-top: 4px; }
+[data-screen="trip"] .declined .grouplab { color: var(--app-faint); }
+[data-screen="trip"] .declined .itemlist,
+[data-screen="trip"] .declined .itemgrid { opacity: .48; filter: grayscale(1); }
+[data-screen="trip"] .declined .dnote {
+  padding: 0 var(--gutter) 8px; font-size: 11.5px; color: var(--app-faint); line-height: 1.45;
+}
+
+/* trip rows on the index */
+[data-screen="trip"] .trow {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 11px var(--gutter); background: var(--app-bg); border: 0;
+  border-bottom: 1px solid var(--app-line); font: inherit; color: inherit; cursor: pointer;
+}
+[data-screen="trip"] .trow .tsq {
+  flex: none; width: 46px; height: 46px; border-radius: 10px; background: var(--shot);
+  display: flex; align-items: center; justify-content: center; color: var(--teal);
+}
+[data-screen="trip"] .trow .tsq svg { width: 22px; height: 22px; }
+[data-screen="trip"] .trow .tm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+[data-screen="trip"] .trow .tm b { font-size: 14px; font-weight: 700; }
+[data-screen="trip"] .trow .tm span { font-size: 11.5px; color: var(--app-faint); }
+[data-screen="trip"] .trow > svg { width: 18px; height: 18px; flex: none; color: var(--app-faint); }
+[data-screen="trip"] .stagepill {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700;
+  padding: 4px 9px; border-radius: 999px; background: var(--teal-tint); color: var(--teal-ink);
+}
+[data-screen="trip"] .stagepill.grey { background: var(--out-bg); color: var(--out-ink); }
+[data-screen="trip"] .stagepill.warn { background: var(--warn-tint); color: var(--warn-ink); }
+
+/* the swipe deck */
+[data-screen="trip"] .deck { position: relative; height: 340px; margin: 18px var(--gutter) 0; }
+[data-screen="trip"] .deck .dcard {
+  position: absolute; inset: 0; background: var(--app-bg); border-radius: 18px;
+  border: 1px solid var(--app-line); box-shadow: 0 12px 30px -14px rgba(6,26,30,.4);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 20px;
+}
+[data-screen="trip"] .deck .dcard.b2 { transform: scale(.95) translateY(12px); opacity: .6; }
+[data-screen="trip"] .deck .dcard.b3 { transform: scale(.9) translateY(24px); opacity: .35; }
+[data-screen="trip"] .deck .dcard.front { transform: rotate(-7deg) translateX(-30px); }
+[data-screen="trip"] .deck .dshot {
+  width: 130px; height: 130px; background: var(--shot); border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+[data-screen="trip"] .deck .dshot svg.art { width: 66%; height: 66%; }
+[data-screen="trip"] .deck .dname { font-size: 17px; font-weight: 750; }
+/* Rating and rack on the deck card, so a request can be judged without leaving
+   it. Stacked and centred to sit with .dname; the same two facts the packing
+   list carries, at the deck's larger scale. */
+[data-screen="trip"] .deck .dmeta {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; margin-top: -4px;
+}
+[data-screen="trip"] .deck .drate {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 700; color: var(--app-ink);
+}
+[data-screen="trip"] .deck .drate .starrow { --star-size: 13px; }
+[data-screen="trip"] .deck .dplace {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--app-muted);
+}
+[data-screen="trip"] .deck .dplace svg { width: 12px; height: 12px; flex: none; color: var(--teal); }
+[data-screen="trip"] .deck .dwho { font-size: 12px; color: var(--app-muted); display: flex; align-items: center; gap: 7px; }
+[data-screen="trip"] .deck .stamp {
+  position: absolute; top: 18px; font-size: 15px; font-weight: 800; letter-spacing: .08em;
+  padding: 6px 12px; border-radius: 8px; border: 2.5px solid currentColor;
+}
+[data-screen="trip"] .deck .stamp.no { left: 18px; color: var(--crit); transform: rotate(-12deg); }
+[data-screen="trip"] .swipehint {
+  display: flex; justify-content: space-between; padding: 16px var(--gutter) 0;
+  font-size: 11.5px; font-weight: 650;
+}
+[data-screen="trip"] .swipehint .no { color: var(--crit); }
+[data-screen="trip"] .swipehint .yes { color: var(--teal); }
+
+/* the wizard result */
+[data-screen="trip"] .rigcount {
+  margin: 16px var(--gutter); padding: 18px; border-radius: 14px; text-align: center;
+  background: var(--teal-tint); color: var(--teal-ink);
+}
+[data-screen="trip"] .rigcount b { display: block; font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -.03em; }
+[data-screen="trip"] .rigcount span { font-size: 12.5px; font-weight: 650; }
+[data-screen="trip"] .derived {
+  margin: 0 var(--gutter) 10px; padding: 12px 14px; border-radius: 12px;
+  background: var(--app-bg); border: 1px solid var(--app-line);
+}
+[data-screen="trip"] .derived .drow {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12.5px; padding: 5px 0;
+}
+[data-screen="trip"] .derived .drow b { font-weight: 700; }
+[data-screen="trip"] .derived .drow.short { color: var(--crit-ink); }

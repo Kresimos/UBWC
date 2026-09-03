@@ -1,11 +1,15 @@
 /* ============================================================================
    THE KNOBS: the only file most retunes need.
 
-   Nothing here is app CSS. These are the numbers the wizard mockup was tuned
-   with: how the screen moves when the solver re-runs, how hard the two
-   combination bands are tinted, and what the three "how full to pack" presets
-   mean in the solver's own weights. Change a value, run `node build.mjs`,
-   republish (see README.md). Keep the comments true if a value's meaning shifts.
+   The motion / tint / preset knobs now also SHIP, in web/css/screens.css under
+   `[data-screen="trip"]` (a `:root` block). The app reads those. This file is
+   spliced into the mockup AFTER screens.css, so the values here override for
+   the mockup only - retune here, see it, then copy the ones you changed across
+   to screens.css. The `--wz-start-*` / `--cf-start-*` scenario knobs are
+   mockup-only and have no home in the app.
+
+   Change a value, run `node build.mjs`, republish (see README.md). Keep the
+   comments true if a value's meaning shifts.
    ========================================================================== */
 :root {
 
@@ -43,7 +47,7 @@
      what the promise and the rig quality are worth, and that doesn't change
      with how much slack you want. */
   --wz-preset-light:    22 25 30 15 4;
-  --wz-preset-standard: 45 25 30 15 2;
+  --wz-preset-standard: 36 25 30 15 3;
   --wz-preset-generous: 75 25 30 15 1;
 
   /* --- opening scenario ------------------------------------------------
@@ -53,4 +57,13 @@
   --wz-start-sails: 4.5 5 5.5 6 6.5 7 7.8 8.5;
   --wz-start-minrigs: 5;
   --wz-start-preset: standard;
+
+  /* --- the confirm screen (before the wizard) --------------------------
+     The dense picker where the kit sec ticks on extra sails and boards after
+     the deck. Which sizes came through the deck packed, and how tight the
+     rows are. Sail values are m² from pack.fixtures.mjs; board values are
+     litres from the mockup-local BOARDS list in app.js. (read by JS) */
+  --cf-start-sails: 5 6 7 8.5;         /* 4 of the 8 the club owns came through the deck */
+  --cf-start-boards: 86 111 125;       /* 3 of the ~10 the club owns */
+  --cf-row-pad: 6px 14px;              /* an inventory row's padding (denser than the wizard's list) */
 }

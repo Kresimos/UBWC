@@ -4,16 +4,16 @@
  * Writes trip-wizard-mock.html next to this file. Nothing is transcribed:
  *   - web/css/tokens.css and web/css/screens.css are spliced in byte for byte
  *     from this branch, so every bar and chip in the handset is the shipped
- *     design and not a copy of it;
+ *     design and not a copy of it - including the wizard and confirm component
+ *     CSS, which now lives in screens.css under [data-screen="trip"];
  *   - web/js/icons.js is turned into plain script (its one import dropped, its
  *     `export` keywords stripped, a `raw` shim prepended);
- *   - pack.mjs and pack.fixtures.mjs are spliced at the __SOLVER__ marker the
- *     same way misc/pack-playground does, so the page runs the real solver.
+ *   - web/js/rig/pack.js and web/js/rig/pack.fixtures.mjs are spliced at the
+ *     __SOLVER__ marker, so the page runs the real trailer solver against the
+ *     fixture rack.
  *
- * The solver lives in the `trip-packer-solver` worktree, not on this branch.
- * build.mjs looks for it at .claude/worktrees/trip-packer-solver/web/js/rig,
- * or wherever $SOLVER_DIR points. If that worktree is gone, check it out again
- * or pass SOLVER_DIR=... (see README.md).
+ * The solver is on this branch now (web/js/rig/pack.js); $SOLVER_DIR still
+ * overrides where it is read from.
  *
  * Rebuild after any change to src/, and after any change to the solver.
  */
@@ -28,15 +28,15 @@ const src = join(here, 'src');
 const read = (p) => readFileSync(p, 'utf8');
 const app = (f) => read(join(repo, f));
 
-const solverDir = process.env.SOLVER_DIR
-  || join(repo, '.claude', 'worktrees', 'trip-packer-solver', 'web', 'js', 'rig');
+const solverDir = process.env.SOLVER_DIR || join(repo, 'web', 'js', 'rig');
+const solverFile = existsSync(join(solverDir, 'pack.js')) ? 'pack.js' : 'pack.mjs';
 
-if (!existsSync(join(solverDir, 'pack.mjs'))) {
+if (!existsSync(join(solverDir, solverFile))) {
   console.error(
     `\n  Can't find the solver.\n\n` +
     `  Looked in: ${solverDir}\n\n` +
-    `  pack.mjs lives in the trip-packer-solver worktree, which is not on this\n` +
-    `  branch. Check it out again, or point SOLVER_DIR at a copy:\n\n` +
+    `  pack.js is on this branch at web/js/rig/. Point SOLVER_DIR at a copy if\n` +
+    `  you are building from somewhere it is not:\n\n` +
     `    SOLVER_DIR=/path/to/web/js/rig node misc/trip-wizard-mock/build.mjs\n`);
   process.exit(1);
 }
@@ -44,10 +44,10 @@ if (!existsSync(join(solverDir, 'pack.mjs'))) {
 const stripExports = (s) => s.replace(/^export /gm, '');
 
 const solver = [
-  '/* ---- inlined from pack.fixtures.mjs ---- */',
+  '/* ---- inlined from web/js/rig/pack.fixtures.mjs ---- */',
   stripExports(read(join(solverDir, 'pack.fixtures.mjs'))),
-  '/* ---- inlined from web/js/rig/pack.mjs ---- */',
-  stripExports(read(join(solverDir, 'pack.mjs'))),
+  `/* ---- inlined from web/js/rig/${solverFile} ---- */`,
+  stripExports(read(join(solverDir, solverFile))),
 ].join('\n\n');
 
 const icons = [
@@ -63,9 +63,10 @@ let page = [
   '/* ===================== web/css/tokens.css ===================== */',
   app('web/css/tokens.css'),
   '/* ===================== web/css/screens.css ===================== */',
+  // The wizard and confirm component CSS now ships here, under
+  // [data-screen="trip"], so the mockup gets it from the app like every other
+  // bar and chip rather than from a copy in src/.
   app('web/css/screens.css'),
-  '/* ===================== src/wizard.css (proposed) ===================== */',
-  read(join(src, 'wizard.css')),
   '/* ===================== src/design.css (the knobs) ===================== */',
   read(join(src, 'design.css')),
   '/* ===================== src/canvas.css (the wall) ===================== */',

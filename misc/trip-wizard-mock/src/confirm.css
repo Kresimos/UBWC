@@ -1,0 +1,8 @@
+/* ============================================================================
+   SHIPPED.
+
+   The Confirm-the-kit screen's component CSS now lives in the app, in
+   web/css/screens.css under `[data-screen="trip"]`. build.mjs splices
+   screens.css into the mockup, so this file is no longer read - edit
+   screens.css instead. Kept only as a pointer.
+   ========================================================================== */

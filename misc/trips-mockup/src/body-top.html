@@ -1,0 +1,241 @@
+</style>
+
+<div class="canvas">
+
+  <header class="masthead">
+    <p class="eyebrow">UBWC Kit &middot; drawing board</p>
+    <h1>The Trips tab, screen by screen</h1>
+    <p>A trip is a <strong>named list, not a place</strong>. Packing moves nothing: an item's
+       location stays its storage rack for the whole trip, so unpacking is just closing the
+       list. Everything below follows from that.</p>
+    <p>These are not redrawings. The frames on this page load
+       <code>web/css/tokens.css</code> and <code>web/css/screens.css</code> verbatim and
+       render through a port of the real <code>itemTile()</code>, so the parts of the tile
+       that are not changing are the shipped design itself. Only the four new decorations
+       &mdash; voter tags, the check disc, the fault bubble and the grey <em>out</em> chip
+       &mdash; are proposals, and each one is on a slider in the tuner.</p>
+  </header>
+
+  <div class="sectbar">
+    <h2>The six stages</h2>
+    <p class="lede">A trip moves in one direction, and every screen below belongs to exactly
+       one stage. What a member may do, and what the kit list even <em>is</em>, changes at
+       each step.</p>
+    <span class="tag">trips.status</span>
+  </div>
+
+  <div class="flow">
+    <svg viewBox="0 0 980 210" role="img" aria-label="The trip lifecycle: requesting, packing, active, unpacking, done, with cancelled branching off requesting and packing.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--cv-faint)"/>
+        </marker>
+        <marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--cv-crit)"/>
+        </marker>
+      </defs>
+
+      <!-- the five forward stages -->
+      <g font-family="Archivo, sans-serif">
+        <g>
+          <rect x="14" y="52" width="150" height="66" rx="12" fill="var(--cv-accent-soft)" stroke="var(--cv-accent)" stroke-width="1.5"/>
+          <text x="89" y="80" text-anchor="middle" font-size="15" font-weight="700" fill="var(--cv-ink)">requesting</text>
+          <text x="89" y="99" text-anchor="middle" font-size="11" fill="var(--cv-muted)">members ask for kit</text>
+        </g>
+        <g>
+          <rect x="222" y="52" width="150" height="66" rx="12" fill="var(--cv-panel)" stroke="var(--cv-rule)" stroke-width="1.5"/>
+          <text x="297" y="80" text-anchor="middle" font-size="15" font-weight="700" fill="var(--cv-ink)">packing</text>
+          <text x="297" y="99" text-anchor="middle" font-size="11" fill="var(--cv-muted)">checklist, admin ticks</text>
+        </g>
+        <g>
+          <rect x="430" y="52" width="150" height="66" rx="12" fill="var(--cv-panel)" stroke="var(--cv-rule)" stroke-width="1.5"/>
+          <text x="505" y="80" text-anchor="middle" font-size="15" font-weight="700" fill="var(--cv-ink)">active</text>
+          <text x="505" y="99" text-anchor="middle" font-size="11" fill="var(--cv-muted)">out now, read-only</text>
+        </g>
+        <g>
+          <rect x="638" y="52" width="150" height="66" rx="12" fill="var(--cv-panel)" stroke="var(--cv-rule)" stroke-width="1.5"/>
+          <text x="713" y="80" text-anchor="middle" font-size="15" font-weight="700" fill="var(--cv-ink)">unpacking</text>
+          <text x="713" y="99" text-anchor="middle" font-size="11" fill="var(--cv-muted)">ticking = returned</text>
+        </g>
+        <g>
+          <rect x="846" y="52" width="120" height="66" rx="12" fill="var(--cv-panel)" stroke="var(--cv-rule)" stroke-width="1.5"/>
+          <text x="906" y="80" text-anchor="middle" font-size="15" font-weight="700" fill="var(--cv-ink)">done</text>
+          <text x="906" y="99" text-anchor="middle" font-size="11" fill="var(--cv-muted)">the record</text>
+        </g>
+      </g>
+
+      <!-- forward arrows, each labelled with what causes the move -->
+      <g stroke="var(--cv-faint)" stroke-width="1.6" marker-end="url(#ah)" fill="none">
+        <path d="M164 85 H214"/><path d="M372 85 H422"/><path d="M580 85 H630"/><path d="M788 85 H838"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--cv-faint)" text-anchor="middle">
+        <text x="189" y="62">approve</text><text x="189" y="73">+ wizard</text>
+        <text x="397" y="73">all ticked</text>
+        <text x="505" y="132" font-size="10" fill="var(--cv-muted)">kit counts as “out” from packing through unpacking</text>
+        <text x="605" y="62">unpack</text><text x="605" y="73">tapped</text>
+        <text x="813" y="73">all back</text>
+      </g>
+      <path d="M232 140 H778" stroke="var(--cv-accent)" stroke-width="1.2" stroke-dasharray="4 4" fill="none" opacity=".55"/>
+      <path d="M232 140 V124 M778 140 V124" stroke="var(--cv-accent)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".55"/>
+
+      <!-- cancelled -->
+      <g>
+        <rect x="118" y="166" width="150" height="34" rx="10" fill="none" stroke="var(--cv-crit)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <text x="193" y="188" text-anchor="middle" font-size="13" font-weight="700" font-family="Archivo, sans-serif" fill="var(--cv-crit)">cancelled</text>
+      </g>
+      <g stroke="var(--cv-crit)" stroke-width="1.4" marker-end="url(#ahw)" fill="none" opacity=".8">
+        <path d="M89 118 V166"/><path d="M297 118 V158 H272"/>
+      </g>
+      <text x="16" y="30" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="1.4" fill="var(--cv-faint)">LIFECYCLE</text>
+    </svg>
+  </div>
+
+  <div class="sectbar">
+    <h2>The screens</h2>
+    <p class="lede">Fifteen frames in the order a trip is lived through. Each is the real
+       device chrome from <code>web/index.html</code>, running the real stylesheets.</p>
+    <span class="tag">390 &times; 812</span>
+  </div>
+
+  <div class="rack" id="rack"></div>
+
+  <div class="sectbar">
+    <h2>What the tile gains</h2>
+    <p class="lede">Every decoration reuses a class that already ships. Nothing here
+       restyles an existing rule except one line, marked below.</p>
+    <span class="tag">itemTile.js</span>
+  </div>
+
+  <div class="spec">
+    <div class="specscroll">
+    <table>
+      <thead><tr><th>New option</th><th>Grid</th><th>List</th><th>Built from</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>voters</code></td>
+          <td>Stack of discs, bottom-right of <code>.shot</code>, capped then <code>+N</code></td>
+          <td>Same stack, between the facts and the size</td>
+          <td class="has">new <code>.whostack</code>, reusing <code>.av</code></td>
+        </tr>
+        <tr>
+          <td><code>checked</code></td>
+          <td>Sets <code>.picked</code>, adds a tick disc top-right</td>
+          <td>Sets <code>.picked</code>, fills the existing <code>.selbox</code></td>
+          <td class="has"><code>.picked</code> already ships</td>
+        </tr>
+        <tr>
+          <td><code>checkable</code></td>
+          <td>&mdash;</td>
+          <td>Adds <code>.selbox</code> empty <em>beside</em> the thumbnail, admin only</td>
+          <td class="has"><code>selecting</code> already ships</td>
+        </tr>
+        <tr>
+          <td><code>place</code></td>
+          <td>Replaces the star row with site &middot; spot</td>
+          <td>Replaces the star with a pin and the site</td>
+          <td class="has">same slot, same scale</td>
+        </tr>
+        <tr>
+          <td><code>out</code></td>
+          <td colspan="2">Grey chip, stacks under a fault chip, never a button</td>
+          <td class="has"><code>.flagchip</code> + grey tokens</td>
+        </tr>
+        <tr>
+          <td><code>dotFault</code></td>
+          <td>&mdash;</td>
+          <td>Fault becomes a bubble on the thumb, freeing the row. On in every trip list</td>
+          <td class="miss">needs a <code>.lead</code> wrapper &mdash; <code>.thumb</code> crops its shot and would clip the bubble</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="sectbar">
+    <h2>What this needs from the backend</h2>
+    <p class="lede">The design is drawn against data that does not exist yet. Each row is a
+       real gap on the <code>trips</code> branch today.</p>
+    <span class="tag">db.py &middot; server.py</span>
+  </div>
+
+  <div class="spec">
+    <div class="specscroll">
+    <table>
+      <thead><tr><th>Needed for</th><th>Today</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>Voter tags</td>
+            <td class="miss">Counts only &mdash; <code>trip_vote_counts</code> returns <code>{item_id: n}</code>, and <code>_expand_trip</code> never names a voter</td>
+            <td>Join <code>trip_votes</code> to <code>users.display_name</code> and return a list per item</td></tr>
+        <tr><td>Approve / decline</td>
+            <td class="miss">No state &mdash; a vote is cast or withdrawn, nothing between</td>
+            <td>A status on the request row, plus the rule that declined sorts to the very bottom</td></tr>
+        <tr><td>Packing checklist</td>
+            <td class="miss">Only <code>trip_items.returned</code> exists, for the unpack</td>
+            <td>A second per-item flag, so packing and unpacking are separate passes</td></tr>
+        <tr><td>The six stages</td>
+            <td class="miss"><code>status</code> allows four: voting, open, returned, cancelled</td>
+            <td>Widen it &mdash; <code>db.py</code> already carries a <code>_widen_trip_status</code> migration to extend</td></tr>
+        <tr><td>Kit marked out</td>
+            <td class="has"><code>away_item_ids()</code> works, keyed on status <code>open</code></td>
+            <td>Count packing, active and unpacking as away instead</td></tr>
+        <tr><td>Trip photo &amp; notes</td>
+            <td class="miss">Neither column exists on <code>trips</code></td>
+            <td>Add both; the item image-upload path is the template</td></tr>
+        <tr><td>Trips as locations</td>
+            <td class="miss"><code>?site=</code> filters on <code>items.location</code>, which a trip can never be</td>
+            <td>A separate parameter. <code>location</code> stays the storage rack, always</td></tr>
+        <tr><td>Requesting one piece</td>
+            <td class="miss"><code>POST /trips/{id}/items</code> replaces the whole list</td>
+            <td>The vote endpoint already takes one item &mdash; requests ride on it</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="sectbar">
+    <h2>Open questions</h2>
+    <p class="lede">Three calls this mockup makes that are worth disagreeing with.</p>
+  </div>
+
+  <div class="cols">
+    <div class="card2">
+      <h3>The thumbnail survives the checklist</h3>
+      <p>A checkable row carries the circle <em>and</em> the picture. A trailer is
+         packed by looking at kit, so losing the thumbnail to a checkbox costs more
+         than the roughly 30px it saves.</p>
+      <p>What that spends is the row's last spare width, which is why the fault is
+         a bubble on the shot in <b>every</b> trip list now, not only the ones with
+         voter tags on them. The pair is tightened by 4px against the row's own gap
+         to buy some of it back.</p>
+    </div>
+    <div class="card2">
+      <h3>Where do declines go?</h3>
+      <p>Into their own greyed-out section at the very bottom of the <b>active</b>
+         trip, and nowhere else. That is the screen somebody is on when they are
+         stood at the trailer looking for the board they asked for, so it is where
+         the answer needs to be.</p>
+      <p>Not on the packing list, which is a job to work through, and not on a
+         finished trip, which is a record of what went. It is deliberately never
+         deleted: someone who asked deserves the answer, not a vanished request.</p>
+    </div>
+    <div class="card2">
+      <h3>Are stars worth their slot while packing?</h3>
+      <p>During packing and unpacking the star row is replaced by where the piece lives,
+         because the only question at that moment is which rack it came off. Requesting and
+         active keep the stars, because that is when a member is choosing.</p>
+      <p>It is the same slot at the same size, so no row changes height as a trip moves
+         between stages. The type rail goes the same way: once a list is grouped under
+         Boards and Sails headings, a rail of type chips above it filters by the thing
+         the list already says.</p>
+    </div>
+  </div>
+
+</div>
+
+<details class="tuner" id="tuner">
+  <summary>Design knobs <span class="chev">&#9662;</span></summary>
+  <div class="tunerbody" id="tunerbody"></div>
+</details>
+
+<script>
+const raw = (s) => s;

@@ -1,0 +1,5 @@
+# Build output — regenerate with ./build.sh
+trips-mockup.html
+# Screenshots from ./inspect.sh
+*.png
+.inspect.html

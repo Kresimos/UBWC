@@ -15,7 +15,9 @@
   'use strict';
 
   var mountEl = document.querySelector('[data-wzbody]');
-  var screenEl = document.querySelector('.screen');
+  if (!mountEl) return;
+  var appEl = mountEl.closest('.app');
+  var screenEl = mountEl.closest('.screen');
   var rootCss = getComputedStyle(document.documentElement);
   var REDUCE = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -459,7 +461,7 @@
     }
   });
 
-  document.querySelector('.backbtn').addEventListener('click', function () {
+  appEl.querySelector('.backbtn').addEventListener('click', function () {
     toast('Back to the trip.');
   });
 
@@ -467,4 +469,134 @@
 
   mount();
   paint(solve());
+}());
+
+
+/* ============================================================================
+   The confirm screen's controller (the handset before the wizard).
+
+   Pure picker, no solver: the deck settled which sails and boards came through
+   packed; this lists everything the club owns and lets the kit sec tick extras
+   on before the wizard runs. When this is built for real it becomes a stage in
+   web/js/screens/trip.js, seeded from trip_items and /api/kit.
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  var mountEl = document.querySelector('[data-cfbody]');
+  if (!mountEl) return;
+  var appEl = mountEl.closest('.app');
+  var screenEl = mountEl.closest('.screen');
+  var rootCss = getComputedStyle(document.documentElement);
+
+  function nums(prop) {
+    return rootCss.getPropertyValue(prop).trim().split(/\s+/).map(Number)
+      .filter(function (n) { return !isNaN(n); });
+  }
+
+  /* Mockup-local: the solver's fixture rack (pack.fixtures.mjs) has no boards
+     yet, so this stands in for the club's board inventory. Volume in litres,
+     club-shaped sizes. Sails come from the spliced-in SAILS fixture. */
+  var BOARDS = [
+    { id: 'bd84',  vol: 84,  mfr: 'JP',        model: 'Freestyle Wave 84', type: 'Freewave' },
+    { id: 'bd86',  vol: 86,  mfr: 'Fanatic',   model: 'Freewave 86',       type: 'Freewave' },
+    { id: 'bd96',  vol: 96,  mfr: 'Tabou',     model: '3S 96',             type: 'Freemove' },
+    { id: 'bd101', vol: 101, mfr: 'Starboard', model: 'Carve 101',         type: 'Freeride' },
+    { id: 'bd104', vol: 104, mfr: 'Fanatic',   model: 'Gecko 104',         type: 'Freeride' },
+    { id: 'bd111', vol: 111, mfr: 'Starboard', model: 'Freesex 111',       type: 'Freeride' },
+    { id: 'bd125', vol: 125, mfr: 'JP',        model: 'Funster 125',       type: 'Freeride' },
+    { id: 'bd148', vol: 148, mfr: 'Bic',       model: 'Techno 148',        type: 'Freeride' },
+    { id: 'bd160', vol: 160, mfr: 'Fanatic',   model: 'Viper 160',         type: 'Race' },
+    { id: 'bd175', vol: 175, mfr: 'Starboard', model: 'Start 175',         type: 'School' },
+  ];
+
+  var CAMMED = {};
+  SAILS.forEach(function (s) { CAMMED[s.m2] = !!s.cams; });
+
+  var m2s = function (v) { return v.toFixed(1); };
+  var cam = function (on) { return on ? '<span class="cam">◆</span>' : ''; };
+  var strip = function (model) { return String(model || '').replace(/\s*[0-9.]+\s*$/, ''); };
+
+  var startSails = {}, startBoards = {};
+  nums('--cf-start-sails').forEach(function (v) { startSails[v] = true; });
+  nums('--cf-start-boards').forEach(function (v) { startBoards[v] = true; });
+
+  var sailOn = {};   // keyed by sail id
+  var boardOn = {};  // keyed by board id
+  SAILS.forEach(function (s) { sailOn[s.id] = !!startSails[s.m2]; });
+  BOARDS.forEach(function (b) { boardOn[b.id] = !!startBoards[b.vol]; });
+
+  var sailsSorted = SAILS.slice().sort(function (a, b) { return a.m2 - b.m2; });
+  var boardsSorted = BOARDS.slice().sort(function (a, b) { return a.vol - b.vol; });
+
+  mountEl.innerHTML =
+    '<div class="cf" data-cf>' +
+
+      '<div class="cf-sum">' +
+        '<div class="cf-tile"><span class="k">Sails packed</span><b data-count="sail">0</b></div>' +
+        '<div class="cf-tile"><span class="k">Boards packed</span><b data-count="board">0</b></div>' +
+      '</div>' +
+
+      '<div class="cf-sect">' +
+        '<div class="grouplab">Sails</div>' +
+        '<div class="cf-list">' +
+          sailsSorted.map(function (s) {
+            return '<button class="cf-row' + (sailOn[s.id] ? ' sel' : '') + '" ' +
+              'data-kind="sail" data-id="' + s.id + '">' +
+              '<span class="sz">' + m2s(s.m2) + '</span>' +
+              '<span class="nm">' + s.mfr + ' ' + strip(s.model) + cam(CAMMED[s.m2]) + '</span>' +
+              '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="cf-sect">' +
+        '<div class="grouplab">Boards</div>' +
+        '<div class="cf-list">' +
+          boardsSorted.map(function (b) {
+            return '<button class="cf-row' + (boardOn[b.id] ? ' sel' : '') + '" ' +
+              'data-kind="board" data-id="' + b.id + '">' +
+              '<span class="sz">' + b.vol + '<i>L</i></span>' +
+              '<span class="nm">' + b.mfr + ' ' + strip(b.model) + '</span>' +
+              '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+
+    '</div>';
+
+  function repaintCounts() {
+    var ns = 0, nb = 0;
+    Object.keys(sailOn).forEach(function (k) { if (sailOn[k]) ns++; });
+    Object.keys(boardOn).forEach(function (k) { if (boardOn[k]) nb++; });
+    mountEl.querySelector('[data-count="sail"]').textContent = ns;
+    mountEl.querySelector('[data-count="board"]').textContent = nb;
+  }
+  repaintCounts();
+
+  mountEl.addEventListener('click', function (e) {
+    var row = e.target.closest('.cf-row');
+    if (!row) return;
+    var id = row.getAttribute('data-id');
+    var map = row.getAttribute('data-kind') === 'sail' ? sailOn : boardOn;
+    map[id] = !map[id];
+    row.classList.toggle('sel', map[id]);
+    repaintCounts();
+  });
+
+  var toastTimer = null;
+  function toast(msg) {
+    var old = screenEl.querySelector('.toast');
+    if (old) old.remove();
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    screenEl.appendChild(t);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.remove(); }, 2200);
+  }
+
+  var cont = appEl.querySelector('[data-continue]');
+  if (cont) cont.addEventListener('click', function () { toast('This is where the wizard opens.'); });
+  appEl.querySelector('.backbtn').addEventListener('click', function () { toast('Back to the trip.'); });
 }());

@@ -158,6 +158,12 @@ export async function render(root, params) {
       record[field.name] = value === undefined ? null : value;
     });
 
+    // The adjustable-top box shows a "0" placeholder rather than a real 0, so a
+    // sail with a fixed luff is just left blank — treat that as the 0 it means.
+    if (record.top_extension_max_cm === null || record.top_extension_max_cm === '') {
+      record.top_extension_max_cm = 0;
+    }
+
     const payload = {
       item: record,
       faults: faults
@@ -281,6 +287,9 @@ function camsSwitch(values) {
 }
 
 function sailRigCard(required, values) {
+  // A fixed luff (adjustable top of 0) reads as an empty box with a "0"
+  // placeholder, the same as luff and boom — a real 0 is never typed.
+  const topExtra = Number(values.top_extension_max_cm) ? values.top_extension_max_cm : '';
   return html`
     <div class="subcard">
       <div class="sh"><b>Rig spec</b><span>Printed on the sail</span></div>
@@ -295,7 +304,7 @@ function sailRigCard(required, values) {
             <span class="unit">cm</span>
           </span>
           <span class="topadd">+ <input data-field="top_extension_max_cm" type="text" inputmode="decimal"
-            value="${values.top_extension_max_cm ?? 0}"> cm</span>
+            value="${topExtra}" placeholder="0"> cm</span>
         </div>
         <div class="popover" hidden>How far the mast may stick out the top of the sail. 0 is a fixed
           luff; raise it to fit longer masts (the extra pokes out the top).</div>

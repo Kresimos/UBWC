@@ -48,8 +48,11 @@ function paintTabs() {
   // A de-rigged but unlogged setup is exactly what the Log tab is for, so it
   // is the only thing that earns a badge.
   const waiting = store.setup && store.setup.status === 'derigged';
+  // Adding writes to the club's ground truth, so it is committee-only for now
+  // (misc/spec.md future idea: bring it back for members adding personal kit).
+  const tabs = TABS.filter((tab) => tab.key !== 'add' || store.committee);
   mount(document.getElementById('tabbar'), html`
-    ${TABS.map((tab) => html`
+    ${tabs.map((tab) => html`
       <button class="tab ${tab.key === activeTab ? 'on' : ''}" data-tab="${tab.key}"
               aria-current="${tab.key === activeTab ? 'page' : 'false'}">
         ${icon(tab.icon)}${tab.label}

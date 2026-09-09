@@ -120,7 +120,10 @@
 [data-screen="catalogue"] .fp-sheet,
 [data-screen="trip"] .fp-sheet,
 [data-screen="form"] .fp-sheet {
-  position: absolute; left: 0; right: 0; bottom: 0; top: 40px;
+  /* .filterpanel is inset:0 on .screen, so the top offset is from the true
+     screen top - add --safe-top so the strip left showing above the sheet is
+     the same 40px it was before the status bar became ours. */
+  position: absolute; left: 0; right: 0; bottom: 0; top: calc(40px + var(--safe-top));
   background: var(--app-bg); border-radius: 18px 18px 0 0;
   display: flex; flex-direction: column;
   transform: translateY(100%);
@@ -209,7 +212,7 @@
 [data-screen="trip"] .fp-foot,
 [data-screen="form"] .fp-foot {
   flex: none; display: flex; align-items: center; gap: 12px;
-  padding: 10px var(--gutter) max(12px, env(safe-area-inset-bottom, 0px));
+  padding: 10px var(--gutter) max(12px, var(--safe-bottom));
   border-top: 1px solid var(--app-line);
 }
 [data-screen="catalogue"] .fp-reset,
@@ -255,15 +258,13 @@
 }
 [data-screen="item"] .hero svg.art { width: 54%; height: 72%; }
 [data-screen="item"] .hero img { width: 100%; height: 100%; object-fit: cover; }
+/* The hero bleeds to the very top of the screen (tokens.css: .app opts out of
+   --safe-top on item), so the floating buttons sit 14px below the status-bar
+   strip rather than 14px from the true top. --safe-top is 0 off iOS and a
+   fixed band in the desktop mock, so this one rule covers every case. */
 [data-screen="item"] .hero-nav {
-  position: absolute; top: 14px; left: 14px; right: 14px; display: flex;
-  justify-content: space-between; z-index: 3;
-}
-/* On the phone mock-up the hero runs full-bleed behind the fake status bar
-   (tokens.css floats it, transparent, over the hero), so hero-nav's buttons
-   need to clear that ~52px band instead of sitting 14px from the true top. */
-@media (min-width: 620px) and (min-height: 700px) {
-  [data-screen="item"] .hero-nav { top: 66px; }
+  position: absolute; top: calc(14px + var(--safe-top)); left: 14px; right: 14px;
+  display: flex; justify-content: space-between; z-index: 3;
 }
 [data-screen="item"] .iconbtn {
   width: 38px; height: 38px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .82);
@@ -563,16 +564,16 @@
 }
 [data-screen="build"] .picker button:active span { background: var(--app-bg2); color: var(--app-ink); }
 [data-screen="build"] .picker .val {
-  flex: none; display: flex; align-items: flex-end; gap: 5px; min-width: 88px;
-  justify-content: center; transform: translateY(-2px);
+  flex: none; min-width: 88px; text-align: center;
+  transform: translateY(-2px);
 }
 [data-screen="build"] .picker .val b {
   font-size: 38px; font-weight: 800; letter-spacing: -.03em;
   font-variant-numeric: tabular-nums; line-height: 1;
 }
 [data-screen="build"] .picker .val i {
-  font-style: normal; font-size: 14px; font-weight: 650; color: var(--app-muted);
-  line-height: 1; padding-bottom: 1px;
+  font-style: normal; font-size: 16px; font-weight: 650;
+  color: var(--app-faint); margin-left: 3px;
 }
 
 [data-screen="build"] .tagrow {
@@ -610,6 +611,43 @@
   color: var(--app-faint); text-align: center;
 }
 [data-screen="build"] .sizehint svg { width: 13px; height: 13px; flex: none; color: var(--teal); }
+
+/* First run only: what the number is and how to move it. It floats over the
+   (dimmed) kit rather than pushing them down, with a caret up at the number, so
+   the eye has one place to land and the list stays where it was. */
+[data-screen="build"] .body.coached [data-hint] { position: relative; z-index: 2; }
+[data-screen="build"] .coachtip {
+  position: absolute; top: 3px; left: var(--gutter); right: var(--gutter);
+  padding: 12px 14px;
+  background: var(--teal); color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(10, 60, 70, .22);
+  font-size: 12.5px; line-height: 1.5;
+}
+[data-screen="build"] .coachtip::before {
+  content: ""; position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  border-left: 7px solid transparent; border-right: 7px solid transparent;
+  border-bottom: 7px solid var(--teal);
+}
+[data-screen="build"] .coachtip p { margin: 0; }
+[data-screen="build"] .coachtip p + p { margin-top: 7px; color: rgba(255, 255, 255, .78); }
+[data-screen="build"] .coachtip button {
+  margin-top: 10px; padding: 2px 0 0;
+  border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-weight: 750; color: #fff;
+}
+[data-screen="build"] .coachtip button::after { content: " \2192"; }
+
+[data-screen="build"] .body.coached [data-tags],
+[data-screen="build"] .body.coached .subbar,
+[data-screen="build"] .body.coached [data-results] {
+  opacity: .3; pointer-events: none; transition: opacity .16s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="build"] .body.coached [data-tags],
+  [data-screen="build"] .body.coached .subbar,
+  [data-screen="build"] .body.coached [data-results] { transition: none; }
+}
 
 
 /* ======================================================== RIG: your rig */
@@ -1290,16 +1328,6 @@
 
 /* ============================================================== ADD: the form */
 [data-screen="form"] .form { display: flex; flex-direction: column; gap: 15px; }
-[data-screen="form"] .typechip {
-  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
-  font-size: 13px; font-weight: 750; color: var(--teal-ink); background: var(--teal-tint);
-  padding: 8px 8px 8px 12px; border-radius: 999px; border: 0; cursor: pointer;
-}
-[data-screen="form"] .typechip svg { width: 16px; height: 16px; }
-[data-screen="form"] .typechip .ch {
-  font-size: 11.5px; font-weight: 700; color: var(--teal-ink); background: #CFE7EA;
-  padding: 4px 9px; border-radius: 999px;
-}
 /* The shared photo picker (ui/photofield.js): the Add/Edit kit form, the trip
    form, the fault and fix sheets, the profile menu and the spot editor. */
 .photopick {
@@ -1925,7 +1953,7 @@
    middle of it. Shorter bar, anchored at the bottom, so the button also comes
    down the page a little. */
 [data-kitpicker] .fp-foot {
-  padding: 7px var(--gutter) max(7px, env(safe-area-inset-bottom, 0px));
+  padding: 7px var(--gutter) max(7px, var(--safe-bottom));
 }
 [data-kitpicker] .fp-done { flex: 1; padding: 11px 20px; font-size: 13.5px; }
 [data-kitpicker] .fp-done .n { font-weight: 600; opacity: .72; }

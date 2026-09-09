@@ -71,6 +71,32 @@ FIELD_META = {
     "notes":              {"label": "Notes", "kind": "text", "optional": True},
 }
 
+# Per-type label overrides, for a field name that reads fine on one component
+# type but is ambiguous on another. A board's box_type is about the fin it
+# takes, not the board itself, so it reads better spelled out there. A sail's
+# diameter is the mast class its cams need, not a property of the sail.
+FIELD_LABEL_OVERRIDES = {
+    ("board", "box_type"): "Fin box type",
+    ("sail", "diameter"): "Mast diameter",
+}
+
+
+def field_label(ctype: str, field: str) -> str:
+    return FIELD_LABEL_OVERRIDES.get((ctype, field), FIELD_META[field]["label"])
+
+
+# Per-type choice overrides. A mast or extension is physically one diameter
+# class or the other, but a cammed sail can carry cam spacers for both, so
+# "Either" is a real, pickable answer there and nowhere else.
+FIELD_CHOICE_OVERRIDES = {
+    ("sail", "diameter"): ["SDM", "RDM", "Either"],
+}
+
+
+def field_choices(ctype: str, field: str) -> list:
+    return FIELD_CHOICE_OVERRIDES.get((ctype, field), FIELD_META[field].get("choices"))
+
+
 # Comment kinds: value -> label for the item page's comment stream. No emoji
 # anywhere in app-facing copy (misc/spec.md "Platform and global layout").
 COMMENT_KINDS = {
@@ -505,6 +531,7 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
 
     _migrate_accounts(conn, tables)
     _migrate_extensions(conn)
+    _migrate_sail_diameter_either(conn)
     _seed_locations(conn)
 
 
@@ -536,7 +563,7 @@ _ITEMS_DDL = """
         max_size_cm          REAL,
         ext_min_cm           REAL,
         ext_max_cm           REAL,
-        diameter             TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM')),
+        diameter             TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM','Either')),
         size_generic         TEXT,
         box_type             TEXT,
         fin_length_cm        REAL,
@@ -551,6 +578,23 @@ _ITEMS_DDL = """
 # at the front of `notes`, back when diameter had no column. Moved into
 # `items.diameter` and removed from the note, so it is stated once.
 _DIAMETER_PREFIX_RE = re.compile(r"^\s*(RDM|SDM)\b[\s.,:;–-]*", re.IGNORECASE)
+
+
+def _migrate_sail_diameter_either(conn: sqlite3.Connection) -> None:
+    """Widen items.diameter's CHECK to accept 'Either'.
+
+    A cammed sail with cam spacers fits both mast classes, which is a real,
+    pickable answer for a sail's diameter, not just an unrecorded one. Widening
+    a CHECK is the one migration SQLite has no ALTER for, so the table is
+    rebuilt (as `_migrate_extensions` already does for the same reason). The
+    guard is the stored DDL itself, same as the other CHECK migrations here.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+    ).fetchone()
+    if row and "'Either'" not in (row["sql"] or ""):
+        _rebuild_items(conn)
+        _rebuild_views(conn)
 
 
 def _migrate_extensions(conn: sqlite3.Connection) -> None:
@@ -1075,7 +1119,8 @@ def spec_rows(item: dict) -> list:
     Optional fields (e.g. notes) are omitted entirely when empty rather than
     shown as a dash, to keep the spec table tight.
     """
-    fields = COMPONENT_FIELDS.get(item["component_type"], [])
+    ctype = item["component_type"]
+    fields = COMPONENT_FIELDS.get(ctype, [])
     rows = []
     for f in fields:
         meta = FIELD_META[f]
@@ -1086,7 +1131,7 @@ def spec_rows(item: dict) -> list:
             if meta.get("optional"):
                 continue
             value = "—"
-        rows.append((meta["label"], value))
+        rows.append((field_label(ctype, f), value))
     return rows
 
 

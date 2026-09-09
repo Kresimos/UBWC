@@ -82,8 +82,10 @@ CREATE TABLE items (
     -- than a convention inside `notes`, because it is a HARD rule twice over
     -- (CLAUDE.md "Mast diameter class"): an extension must match its mast, and
     -- a cambered sail must match both. NULL = unknown/not applicable, which the
-    -- rules read as "don't block".
-    diameter            TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM')),
+    -- rules read as "don't block". 'Either' is sail-only: cam spacers for both
+    -- classes are a real, pickable answer there, but a physical mast/extension
+    -- is not.
+    diameter            TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM','Either')),
 
     -- misc catch-all
     size_generic        TEXT,

@@ -17,7 +17,7 @@
  * form is a convenience and the API is the gate.
  */
 import { html, mount, onClick, esc } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { chooser, lightbox, toast } from '../ui/overlay.js';
@@ -47,15 +47,17 @@ export async function render(root, params) {
   const required = new Set(store.required[type] || []);
 
   function paint() {
+    // mount() replaces the whole screen, .body included, so a repaint (adding
+    // a fault, picking a site…) would otherwise snap the scroll back to the top.
+    const scrollTop = root.querySelector('.body')?.scrollTop || 0;
     mount(root, screen(type, editing, fields, required, values, faults));
     wire();
+    const body = root.querySelector('.body');
+    if (body) body.scrollTop = scrollTop;
   }
 
   function wire() {
     root.querySelector('[data-back]').addEventListener('click', () => back(editing ? `/item/${params.id}` : '/add'));
-    root.querySelector('[data-changetype]')?.addEventListener('click', () => {
-      if (!editing) go('/add', { replace: true });
-    });
 
     // text / number inputs write straight back to `values`
     root.querySelectorAll('[data-field]').forEach((input) => {
@@ -72,29 +74,46 @@ export async function render(root, params) {
         chip.classList.toggle('on', chip.getAttribute('data-cond') === value));
     });
 
-    // cams switch
-    onClick(root, 'data-cams', (_v, node) => {
+    // cams switch — a sail's diameter only matters once it is cambered (a
+    // camless sail's luff sleeve fits either), so toggling it in or out shows
+    // or hides the diameter picker below and seeds/clears a sensible value.
+    onClick(root, 'data-cams', () => {
       values.cams = values.cams ? 0 : 1;
-      node.classList.toggle('on', Boolean(values.cams));
+      if (values.cams) {
+        if (!values.diameter) values.diameter = 'SDM';
+      } else {
+        values.diameter = null;
+      }
+      paint();
     });
 
-    // box-type / site pickers via a sheet
+    // select-kind fields via a sheet: each field carries its own choices
+    // except location, which comes from the site list plus "a new site…".
     onClick(root, 'data-select', async (name) => {
-      const options = name === 'location'
-        ? store.sites.map((s) => ({ value: s.name, label: s.name }))
-          .concat([{ value: '__new', label: 'A new site…' }])
-        : (name === 'box_type' ? store.boxTypes : []).map((choice) => ({ value: choice, label: choice }));
+      if (name === 'location') {
+        const options = store.sites.map((s) => ({ value: s.name, label: s.name }))
+          .concat([{ value: '__new', label: 'A new site…' }]);
+        const chosen = await chooser({
+          title: 'Which site?',
+          rows: options.map((o) => ({ ...o, on: values.location === o.value })),
+        });
+        if (!chosen) return;
+        if (chosen === '__new') {
+          const site = prompt('New site name');
+          if (site) { values.location = site.trim(); }
+        } else {
+          values.location = chosen;
+        }
+        paint();
+        return;
+      }
+      const field = fields.find((f) => f.name === name);
       const chosen = await chooser({
-        title: name === 'location' ? 'Which site?' : 'Box type',
-        rows: options.map((o) => ({ ...o, on: values[name] === o.value })),
+        title: field?.label || 'Choose',
+        rows: (field?.choices || []).map((choice) => ({ value: choice, label: choice, on: values[name] === choice })),
       });
       if (!chosen) return;
-      if (chosen === '__new') {
-        const site = prompt('New site name');
-        if (site) { values.location = site.trim(); }
-      } else {
-        values[name] = chosen;
-      }
+      values[name] = chosen;
       paint();
     });
 
@@ -182,11 +201,6 @@ function screen(type, editing, fields, required, values, faults) {
 
     <div class="body pad">
       <div class="form">
-        <button class="typechip" data-changetype>
-          ${artFor(type)}${store.typeLabels[type]}
-          ${editing ? '' : html`<span class="ch">Change type</span>`}
-        </button>
-
         ${photoField(values.image_path, {
           hint: 'Shop-panel shot on a soft grey background. Optional.',
         })}
@@ -208,8 +222,11 @@ function screen(type, editing, fields, required, values, faults) {
 
 function renderFields(type, fields, required, values) {
   // Group the numeric rig-spec of a sail into its own card, as the sketch does.
+  // A sail's diameter only matters once it is cambered, so it is pulled out of
+  // the inline grid and rendered conditionally below the Cambered switch instead.
   const inline = fields.filter((f) => !['condition', 'location', 'spot', 'notes', 'cams',
-    'luff_cm', 'top_extension_max_cm', 'req_boom_cm'].includes(f.name));
+    'luff_cm', 'top_extension_max_cm', 'req_boom_cm'].includes(f.name)
+    && !(type === 'sail' && f.name === 'diameter'));
 
   const rows = [];
   // Pair up manufacturer/model, size/type, into two-up rows where they exist.
@@ -218,9 +235,12 @@ function renderFields(type, fields, required, values) {
     rows.push(html`<div class="two">${pair.map((f) => field(f, required, values))}</div>`);
   }
 
+  const diameterField = fields.find((f) => f.name === 'diameter');
+
   return html`
     ${rows}
     ${type === 'sail' ? camsSwitch(values) : ''}
+    ${type === 'sail' && values.cams && diameterField ? field(diameterField, required, values) : ''}
     ${type === 'sail' ? sailRigCard(required, values) : ''}
     ${conditionField(required, values)}
     ${locationFields(required, values)}

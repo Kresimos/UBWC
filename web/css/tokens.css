@@ -70,6 +70,20 @@
   --stage-gap: 18px;
   --out-bg: #E7EBEB;         /* the "away with a trip" chip */
   --out-ink: #5C6A6A;
+
+  /* The strips iOS keeps for the clock/battery and the home indicator. Zero on
+     a laptop and on Android. On an iOS home-screen install the status-bar-style
+     is black-translucent (index.html) so the app owns the whole screen: .app
+     pads its content down past the top strip exactly as the old opaque OS bar
+     used to, and the tab bar clears the bottom one. The item hero and a
+     full-screen overlay dim are the deliberate exceptions up top.
+
+     iOS standalone often reports env(safe-area-inset-*) as 0 even so, so the
+     inline script in index.html measures it and, when it comes back 0, sets
+     these two from the device's screen size. The desktop phone mock overrides
+     --safe-top further down. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * { box-sizing: border-box; }
@@ -124,8 +138,21 @@ button:active, [role="button"]:active {
 
 /* -------------------------------------------------------------- the device */
 .phone {
+  /* Fill the whole screen, top-anchored, with an explicit height rather than
+     inset:0. On this iOS black-translucent standalone the layout viewport
+     (what inset:0 and innerHeight give) is 47px SHORTER than the screen - it
+     reports every env(safe-area-inset-*) as 0 yet still keeps a notch's worth
+     back - so inset:0 left a 47px white band below the tab bar. 100vh is the
+     large viewport (the full screen, and it does not shrink for the software
+     keyboard); the index.html script also pins height to screen.height in px
+     for the same standalone case, belt and braces. position:fixed keeps it
+     put when the keyboard opens - iOS scrolls the focused field into view.
+     The desktop mock puts .phone back in normal flow so it can be centred. */
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 100%;
+  height: 100vh;
   background: var(--app-bg);
 }
 
@@ -139,38 +166,35 @@ button:active, [role="button"]:active {
   overflow: hidden;
 }
 
-/* When installed to the home screen, iOS runs the app fullscreen with content
-   extending up under the notch. Two things keep the very top clean and white:
-   a white bar pinned across the status-bar safe area, and top content padded
-   down so the logo and the item-page buttons clear the notch. On a laptop, or
-   on a phone with no notch, env(safe-area-inset-top) is 0 and none of this
-   shows. The white also overrides the pale backdrop iOS would otherwise paint
-   the reserved status-bar area with.
+/* Installed to the home screen with status-bar-style black-translucent
+   (index.html), iOS runs the app edge to edge and paints only the clock and
+   battery over the top, in white. Everything behind that strip is ours.
 
-   The item screen opts out: its hero photo already starts at the very top of
-   the screen, so painting white over the inset just clips a strip off it. The
-   hero's own colour is meant to run up under the notch instead — only the
-   back/save/edit buttons need clearing, and hero-nav's own inset padding
-   already does that. */
-@media (max-width: 619px) {
-  .screen::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: env(safe-area-inset-top, 0px);
-    background: #fff;
-    z-index: 32;
-    pointer-events: none;
-  }
-  /* data-screen lives on #app (a child of .screen), not on .screen itself,
-     so the item-screen exception needs :has() to reach up from there. */
-  .screen:has(> .app[data-screen="item"])::before { background: transparent; }
-
-  .appbar { padding-top: calc(2px + env(safe-area-inset-top, 0px)); }
-  [data-screen="item"] .hero-nav { top: calc(14px + env(safe-area-inset-top, 0px)); }
+   .app pads its content down by --safe-top so it sits below the strip exactly
+   as it did when the OS drew an opaque bar there. .screen::before then fills
+   the strip with the app-bar white, so the top of the screen is seamless with
+   the content on every ordinary screen. Two things sit above it and override:
+   the item hero (its .app opts out of the padding, and the ::before goes
+   transparent so the photo runs to the very top), and a full-screen overlay
+   dim (#overlay is inset:0 on the unpadded .screen at z-index 40, so it covers
+   the white strip and the top stays level with the dimmed content). The white
+   clock has nothing dark behind it on a light screen and mostly disappears -
+   an accepted trade for the seamless edge. Where --safe-top is 0 (laptop,
+   Android, no-notch phone) the strip has no height. */
+.screen::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--safe-top);
+  background: var(--app-bg);
+  z-index: 1;
+  pointer-events: none;
 }
+.screen:has(> .app[data-screen="item"])::before { background: transparent; }
+
+.app[data-screen="item"] { padding-top: 0; }
 
 /* The handset frame only exists where there is room for it: on a phone the app
    is the app, and the real status bar and home indicator are the device's. */
@@ -186,6 +210,9 @@ button:active, [role="button"]:active {
     background: #EAEEEE;
   }
   .phone {
+    /* back into normal flow so the flex-centred body can place the handset */
+    position: static;
+    inset: auto;
     width: 390px;
     height: 812px;
     background: #0B0F0F;
@@ -194,6 +221,11 @@ button:active, [role="button"]:active {
     box-shadow: 0 1px 0 #3a4443 inset,
                 0 30px 60px -24px rgba(6, 26, 30, .55),
                 0 8px 22px -12px rgba(6, 26, 30, .4);
+    /* No real safe area on a laptop, so the mock fakes one: this is what
+       feeds .app's top padding, exactly as env(safe-area-inset-top) does on a
+       phone. Bottom stays 0 - the mock draws its own home indicator. */
+    --safe-top: 50px;
+    --safe-bottom: 0px;
   }
   .screen { border-radius: 40px; }
 
@@ -207,34 +239,42 @@ button:active, [role="button"]:active {
     height: 30px;
     background: #0B0F0F;
     border-radius: 0 0 18px 18px;
-    z-index: 20;
+    z-index: 46;
   }
+  /* The mock's status row stands in for what black-translucent gives a real
+     installed app: it overlays the content (it does not push it down) and
+     shows only white glyphs. .screen::before fills the strip with app-bg
+     white just as on the device, so on a light screen the glyphs vanish into
+     it here too - that is the real look, not a mock artefact. */
   .statusbar {
-    flex: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     display: flex;
-    height: 52px;
+    height: 50px;
     align-items: flex-end;
     justify-content: space-between;
-    padding: 0 30px 8px;
+    padding: 0 30px 7px;
     font-size: 15px;
     font-weight: 600;
-    background: var(--app-bg);
-    position: relative;
-    z-index: 12;
+    color: #fff;
+    z-index: 46;
+    pointer-events: none;
   }
   .statusbar .dots { display: flex; align-items: center; gap: 6px; }
   .sig { width: 17px; height: 11px; }
   .batt {
-    width: 24px; height: 12px; border: 1.4px solid var(--app-ink);
+    width: 24px; height: 12px; border: 1.4px solid currentColor;
     border-radius: 3px; position: relative; opacity: .9;
   }
   .batt::after {
     content: ""; position: absolute; inset: 2px; right: 5px;
-    background: var(--app-ink); border-radius: 1px;
+    background: currentColor; border-radius: 1px;
   }
   .batt::before {
     content: ""; position: absolute; right: -3px; top: 3px; width: 2px;
-    height: 6px; background: var(--app-ink); border-radius: 0 1px 1px 0;
+    height: 6px; background: currentColor; border-radius: 0 1px 1px 0;
   }
   .home-ind {
     display: block; flex: none; height: 22px; background: var(--app-bg);
@@ -246,27 +286,21 @@ button:active, [role="button"]:active {
     background: #0B0F0F; opacity: .22;
   }
 
-  /* The item screen's hero is a full-bleed photo panel: on the phone mock-up
-     it runs solid to the very top, with nothing drawn over it — so the fake
-     status row (clock/battery, decorative only, drawn by this stylesheet for
-     the desktop preview) is dropped rather than floated on top of it. A real
-     phone's actual status bar is owned by the OS, not this page, and no CSS
-     here could cover that one; this only affects the in-browser mock-up. */
-  .screen:has(> .app[data-screen="item"]) .statusbar {
-    display: none;
-  }
-  /* hero-nav's own top offset for this breakpoint lives in screens.css, next
-     to the base rule it overrides — same specificity, so it has to come
-     later in the cascade to win, and this stylesheet loads before that one. */
+  /* The item hero is full-bleed to the very top (its .app opts out of
+     --safe-top); the white glyphs sit straight over the photo, so the mock
+     keeps the status row here rather than dropping it. */
 }
 
 /* A screen owns its own header and footer, so the router swaps the whole
-   middle: [appbar] [scrolling body] [action bar]. */
+   middle: [appbar] [scrolling body] [action bar]. The padding-top is the
+   status-bar strip iOS black-translucent hands us (see --safe-top above); it
+   is 0 everywhere else. */
 .app {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  padding-top: var(--safe-top);
 }
 
 .body {
@@ -424,9 +458,7 @@ button:active, [role="button"]:active {
   position: relative;
   z-index: 10;
 }
-@media (max-width: 619px) {
-  .tabbar { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
-}
+.tabbar { padding-bottom: calc(10px + var(--safe-bottom)); }
 .tab {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   color: var(--app-faint); font-size: 10.5px; font-weight: 600;
@@ -834,7 +866,7 @@ button:active, [role="button"]:active {
 
 .sheet {
   width: 100%; background: var(--app-bg); border-radius: 24px 24px 0 0;
-  padding: 8px 0 max(18px, env(safe-area-inset-bottom, 0px));
+  padding: 8px 0 max(18px, var(--safe-bottom));
   display: flex; flex-direction: column; max-height: 82%;
   animation: rise .24s cubic-bezier(.32, .72, 0, 1);
 }

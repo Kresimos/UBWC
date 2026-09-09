@@ -9,7 +9,7 @@ import { html, mount, onClick } from '../dom.js';
 import { artFor } from '../icons.js';
 import { store } from '../store.js';
 import { wireWhoPill } from '../ui/bits.js';
-import { needUser, openIdentity } from '../ui/chrome.js';
+import { needCommittee, openIdentity } from '../ui/chrome.js';
 import { go } from '../router.js';
 
 const TYPES = [
@@ -30,7 +30,7 @@ export async function render(root) {
   const unwire = wireWhoPill(root, openIdentity);
 
   onClick(root, 'data-type', async (value) => {
-    if (!(await needUser('Adding kit writes to the club inventory, so it is signed with your account.'))) return;
+    if (!(await needCommittee('Adding kit writes to the club inventory, so for now it is committee only.'))) return;
     go(`/new/${value}`);
   });
 

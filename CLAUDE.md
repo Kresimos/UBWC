@@ -156,6 +156,20 @@ extension, an SDM mast an SDM one) regardless of the sail, since the extension
 bolts into the mast base. A NULL diameter means nobody has recorded it, and must
 never block a pick — the rules skip the check rather than guess.
 
+The "or the right cam spacers" case above is a **third storable value, `Either`,
+on sails only** (`db.FIELD_CHOICE_OVERRIDES[("sail", "diameter")]`): a cammed
+sail whose cams carry spacers for both classes genuinely fits either mast, which
+is different from *nobody having recorded it* (NULL). A mast or extension is
+still only ever `RDM`/`SDM`/NULL — it is one physical class, never "either" —
+so this value is sail-specific by construction (`validation.py`'s CHECK-style
+guard and the DB's own `CHECK` constraint both reject it elsewhere). The add
+form only shows the Diameter field on a sail once **Cambered** is switched on
+(defaulting to `SDM`), since it is meaningless otherwise. In matching logic,
+`Either` is treated the same as NULL by `rigkit.diameter_class()` (both read as
+"don't block on diameter"), which is the correct outcome for both — the
+distinction only matters for what gets displayed and stored, not for the rig
+assistant's behaviour.
+
 ## Board sizing: volume vs. sail size and rider
 
 Board `Size (L)` (volume in litres) is chosen from **rider weight, skill, and

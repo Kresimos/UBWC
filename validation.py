@@ -106,9 +106,11 @@ def validate_rig(sail: dict,
                 )
 
         # Diameter: only a hard rule for a cambered sail, whose cams are moulded
-        # to one class. A camless sail's luff sleeve takes either.
+        # to one class. A camless sail's luff sleeve takes either, and so does a
+        # cambered one recorded as "Either" (cam spacers for both classes).
         sail_diam, mast_diam = sail.get("diameter"), mast.get("diameter")
-        if sail_diam and mast_diam and sail_diam != mast_diam:
+        is_either = (sail_diam or "").strip().upper() == "EITHER"
+        if sail_diam and mast_diam and sail_diam != mast_diam and not is_either:
             if sail.get("cams"):
                 res.errors.append(
                     f"This sail's cams are moulded to {sail_diam}, so they will not "
@@ -284,9 +286,15 @@ def check_item(record: dict) -> Result:
     # cambered sail's cams against both, so an unstated one costs the rig
     # assistant a rule it would otherwise apply. It never blocks a save: a
     # member who does not know the class should still record the piece.
+    # A sail alone may also be "Either": cam spacers for both classes are a
+    # real, pickable answer there, but a physical mast/extension is not.
     diameter = (record.get("diameter") or "").strip().upper()
-    if diameter and diameter not in ("RDM", "SDM"):
-        res.errors.append("Diameter has to be RDM or SDM.")
+    valid_diameters = ("RDM", "SDM", "EITHER") if ctype == "sail" else ("RDM", "SDM")
+    if diameter and diameter not in valid_diameters:
+        res.errors.append(
+            "Diameter has to be RDM, SDM or Either." if ctype == "sail"
+            else "Diameter has to be RDM or SDM."
+        )
     elif not diameter:
         if ctype == "ext":
             res.warnings.append(

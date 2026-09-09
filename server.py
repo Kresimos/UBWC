@@ -428,26 +428,25 @@ def bootstrap(request: Request):
         "types": [{"key": key, "label": db.COMPONENT_LABELS[key],
                    "count": counts.get(key, 0)} for key in db.CATALOGUE_TYPES],
         "conditions": db.FIELD_META["condition"]["choices"],
-        "box_types": db.FIELD_META["box_type"]["choices"],
         "role_labels": db.ROLE_LABELS,
         # The add/edit form is generated from these: for each type, the ordered
         # fields and, for each field, how to label and render it. The form knows
         # no windsurfing itself — it just draws what db.py says a type is made of.
-        "forms": {ctype: [_field_meta(field) for field in fields]
+        "forms": {ctype: [_field_meta(ctype, field) for field in fields]
                   for ctype, fields in db.COMPONENT_FIELDS.items()},
         "required": validation.REQUIRED_FIELDS,
         "type_labels": db.COMPONENT_LABELS,
     }
 
 
-def _field_meta(field: str) -> dict:
+def _field_meta(ctype: str, field: str) -> dict:
     meta = db.FIELD_META[field]
     return {
         "name": field,
-        "label": meta["label"],
+        "label": db.field_label(ctype, field),
         "kind": meta["kind"],
         "optional": meta.get("optional", False),
-        "choices": meta.get("choices"),
+        "choices": db.field_choices(ctype, field),
     }
 
 
@@ -680,8 +679,9 @@ def read_item(item_id: int, request: Request):
 
 @app.post("/api/items")
 def create_item(request: Request, payload: dict = Body(...)):
-    """Add a piece of kit. Requires an account; any signed-in member can add."""
-    require_user(request)
+    """Add a piece of kit. Committee only for now (misc/spec.md future idea:
+    open this back up for members adding their own personal kit)."""
+    require_committee(request)
     record = dict(payload.get("item") or {})
     ctype = record.get("component_type")
     if ctype not in db.COMPONENT_FIELDS:

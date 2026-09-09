@@ -102,7 +102,19 @@
 html, body {
   margin: 0;
   padding: 0;
-  height: 100%;
+  /* Same height as .phone (see there) so .phone never overflows the document
+     by the ~47px that iOS under-reports - that overflow was a scrollable
+     strip you could drag the whole app into. */
+  height: 100vh;
+  height: 100dvh;
+  /* And then the document itself never scrolls - the only scroller is .body,
+     inside .screen. Locking it stops iOS rubber-banding the whole page when a
+     drag starts on the tab bar or app bar (which are outside .body, so the
+     gesture would otherwise fall through to the document and bounce it,
+     blocking .body's own scroll until it settles). The desktop mock restores
+     normal page scrolling below. */
+  overflow: hidden;
+  overscroll-behavior: none;
   /* White is the app's own top colour, and it is what iOS Safari samples to
      tint the status-bar and toolbar areas around the page. The laptop handset
      frame paints its own grey surround over this (see the desktop media block
@@ -138,22 +150,22 @@ button:active, [role="button"]:active {
 
 /* -------------------------------------------------------------- the device */
 .phone {
-  /* Fill the whole screen, top-anchored, with an explicit height rather than
-     inset:0. On this iOS black-translucent standalone the layout viewport
-     (what inset:0 and innerHeight give) is 47px SHORTER than the screen - it
-     reports every env(safe-area-inset-*) as 0 yet still keeps a notch's worth
-     back - so inset:0 left a 47px white band below the tab bar. 100vh is the
-     large viewport (the full screen, and it does not shrink for the software
-     keyboard); the index.html script also pins height to screen.height in px
-     for the same standalone case, belt and braces. position:fixed keeps it
-     put when the keyboard opens - iOS scrolls the focused field into view.
-     The desktop mock puts .phone back in normal flow so it can be centred. */
-  position: fixed;
-  top: 0;
-  left: 0;
+  /* Fill the viewport. In a browser tab: 100dvh, so the tab bar rides above
+     the address bar and moves up with it on scroll (100vh would sit behind
+     it). Installed to the home screen (@media below): 100vh - there is no
+     browser chrome to track, and the black-translucent status bar makes iOS
+     report a *dynamic* viewport a notch's worth shorter than the screen,
+     which left a white band under the tab bar; the static 100vh is the real
+     screen height. No position:fixed - .phone is in normal flow, filling the
+     body, exactly as it was before the status-bar change. The desktop mock
+     keeps its own fixed pixel size. */
   width: 100%;
-  height: 100vh;
+  height: 100vh;   /* fallback where dvh is unsupported */
+  height: 100dvh;
   background: var(--app-bg);
+}
+@media all and (display-mode: standalone) {
+  html, body, .phone { height: 100vh; }
 }
 
 .screen {
@@ -201,6 +213,14 @@ button:active, [role="button"]:active {
 .notch, .statusbar, .home-ind { display: none; }
 
 @media (min-width: 620px) and (min-height: 700px) {
+  /* the mobile page-lock is off here - the handset can be taller than a short
+     window and the page should scroll to it */
+  html, body {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+    overscroll-behavior: auto;
+  }
   body {
     display: flex;
     align-items: center;
@@ -210,9 +230,7 @@ button:active, [role="button"]:active {
     background: #EAEEEE;
   }
   .phone {
-    /* back into normal flow so the flex-centred body can place the handset */
-    position: static;
-    inset: auto;
+    /* a fixed-size handset for the flex-centred body to place */
     width: 390px;
     height: 812px;
     background: #0B0F0F;

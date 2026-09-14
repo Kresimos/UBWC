@@ -91,15 +91,17 @@ export const icons = {
  * at a glance even before any photos exist.
  */
 export const art = {
-  sail: '<svg class="art" viewBox="0 0 100 130" fill="none" stroke="#10788A" stroke-width="3" stroke-linejoin="round"><path d="M34 6v118"/><path d="M34 12C64 20 84 46 88 86 64 90 46 108 34 122Z" fill="#10788A" fill-opacity=".1"/></svg>',
+  sail: '<svg class="art" viewBox="0 0 100 130" fill="none" stroke="#10788A" stroke-width="10.8" stroke-linejoin="round"><path d="M34 6v118"/><path d="M34 12C64 20 84 46 88 86 64 90 46 108 34 122Z" fill="#10788A" fill-opacity=".1"/></svg>',
   wing: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M12 3c5 3 7 8 6 18-4-2-8-2-12 0-1-10 1-15 6-18Z" fill="#10788A" fill-opacity=".1"/></svg>',
-  mast: '<svg class="art" viewBox="0 0 24 48" fill="none" stroke="#10788A" stroke-width="3.4" stroke-linecap="round"><path d="M12 4c1.2 13 1.2 27 0 40"/><path d="M8.5 44h7"/></svg>',
-  ext: '<svg class="art" viewBox="0 0 40 24" fill="none" stroke="#10788A" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h6M29 12h6"/><rect x="12" y="7.5" width="16" height="9" rx="2.4" fill="#10788A" fill-opacity=".08"/></svg>',
-  boom: '<svg class="art" viewBox="0 0 40 24" fill="none" stroke="#10788A" stroke-width="2.4" stroke-linejoin="round"><path d="M9 12c0-4 6-7 14-7s14 3 14 7-6 7-14 7-14-3-14-7Z" fill="#10788A" fill-opacity=".08"/><path d="M3 12h6"/></svg>',
-  board: '<svg class="art" viewBox="0 0 44 22" fill="none" stroke="#10788A" stroke-width="2.4" stroke-linejoin="round"><path d="M3 11c9-6 29-6 38 0-9 6-29 6-38 0Z" fill="#10788A" fill-opacity=".08"/><path d="M16 8v6"/></svg>',
-  fin: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2.2" stroke-linejoin="round"><path d="M7 4c9 1 12 8 11 16-4-1-8-1-11 0Z" fill="#10788A" fill-opacity=".08"/></svg>',
+  mast: '<svg class="art" viewBox="0 0 24 48" fill="none" stroke="#10788A" stroke-width="4" stroke-linecap="round"><path d="M12 4c1.2 13 1.2 27 0 40"/><path d="M8.5 44h7"/></svg>',
+  ext: '<svg class="art" viewBox="0 0 40 24" fill="none" stroke="#10788A" stroke-width="3.3" stroke-linecap="round"><path d="M5 12h6M29 12h6"/><rect x="12" y="7.5" width="16" height="9" rx="2.4" fill="#10788A" fill-opacity=".08"/></svg>',
+  boom: '<svg class="art" viewBox="0 0 40 24" fill="none" stroke="#10788A" stroke-width="3.3" stroke-linejoin="round"><path d="M9 12c0-4 6-7 14-7s14 3 14 7-6 7-14 7-14-3-14-7Z" fill="#10788A" fill-opacity=".08"/><path d="M3 12h6"/></svg>',
+  board: '<svg class="art" viewBox="0 0 44 22" fill="none" stroke="#10788A" stroke-width="3.7" stroke-linejoin="round"><path d="M3 11c9-6 29-6 38 0-9 6-29 6-38 0Z" fill="#10788A" fill-opacity=".08"/><path d="M16 8v6"/></svg>',
+  fin: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M7 4c9 1 12 8 11 16-4-1-8-1-11 0Z" fill="#10788A" fill-opacity=".08"/></svg>',
   foil: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M3 9h13a3 3 0 0 0 0-6c-2 0-3 1-3 3" fill="#10788A" fill-opacity=".08"/><path d="M11 9v5l-3 7"/><path d="M11 14l4 7"/></svg>',
   uj: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v7"/><circle cx="12" cy="13" r="3" fill="#10788A" fill-opacity=".1"/><path d="M7 21h10"/><path d="M9 21l1-4M15 21l-1-4"/></svg>',
+  wetsuit: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M12 4 L13.4 2 C15.5 2.2 16.5 2.6 17.5 3.3 C19.5 4.7 20.8 5.7 20.5 6.3 C20.2 7.3 18.8 8.3 16.8 9.2 C16 10.3 16.6 12.5 17 15.5 L16.6 21 L14.3 21 C14.1 18.5 13.6 16 12 14.5 C10.4 16 9.9 18.5 9.7 21 L7.4 21 L7 15.5 C7.4 12.5 8 10.3 7.2 9.2 C5.2 8.3 3.8 7.3 3.5 6.3 C3.2 5.7 4.5 4.7 6.5 3.3 C7.5 2.6 8.5 2.2 10.6 2 Z" fill="#10788A" fill-opacity=".08"/></svg>',
+  boots: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M8 3 14 3 14 12 20 14 20 18 6 18 6 14 8 12Z" fill="#10788A" fill-opacity=".08"/></svg>',
   misc: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M4 7h16v13H4Z" fill="#10788A" fill-opacity=".07"/><path d="M4 7l2-3h12l2 3"/><path d="M10 11h4"/></svg>',
 };
 

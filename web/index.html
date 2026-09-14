@@ -9,7 +9,8 @@
      touch-action in tokens.css kills the double-tap. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- White, so the status-bar area is white in Safari and in the Android
-     installed app; iOS ignores this in standalone and is handled by CSS. -->
+     installed app. iOS standalone ignores this for the status bar (it goes
+     black-translucent, below); it still tints the launch splash. -->
 <meta name="theme-color" content="#ffffff">
 <title>UBWC Kit</title>
 <link rel="icon" href="/assets/logo.png">
@@ -20,18 +21,25 @@
   Home-screen / standalone launch. Added to the home screen, these tell iOS and
   Android to open the app fullscreen with no browser chrome (no URL bar). The
   manifest does the same for Android/Chrome; the apple-* tags do it for iOS
-  Safari. status-bar-style "default" keeps the app's content below the system
-  status bar rather than under it, so nothing needs re-padding.
+  Safari.
+
+  status-bar-style "black-translucent" is the only value that lets our own
+  pixels reach the very top of the screen: "default" and "black" draw an opaque
+  OS bar over the notch strip that no CSS can touch (that was the white bar the
+  club kept seeing behind menus and over the item photo). Translucent means the
+  web canvas fills the whole screen and iOS only paints the clock/battery, in a
+  colour it adapts to whatever is behind. tokens.css fills that strip
+  (.screen::before) and pads content past it (--safe-top); see the block there.
 -->
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="UBWC Kit">
 <link rel="manifest" href="/assets/manifest.json">
 <!-- ?v is bumped whenever the CSS changes, so Safari refetches it instead of
      serving a stale cached copy. -->
-<link rel="stylesheet" href="/css/tokens.css?v=22">
-<link rel="stylesheet" href="/css/screens.css?v=22">
+<link rel="stylesheet" href="/css/tokens.css?v=38">
+<link rel="stylesheet" href="/css/screens.css?v=38">
 </head>
 <body>
 <!--
@@ -61,6 +69,41 @@
   </div>
 </div>
 
+<!--
+  iOS installed as a home-screen app (black-translucent status bar) frequently
+  reports env(safe-area-inset-*) as 0, which would leave content jammed under
+  the notch and the tab bar floating above the home indicator. When that
+  happens, fill --safe-top / --safe-bottom from the device's screen size so
+  the layout still clears both. No effect anywhere env() works or off iOS.
+-->
+<script>
+(function () {
+  var probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;top:0;visibility:hidden;pointer-events:none;' +
+    'padding-top:env(safe-area-inset-top)';
+  document.body.appendChild(probe);
+  var envTop = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+
+  var standalone = window.matchMedia('(display-mode: standalone)').matches ||
+                   window.navigator.standalone === true;
+  // Only iPhones: narrow side <= 480 rules out iPad (>= 744) and desktop. The
+  // long side then picks the class - SE / notch / Dynamic Island - and the
+  // bigger bucket is a safe default for any future phone.
+  var narrow = Math.min(screen.width, screen.height);
+  if (standalone && envTop === 0 && narrow <= 480) {
+    var side = Math.max(screen.width, screen.height);
+    var phone = document.querySelector('.phone');
+    phone.style.setProperty('--safe-top', (side <= 700 ? 20 : side <= 850 ? 47 : 59) + 'px');
+    phone.style.setProperty('--safe-bottom', (side <= 700 ? 0 : 34) + 'px');
+    // This config's layout viewport (innerHeight) comes back a notch's worth
+    // short of the real screen, which left a white band below the tab bar.
+    // Pin the height to the screen so the app fills it. CSS 100vh should do
+    // the same; this is the guaranteed floor.
+    if (window.innerHeight < side) phone.style.height = side + 'px';
+  }
+})();
+</script>
 <script type="module" src="/js/main.js"></script>
 </body>
 </html>

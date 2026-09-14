@@ -17,7 +17,7 @@
  * form is a convenience and the API is the gate.
  */
 import { html, mount, onClick, esc } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { chooser, lightbox, toast } from '../ui/overlay.js';
@@ -47,15 +47,17 @@ export async function render(root, params) {
   const required = new Set(store.required[type] || []);
 
   function paint() {
+    // mount() replaces the whole screen, .body included, so a repaint (adding
+    // a fault, picking a site…) would otherwise snap the scroll back to the top.
+    const scrollTop = root.querySelector('.body')?.scrollTop || 0;
     mount(root, screen(type, editing, fields, required, values, faults));
     wire();
+    const body = root.querySelector('.body');
+    if (body) body.scrollTop = scrollTop;
   }
 
   function wire() {
     root.querySelector('[data-back]').addEventListener('click', () => back(editing ? `/item/${params.id}` : '/add'));
-    root.querySelector('[data-changetype]')?.addEventListener('click', () => {
-      if (!editing) go('/add', { replace: true });
-    });
 
     // text / number inputs write straight back to `values`
     root.querySelectorAll('[data-field]').forEach((input) => {
@@ -72,29 +74,46 @@ export async function render(root, params) {
         chip.classList.toggle('on', chip.getAttribute('data-cond') === value));
     });
 
-    // cams switch
-    onClick(root, 'data-cams', (_v, node) => {
+    // cams switch — a sail's diameter only matters once it is cambered (a
+    // camless sail's luff sleeve fits either), so toggling it in or out shows
+    // or hides the diameter picker below and seeds/clears a sensible value.
+    onClick(root, 'data-cams', () => {
       values.cams = values.cams ? 0 : 1;
-      node.classList.toggle('on', Boolean(values.cams));
+      if (values.cams) {
+        if (!values.diameter) values.diameter = 'SDM';
+      } else {
+        values.diameter = null;
+      }
+      paint();
     });
 
-    // box-type / site pickers via a sheet
+    // select-kind fields via a sheet: each field carries its own choices
+    // except location, which comes from the site list plus "a new site…".
     onClick(root, 'data-select', async (name) => {
-      const options = name === 'location'
-        ? store.sites.map((s) => ({ value: s.name, label: s.name }))
-          .concat([{ value: '__new', label: 'A new site…' }])
-        : (name === 'box_type' ? store.boxTypes : []).map((choice) => ({ value: choice, label: choice }));
+      if (name === 'location') {
+        const options = store.sites.map((s) => ({ value: s.name, label: s.name }))
+          .concat([{ value: '__new', label: 'A new site…' }]);
+        const chosen = await chooser({
+          title: 'Which site?',
+          rows: options.map((o) => ({ ...o, on: values.location === o.value })),
+        });
+        if (!chosen) return;
+        if (chosen === '__new') {
+          const site = prompt('New site name');
+          if (site) { values.location = site.trim(); }
+        } else {
+          values.location = chosen;
+        }
+        paint();
+        return;
+      }
+      const field = fields.find((f) => f.name === name);
       const chosen = await chooser({
-        title: name === 'location' ? 'Which site?' : 'Box type',
-        rows: options.map((o) => ({ ...o, on: values[name] === o.value })),
+        title: field?.label || 'Choose',
+        rows: (field?.choices || []).map((choice) => ({ value: choice, label: choice, on: values[name] === choice })),
       });
       if (!chosen) return;
-      if (chosen === '__new') {
-        const site = prompt('New site name');
-        if (site) { values.location = site.trim(); }
-      } else {
-        values[name] = chosen;
-      }
+      values[name] = chosen;
       paint();
     });
 
@@ -139,6 +158,12 @@ export async function render(root, params) {
       record[field.name] = value === undefined ? null : value;
     });
 
+    // The adjustable-top box shows a "0" placeholder rather than a real 0, so a
+    // sail with a fixed luff is just left blank — treat that as the 0 it means.
+    if (record.top_extension_max_cm === null || record.top_extension_max_cm === '') {
+      record.top_extension_max_cm = 0;
+    }
+
     const payload = {
       item: record,
       faults: faults
@@ -182,11 +207,6 @@ function screen(type, editing, fields, required, values, faults) {
 
     <div class="body pad">
       <div class="form">
-        <button class="typechip" data-changetype>
-          ${artFor(type)}${store.typeLabels[type]}
-          ${editing ? '' : html`<span class="ch">Change type</span>`}
-        </button>
-
         ${photoField(values.image_path, {
           hint: 'Shop-panel shot on a soft grey background. Optional.',
         })}
@@ -208,26 +228,36 @@ function screen(type, editing, fields, required, values, faults) {
 
 function renderFields(type, fields, required, values) {
   // Group the numeric rig-spec of a sail into its own card, as the sketch does.
+  // A sail's diameter only matters once it is cambered, so it is pulled out of
+  // the inline grid and rendered conditionally below the Cambered switch instead.
+  // A misc item's own headline (misc_item) is pulled out too: it gets its own
+  // full-width row above everything else rather than pairing up with model.
   const inline = fields.filter((f) => !['condition', 'location', 'spot', 'notes', 'cams',
-    'luff_cm', 'top_extension_max_cm', 'req_boom_cm'].includes(f.name));
+    'luff_cm', 'top_extension_max_cm', 'req_boom_cm', 'misc_item'].includes(f.name)
+    && !(type === 'sail' && f.name === 'diameter'));
 
   const rows = [];
   // Pair up manufacturer/model, size/type, into two-up rows where they exist.
   for (let i = 0; i < inline.length; i += 2) {
     const pair = inline.slice(i, i + 2);
-    rows.push(html`<div class="two">${pair.map((f) => field(f, required, values))}</div>`);
+    rows.push(html`<div class="two">${pair.map((f) => field(f, required, values, type))}</div>`);
   }
 
+  const diameterField = fields.find((f) => f.name === 'diameter');
+  const itemField = fields.find((f) => f.name === 'misc_item');
+
   return html`
+    ${type === 'misc' && itemField ? field(itemField, required, values, type) : ''}
     ${rows}
     ${type === 'sail' ? camsSwitch(values) : ''}
+    ${type === 'sail' && values.cams && diameterField ? field(diameterField, required, values, type) : ''}
     ${type === 'sail' ? sailRigCard(required, values) : ''}
     ${conditionField(required, values)}
     ${locationFields(required, values)}
     ${notesField(values)}`;
 }
 
-function field(f, required, values) {
+function field(f, required, values, type) {
   const req = required.has(f.name);
   const value = values[f.name];
   const unit = UNITS[f.name] || '';
@@ -240,13 +270,14 @@ function field(f, required, values) {
         </button>
       </div>`;
   }
+  const placeholder = PLACEHOLDER_OVERRIDES[type]?.[f.name] ?? PLACEHOLDERS[f.name] ?? '';
   return html`
     <div class="grp">
       <span class="lab">${req ? html`<span class="req"></span>` : ''}${f.label}</span>
       <div class="inp">
         <input data-field="${f.name}" type="text"
                inputmode="${f.kind === 'number' ? 'decimal' : 'text'}"
-               value="${value ?? ''}" placeholder="${PLACEHOLDERS[f.name] || ''}">
+               value="${value ?? ''}" placeholder="${placeholder}">
         ${unit ? html`<span class="unit">${unit}</span>` : ''}
       </div>
     </div>`;
@@ -261,6 +292,9 @@ function camsSwitch(values) {
 }
 
 function sailRigCard(required, values) {
+  // A fixed luff (adjustable top of 0) reads as an empty box with a "0"
+  // placeholder, the same as luff and boom — a real 0 is never typed.
+  const topExtra = Number(values.top_extension_max_cm) ? values.top_extension_max_cm : '';
   return html`
     <div class="subcard">
       <div class="sh"><b>Rig spec</b><span>Printed on the sail</span></div>
@@ -275,7 +309,7 @@ function sailRigCard(required, values) {
             <span class="unit">cm</span>
           </span>
           <span class="topadd">+ <input data-field="top_extension_max_cm" type="text" inputmode="decimal"
-            value="${values.top_extension_max_cm ?? 0}"> cm</span>
+            value="${topExtra}" placeholder="0"> cm</span>
         </div>
         <div class="popover" hidden>How far the mast may stick out the top of the sail. 0 is a fixed
           luff; raise it to fit longer masts (the extra pokes out the top).</div>
@@ -347,5 +381,13 @@ const UNITS = {
 };
 const PLACEHOLDERS = {
   manufacturer: 'Neil Pryde', model: 'Fusion', type: 'Freeride',
-  size_generic: '0-30cm, M, Euro pin…',
+  size_generic: '0-30cm, M, Euro pin…', thickness: '4/3',
+  misc_item: 'Rope/harness/whistles…',
+};
+// Per-type overrides, for a field whose example reads wrong borrowed from
+// another type's brand — a wetsuit's manufacturer example should be a
+// wetsuit brand, not a sail one.
+const PLACEHOLDER_OVERRIDES = {
+  wetsuit: { manufacturer: 'Ripcurl', size_generic: 'M' },
+  boots: { size_generic: '7' },
 };

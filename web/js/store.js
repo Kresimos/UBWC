@@ -42,7 +42,6 @@ export const store = {
   avatars: {},
   types: [],
   conditions: [],
-  boxTypes: [],
   roleLabels: {},
   forms: {},
   required: {},
@@ -73,7 +72,6 @@ export function applyBootstrap(data) {
   store.avatars = data.avatars || {};
   store.types = data.types;
   store.conditions = data.conditions;
-  store.boxTypes = data.box_types;
   store.roleLabels = data.role_labels;
   store.forms = data.forms;
   store.required = data.required;
@@ -155,6 +153,12 @@ export function spotImage(site, spot) {
 /** Replace the spot list after a committee edit, so popups show it at once. */
 export function setSpots(spots) {
   store.spots = spots || [];
+  emit();
+}
+
+/** Replace the site list after a committee edits or deletes a location. */
+export function setSites(sites) {
+  store.sites = sites || [];
   emit();
 }
 

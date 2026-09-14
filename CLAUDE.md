@@ -77,7 +77,9 @@ The spreadsheet (and future DB) has one table per component type:
 | Masts | `Size` = length in cm, `Diameter` = RDM or SDM | |
 | Extensions | `Min size` / `Max size` = travel in cm, `Diameter` = RDM or SDM | `ext` component type in the DB (`ext_min_cm`, `ext_max_cm`); the sheet still files these under Misc with Type = "Extension", and the importer splits them out |
 | Booms | `Min size` / `Max size` = adjustable outhaul range in cm | |
-| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, wetsuits, etc.) |
+| Wetsuits | `Size` (`size_generic`), `Gender` (Mens/Womens/Unisex), `Thickness` (free text, e.g. "5/4mm") | `wetsuit` component type in the DB; no sheet of its own, no compatibility rules — it's not part of the rig or the board setup |
+| Wetsuit Boots | `Size` (`size_generic`), `Thickness` (optional) | `boots` component type; shares wetsuits' size/thickness columns (no new ones) but no Gender — boots are sized, not gendered; same no-compatibility-rules note |
+| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, etc.) |
 
 All sheets share `Manufacturer`, `Model`, `Condition`, `Location`, `Faults` —
 this is the common "item" shape referenced in the Item/Faults pages in
@@ -155,6 +157,20 @@ accept either diameter (length/luff and boom are what must match). Note the
 extension, an SDM mast an SDM one) regardless of the sail, since the extension
 bolts into the mast base. A NULL diameter means nobody has recorded it, and must
 never block a pick — the rules skip the check rather than guess.
+
+The "or the right cam spacers" case above is a **third storable value, `Either`,
+on sails only** (`db.FIELD_CHOICE_OVERRIDES[("sail", "diameter")]`): a cammed
+sail whose cams carry spacers for both classes genuinely fits either mast, which
+is different from *nobody having recorded it* (NULL). A mast or extension is
+still only ever `RDM`/`SDM`/NULL — it is one physical class, never "either" —
+so this value is sail-specific by construction (`validation.py`'s CHECK-style
+guard and the DB's own `CHECK` constraint both reject it elsewhere). The add
+form only shows the Diameter field on a sail once **Cambered** is switched on
+(defaulting to `SDM`), since it is meaningless otherwise. In matching logic,
+`Either` is treated the same as NULL by `rigkit.diameter_class()` (both read as
+"don't block on diameter"), which is the correct outcome for both — the
+distinction only matters for what gets displayed and stored, not for the rig
+assistant's behaviour.
 
 ## Board sizing: volume vs. sail size and rider
 

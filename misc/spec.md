@@ -45,14 +45,18 @@ replaced by accounts. Everything below is what the app now does.*
   what somebody rated, rigged and logged is genuinely theirs.
 - **A sign-in lasts a term** and can be ended from the server, which is what a
   lost phone needs. Changing a password signs the other devices out.
-- **Two roles: member and committee.** Ordinary members can add kit, report
-  faults, use the rigging assistant, keep a logbook, and vote on the kit a trip
-  takes. **Committee-only
-  actions** (delete kit, move kit / bulk-move, edit the roster and site list,
-  clear/close faults, strike out spammed ratings) are gated on the **account's
-  own committee flag**. Committee is handed out by an existing committee member,
-  or from the machine running the server with `manage.py`, which is also how the
-  first one is made and how a forgotten password is reset.
+- **Two roles: member and committee.** Ordinary members can report faults, use
+  the rigging assistant, keep a logbook, and vote on the kit a trip takes.
+  **Committee-only actions** (add kit, delete kit, move kit / bulk-move, edit
+  the roster and site list, clear/close faults, strike out spammed ratings) are
+  gated on the **account's own committee flag**. Committee is handed out by an
+  existing committee member, or from the machine running the server with
+  `manage.py`, which is also how the first one is made and how a forgotten
+  password is reset.
+
+*Revised 5 Sep 2026: adding kit moved from "any signed-in member" to
+committee-only, for now. Future idea, not built: reopen it for members adding
+their own personal kit.*
 
 ## Platform and global layout
 
@@ -310,7 +314,8 @@ sailing, which nothing else can:
 ## Tab: + Add
 
 - Add a new item of any component type; required fields per type (as
-  layout.txt). Requires an account.
+  layout.txt). **Committee only, for now** (see Access and roles) — the tab
+  itself is hidden from ordinary members rather than shown and then refused.
 
 ## Availability and faults
 

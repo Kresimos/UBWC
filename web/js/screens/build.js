@@ -28,7 +28,7 @@ import { worstFault } from '../ui/bits.js';
 import { itemTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite } from '../ui/chrome.js';
 import { haptic, TICK, PICK } from '../ui/haptics.js';
-import { go, path } from '../router.js';
+import { go, back, path } from '../router.js';
 import { building } from '../rig/session.js';
 import {
   TARGETS, TARGET_KEYS, matches, tagsFor, nearestStocked, clampTarget,
@@ -36,6 +36,9 @@ import {
 } from '../rig/engine.js';
 
 const VIEW_KEY = 'ubwc.buildview';
+// Shown once, to a signed-in member who has never logged a session: what the
+// number is and how to move it. Dismissed for good the moment they act on it.
+const COACH_KEY = 'ubwc.buildcoach';
 
 /** How far a drag or a scroll travels per size step, in pixels. */
 const DRAG_PER_STEP = 22;
@@ -80,6 +83,11 @@ export async function render(root, params) {
     // Which wheels are still sitting where the app opened them. Moving one
     // retires its note: from then on the number is the member's own.
     hinted: {},
+    // The one-time explainer over the sail wheel, for a signed-in member whose
+    // logbook is still empty. Any nudge, pick or a tap outside it ends it for
+    // good; until then the rest of the screen sits dimmed behind it.
+    coach: Boolean(store.user) && hint != null && hint.sessions === 0
+      && !localStorage.getItem(COACH_KEY),
   };
 
   const resolvedPiece = (key) => kit.find((piece) => piece.id === building.raw[key]) || null;
@@ -102,8 +110,11 @@ export async function render(root, params) {
     }
   });
 
-  // Arriving from a catalogue item: that piece is simply already picked, and
-  // the flow opens on whichever step it belongs to.
+  // Arriving from a catalogue item ("Rig this kit"): that piece is already
+  // picked, so open on the *other* half — the board step if a sail was pinned,
+  // the sail step if a board was. Landing on the step you just filled would
+  // leave you hunting for the one still to answer. If the other half is already
+  // resolved (came back to Build with a rig underway) stay on the pinned step.
   if (params.pin) {
     const pinned = kit.find((piece) => piece.id === Number(params.pin));
     const key = pinned && TARGET_KEYS.find((k) => TARGETS[k].kind === pinned.kind);
@@ -111,7 +122,8 @@ export async function render(root, params) {
       building.pick(key, pinned.id);
       state.target[key] = clampTarget(key, TARGETS[key].size(pinned) ?? state.target[key]);
       building.setTarget(key, state.target[key]);
-      state.step = key;
+      const other = TARGET_KEYS.find((k) => k !== key);
+      state.step = resolved(other) ? key : other;
     }
   }
 
@@ -120,7 +132,15 @@ export async function render(root, params) {
   if (params.step && TARGET_KEYS.includes(params.step)) state.step = params.step;
   else if (!params.pin) state.step = TARGET_KEYS.find((key) => !resolved(key)) || 'sail';
 
-  mount(root, shell());
+  // A member who walked here from Your rig (its back arrow, or a Change link)
+  // gets a back arrow of their own, so they can return without being forced to
+  // re-pick a sail or board they never meant to change. Coming in from the tab
+  // bar, or from a catalogue "Rig this kit", there is nothing behind Build and
+  // no arrow.
+  const fromRig = params.from === 'rig';
+
+  mount(root, shell(fromRig));
+  const bodyNode = root.querySelector('[data-body]');
   const stepsNode = root.querySelector('[data-steps]');
   const valueNode = root.querySelector('[data-value]');
   const unitNode = root.querySelector('[data-unit]');
@@ -140,11 +160,17 @@ export async function render(root, params) {
     valueNode.textContent = state.target[key].toFixed(config.dp);
     unitNode.textContent = config.unit;
 
-    // Where this number came from, but only while it is still the app's number.
-    // The moment the member moves the wheel it is theirs and needs no caption.
-    mount(hintNode, state.hinted[key]
-      ? html`<p class="sizehint">${icon('chart')}${state.hinted[key].why}</p>`
-      : '');
+    // First run: the explainer floats over the dimmed kit (its own box is
+    // absolutely placed, so the list stays put), in place of the caption.
+    // Otherwise, where this number came from — but only while it is still the
+    // app's number, because once the member moves the wheel it needs no caption.
+    const coaching = state.coach && key === 'sail';
+    bodyNode.classList.toggle('coached', coaching);
+    mount(hintNode, coaching
+      ? coachTip()
+      : state.hinted[key]
+        ? html`<p class="sizehint">${icon('chart')}${state.hinted[key].why}</p>`
+        : '');
 
     // A chip is the same size whether or not it is on, and nothing is added
     // beside the row when one is: the bar used to shuffle sideways the moment
@@ -231,6 +257,29 @@ export async function render(root, params) {
       </div>`;
   }
 
+  /**
+   * End the first-run explainer for good. Called by every way of engaging with
+   * the wheel (a nudge, a pick) and by a tap on the dimmed area around it.
+   * Returns whether it did anything, so a caller can force a full repaint.
+   */
+  function retireCoach() {
+    if (!state.coach) return false;
+    state.coach = false;
+    localStorage.setItem(COACH_KEY, '1');
+    return true;
+  }
+
+  function coachTip() {
+    return html`
+      <div class="coachtip" role="note">
+        <p>Select the rough size sail you would like and the list will sort by
+          closest to that size. Use the +/− buttons, swipe or scroll to change.</p>
+        <p>As you record more sessions, the app will suggest a size based on the
+          wind and your previous ratings.</p>
+        <button type="button" data-coach-dismiss>Got it</button>
+      </div>`;
+  }
+
   // ------------------------------------------------------------ the target
   /**
    * Move the size by `steps` detents. During a drag only the number is
@@ -246,7 +295,9 @@ export async function render(root, params) {
     delete state.hinted[key];
     building.setTarget(key, next);
     haptic(TICK);
-    if (settle) paint();
+    // A first move ends the explainer and un-dims the list, which is a full
+    // repaint whatever the drag would otherwise have settled for.
+    if (retireCoach() || settle) paint();
     else paintValue();
   }
 
@@ -394,6 +445,19 @@ export async function render(root, params) {
     if (await pickSite({ allowAll: false })) go('/rig', { replace: true });
   });
 
+  const backBtn = root.querySelector('[data-back]');
+  if (backBtn) backBtn.addEventListener('click', () => back('/setup'));
+
+  // The explainer goes away on its "Got it", and on a tap anywhere in the body
+  // that is not the wheel itself — the dimmed kit below it is `pointer-events:
+  // none`, so those taps land here rather than selecting a sail by accident.
+  onClick(root, 'data-coach-dismiss', () => { if (retireCoach()) paint(); });
+  bodyNode.addEventListener('click', (event) => {
+    if (!state.coach) return;
+    if (event.target.closest('.picker, .coachtip')) return;
+    if (retireCoach()) paint();
+  });
+
   onClick(root, 'data-step', (key) => {
     if (key === state.step) return;
     // Stepping past something unanswered leaves it open rather than silently
@@ -438,6 +502,7 @@ export async function render(root, params) {
 
   function choose(value) {
     const key = state.step;
+    retireCoach();
     building.pick(key, Number(value));
     building.setTarget(key, state.target[key]);
     haptic(PICK);
@@ -497,10 +562,11 @@ export async function render(root, params) {
  * the glyph sitting where the sketch put it — the target is the half, not the
  * glyph.
  */
-function shell() {
+function shell(showBack) {
   return html`
     <div class="appbar">
       <div class="row">
+        ${showBack ? html`<button class="backbtn" data-back aria-label="Back to your rig">${icon('back')}</button>` : ''}
         <span class="ttl">Build</span>
         <button class="site" data-pick-site>${icon('pin')}<span data-sitelabel>${siteLabel()}</span></button>
       </div>

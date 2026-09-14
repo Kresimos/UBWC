@@ -574,7 +574,7 @@ export async function render(root) {
       // an empty step with a hollow badge, not the old one still ticked.
       building.reopen(key);
       delete ui.openSel[key];
-      go(`/rig?step=${key}`);
+      go(`/rig?step=${key}&from=rig`);
       return;
     }
     building.unconfirm(key);
@@ -583,7 +583,7 @@ export async function render(root) {
     await persist();
   });
 
-  onClick(root, 'data-need', (key) => go(`/rig?step=${key}`));
+  onClick(root, 'data-need', (key) => go(`/rig?step=${key}&from=rig`));
   onClick(root, 'data-openitem', (value) => go(`/item/${value}`));
 
   onClick(root, 'data-spot', (value, node) => lightbox({
@@ -631,8 +631,10 @@ export async function render(root) {
   });
 
   // Back is "change what I picked", so it opens Build rather than bouncing off
-  // the redirect that sends a settled rig straight back here.
-  root.querySelector('[data-back]').addEventListener('click', () => go('/rig?step=sail'));
+  // the redirect that sends a settled rig straight back here. `from=rig` tells
+  // Build to show its own back arrow, so a member who only wanted a look at the
+  // sizes can return here without having to re-pick a sail or board.
+  root.querySelector('[data-back]').addEventListener('click', () => go('/rig?step=sail&from=rig'));
   root.querySelector('[data-derig]').addEventListener('click', derig);
 
   /**

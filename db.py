@@ -39,6 +39,8 @@ COMMANDS = {
     "extensions": ["ext"],
     "fins": ["fin"],
     "foils": ["foil"],
+    "wetsuits": ["wetsuit"],
+    "boots": ["boots"],
     "misc": ["misc"],
 }
 
@@ -61,15 +63,45 @@ FIELD_META = {
     "diameter":           {"label": "Diameter", "kind": "select",
                            "choices": ["RDM", "SDM"], "optional": True},
     "size_generic":       {"label": "Size", "kind": "text"},
+    "misc_item":          {"label": "Item", "kind": "text", "optional": True},
     "box_type":           {"label": "Box type", "kind": "select",
                            "choices": ["US Box", "Powerbox", "Tuttle", "Deep Tuttle"]},
     "fin_length_cm":      {"label": "Fin length (cm)", "kind": "number"},
+    "gender":             {"label": "Gender", "kind": "select",
+                           "choices": ["Mens", "Womens", "Unisex"]},
+    "thickness":          {"label": "Thickness (mm)", "kind": "text"},
     "condition":          {"label": "Condition", "kind": "select",
                            "choices": ["New", "Very Good", "Good", "Fair", "Poor"]},
     "location":           {"label": "Site", "kind": "text"},
     "spot":               {"label": "Spot", "kind": "text", "optional": True},
     "notes":              {"label": "Notes", "kind": "text", "optional": True},
 }
+
+# Per-type label overrides, for a field name that reads fine on one component
+# type but is ambiguous on another. A board's box_type is about the fin it
+# takes, not the board itself, so it reads better spelled out there. A sail's
+# diameter is the mast class its cams need, not a property of the sail.
+FIELD_LABEL_OVERRIDES = {
+    ("board", "box_type"): "Fin box type",
+    ("sail", "diameter"): "Mast diameter",
+}
+
+
+def field_label(ctype: str, field: str) -> str:
+    return FIELD_LABEL_OVERRIDES.get((ctype, field), FIELD_META[field]["label"])
+
+
+# Per-type choice overrides. A mast or extension is physically one diameter
+# class or the other, but a cammed sail can carry cam spacers for both, so
+# "Either" is a real, pickable answer there and nowhere else.
+FIELD_CHOICE_OVERRIDES = {
+    ("sail", "diameter"): ["SDM", "RDM", "Either"],
+}
+
+
+def field_choices(ctype: str, field: str) -> list:
+    return FIELD_CHOICE_OVERRIDES.get((ctype, field), FIELD_META[field].get("choices"))
+
 
 # Comment kinds: value -> label for the item page's comment stream. No emoji
 # anywhere in app-facing copy (misc/spec.md "Platform and global layout").
@@ -100,7 +132,11 @@ COMPONENT_FIELDS = {
               "condition", "location", "spot", "notes"],
     "foil":  ["manufacturer", "model", "type", "box_type",
               "condition", "location", "spot", "notes"],
-    "misc":  ["manufacturer", "model", "type", "size_generic",
+    "wetsuit": ["manufacturer", "model", "size_generic", "gender", "thickness",
+                "condition", "location", "spot", "notes"],
+    "boots": ["manufacturer", "model", "size_generic", "thickness",
+              "condition", "location", "spot", "notes"],
+    "misc":  ["misc_item", "manufacturer", "model", "type", "size_generic",
               "condition", "location", "spot", "notes"],
 }
 
@@ -108,12 +144,12 @@ COMPONENT_FIELDS = {
 COMPONENT_LABELS = {
     "board": "Board", "sail": "Sail", "wing": "Wing", "boom": "Boom",
     "mast": "Mast", "ext": "Extension", "fin": "Fin", "foil": "Foil",
-    "misc": "Misc",
+    "misc": "Misc", "wetsuit": "Wetsuit", "boots": "Wetsuit Boots",
 }
 
 # The order the catalogue's type chips appear in.
 CATALOGUE_TYPES = ["board", "sail", "mast", "ext", "boom", "fin", "foil",
-                   "wing", "misc"]
+                   "wing", "wetsuit", "boots", "misc"]
 
 # Sites the club uses. Committee maintains this list; new ones can be added
 # inline while moving kit, which is why it is a table rather than a constant.
@@ -143,6 +179,8 @@ DEFAULT_SPOTS = {
         "foil":  ("blue crate", "Blue crate under the bench, foil parts in the lidded box."),
         "ext":   ("blue crate", "Blue crate under the bench, extensions wound shut."),
         "uj":    ("blue crate", "Blue crate under the bench, bases in the top tray."),
+        "wetsuit": ("kit shelves", "Shelving behind the door, wetsuits folded on the middle shelf."),
+        "boots": ("kit shelves", "Shelving behind the door, boots paired on the bottom shelf."),
         "misc":  ("kit shelves", "Shelving behind the door: harnesses, wetsuits and spares."),
     },
     "Richmond Building": {
@@ -155,6 +193,8 @@ DEFAULT_SPOTS = {
         "foil":  ("parts drawer", "Steel drawer unit, bottom drawer."),
         "ext":   ("parts drawer", "Steel drawer unit, middle drawer."),
         "uj":    ("parts drawer", "Steel drawer unit, middle drawer."),
+        "wetsuit": ("kit cupboard", "Cupboard at the back of the store, wetsuits on hangers."),
+        "boots": ("kit cupboard", "Cupboard at the back of the store, boots paired on the floor."),
         "misc":  ("kit cupboard", "Cupboard at the back of the store."),
     },
     "SU Store": {
@@ -167,6 +207,8 @@ DEFAULT_SPOTS = {
         "foil":  ("parts box", "Lidded box on the middle shelf."),
         "ext":   ("parts box", "Lidded box on the middle shelf."),
         "uj":    ("parts box", "Lidded box on the middle shelf."),
+        "wetsuit": ("store shelves", "Lower shelves of the cage, wetsuits folded."),
+        "boots": ("store shelves", "Lower shelves of the cage, boots paired."),
         "misc":  ("store shelves", "Lower shelves of the cage."),
     },
 }
@@ -346,6 +388,10 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
         conn.execute("ALTER TABLE items ADD COLUMN archived_at TEXT")
         conn.execute("ALTER TABLE items ADD COLUMN archived_reason TEXT")
+    if "misc_item" not in item_cols:
+        # A misc item's own headline text, replacing size_generic as the hero
+        # everywhere else in the app shows for it.
+        conn.execute("ALTER TABLE items ADD COLUMN misc_item TEXT")
 
     if "sites" not in tables:
         conn.execute("""
@@ -505,6 +551,10 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
 
     _migrate_accounts(conn, tables)
     _migrate_extensions(conn)
+    _migrate_sail_diameter_either(conn)
+    _migrate_wetsuit_type(conn)
+    _migrate_boots_type(conn)
+    _migrate_misc_wetsuits(conn)
     _seed_locations(conn)
 
 
@@ -516,7 +566,7 @@ _ITEMS_DDL = """
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         component_type  TEXT NOT NULL
                         CHECK (component_type IN
-                            ('board','sail','wing','boom','mast','ext','fin','foil','misc')),
+                            ('board','sail','wing','boom','mast','ext','fin','foil','misc','wetsuit','boots')),
         manufacturer    TEXT,
         model           TEXT,
         type            TEXT,
@@ -536,10 +586,13 @@ _ITEMS_DDL = """
         max_size_cm          REAL,
         ext_min_cm           REAL,
         ext_max_cm           REAL,
-        diameter             TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM')),
+        diameter             TEXT CHECK (diameter IS NULL OR diameter IN ('RDM','SDM','Either')),
         size_generic         TEXT,
+        misc_item            TEXT,
         box_type             TEXT,
         fin_length_cm        REAL,
+        gender               TEXT CHECK (gender IS NULL OR gender IN ('Mens','Womens','Unisex')),
+        thickness            TEXT,
         notes                TEXT,
         archived         INTEGER NOT NULL DEFAULT 0,
         archived_at      TEXT,
@@ -551,6 +604,125 @@ _ITEMS_DDL = """
 # at the front of `notes`, back when diameter had no column. Moved into
 # `items.diameter` and removed from the note, so it is stated once.
 _DIAMETER_PREFIX_RE = re.compile(r"^\s*(RDM|SDM)\b[\s.,:;–-]*", re.IGNORECASE)
+
+
+def _migrate_sail_diameter_either(conn: sqlite3.Connection) -> None:
+    """Widen items.diameter's CHECK to accept 'Either'.
+
+    A cammed sail with cam spacers fits both mast classes, which is a real,
+    pickable answer for a sail's diameter, not just an unrecorded one. Widening
+    a CHECK is the one migration SQLite has no ALTER for, so the table is
+    rebuilt (as `_migrate_extensions` already does for the same reason). The
+    guard is the stored DDL itself, same as the other CHECK migrations here.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+    ).fetchone()
+    if row and "'Either'" not in (row["sql"] or ""):
+        _rebuild_items(conn)
+        _rebuild_views(conn)
+
+
+def _migrate_wetsuit_type(conn: sqlite3.Connection) -> None:
+    """Give wetsuits their own component type, with gender and thickness columns.
+
+    Wetsuits used to be `misc` rows with the type left as free text. Widening
+    the component_type CHECK, and adding the two new columns, both mean
+    rebuilding items (same dance as _migrate_sail_diameter_either) — existing
+    rows keep their id, and any actual `misc` "Wetsuit" rows are left as-is,
+    since nobody has entered real wetsuits yet (CLAUDE.md "Live data"). Gender's
+    own CHECK has been widened twice since ('Unisex' added, then 'Male'/'Female'
+    renamed to 'Mens'/'Womens' to match how wetsuit sizing is actually labelled).
+
+    The rename can't run as a plain UPDATE before or after the swap: the old
+    table's CHECK rejects 'Mens'/'Womens' on the way in, and the new table's
+    CHECK rejects 'Male'/'Female' on the way in. So, same as
+    _migrate_trip_stages, this does its own copy with the rename inline in the
+    SELECT rather than reusing _rebuild_items' plain column copy.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+    ).fetchone()
+    stored = (row["sql"] or "") if row else ""
+    if not row or ("'wetsuit'" in stored and "'Mens'" in stored):
+        return
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        for view in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'view'"
+        ).fetchall():
+            conn.execute(f"DROP VIEW IF EXISTS {view['name']}")
+        conn.execute("DROP TABLE IF EXISTS items_new")
+        conn.execute(_ITEMS_DDL.format(name="items_new"))
+        old_cols = _columns(conn, "items")
+        shared = [c for c in _columns(conn, "items_new") if c in old_cols and c != "gender"]
+        columns = ", ".join(shared)
+        gender_expr = ("CASE gender WHEN 'Male' THEN 'Mens' "
+                       "WHEN 'Female' THEN 'Womens' ELSE gender END"
+                       if "gender" in old_cols else "NULL")
+        conn.execute(
+            f"INSERT INTO items_new ({columns}, gender) "
+            f"SELECT {columns}, {gender_expr} FROM items"
+        )
+        conn.execute("DROP TABLE items")
+        conn.execute("ALTER TABLE items_new RENAME TO items")
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    _rebuild_views(conn)
+
+
+def _migrate_boots_type(conn: sqlite3.Connection) -> None:
+    """Add wetsuit boots as their own component type.
+
+    Shares a wetsuit's size and thickness columns (no gender — boots are
+    sized, not gendered), so no new columns, just another value in the
+    component_type CHECK. Unlike _migrate_wetsuit_type there is no value to
+    rename on the way in, so a plain column-copy rebuild (_rebuild_items) is
+    enough.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+    ).fetchone()
+    if row and "'boots'" not in (row["sql"] or ""):
+        _rebuild_items(conn)
+        _rebuild_views(conn)
+
+
+# Historic misc "Wetsuit" rows crammed thickness onto the front of size_generic
+# ("3/2mm M", "4/3mm ML") since there was no column for it. Matches that prefix
+# so the migration below can split it into the new thickness column.
+_WETSUIT_SIZE_RE = re.compile(r'^\s*(\d+/\d+(?:/\d+)?mm)\s*(.*)$', re.IGNORECASE)
+
+
+def _migrate_misc_wetsuits(conn: sqlite3.Connection) -> None:
+    """Move misc "Wetsuit" and "Boots" rows into their own component types.
+
+    Both were always misc rows with a free-text Type before wetsuit/boots
+    existed as real types (CLAUDE.md "Wetsuits" / "Wetsuit Boots"). Guarded by
+    component_type staying 'misc', so this only ever moves a row once — a
+    member's later edit off 'misc' is left alone. Gender is never recorded on
+    the sheet, so it's left NULL for a member to fill in later.
+    """
+    for item in conn.execute(
+        "SELECT id, size_generic FROM items "
+        "WHERE component_type = 'misc' AND lower(trim(type)) = 'wetsuit'"
+    ).fetchall():
+        thickness, size = None, item["size_generic"]
+        match = _WETSUIT_SIZE_RE.match(item["size_generic"] or "")
+        if match:
+            thickness, size = match.group(1), match.group(2).strip() or None
+        conn.execute(
+            "UPDATE items SET component_type = 'wetsuit', type = NULL, "
+            "size_generic = ?, thickness = ? WHERE id = ?",
+            (size, thickness, item["id"]),
+        )
+    conn.execute(
+        "UPDATE items SET component_type = 'boots', type = NULL "
+        "WHERE component_type = 'misc' AND lower(trim(type)) = 'boots'"
+    )
 
 
 def _migrate_extensions(conn: sqlite3.Connection) -> None:
@@ -901,6 +1073,8 @@ def size_label(item: dict) -> str:
             return f"{lo:g}-{hi:g} cm"
     if ctype == "fin" and item.get("fin_length_cm") is not None:
         return f"{item['fin_length_cm']:g} cm"
+    if ctype == "misc":
+        return item.get("misc_item") or ""
     return item.get("size_generic") or ""
 
 
@@ -1075,7 +1249,8 @@ def spec_rows(item: dict) -> list:
     Optional fields (e.g. notes) are omitted entirely when empty rather than
     shown as a dash, to keep the spec table tight.
     """
-    fields = COMPONENT_FIELDS.get(item["component_type"], [])
+    ctype = item["component_type"]
+    fields = COMPONENT_FIELDS.get(ctype, [])
     rows = []
     for f in fields:
         meta = FIELD_META[f]
@@ -1086,7 +1261,7 @@ def spec_rows(item: dict) -> list:
             if meta.get("optional"):
                 continue
             value = "—"
-        rows.append((meta["label"], value))
+        rows.append((field_label(ctype, f), value))
     return rows
 
 
@@ -1130,6 +1305,56 @@ def add_site(name: str) -> None:
     catalogue filter free of "Notts" vs "Nottingham" drift."""
     with connect() as conn:
         conn.execute("INSERT OR IGNORE INTO sites (name, sort) VALUES (?, 99)", (name.strip(),))
+        conn.commit()
+
+
+def rename_site(old_name: str, new_name: str) -> None:
+    """Committee action: rename a location everywhere it is stored by name.
+
+    A site has no id anywhere else in the schema - items, spots, setups and
+    sessions all keep the name itself, not a foreign key - so a rename walks
+    every one of those tables, or older kit and logbook entries would
+    silently point at a location the picker no longer offers.
+    """
+    old_name = (old_name or "").strip()
+    new_name = (new_name or "").strip()
+    if not old_name or not new_name:
+        raise ValueError("A location needs a name.")
+    if old_name == new_name:
+        return
+    with connect() as conn:
+        clash = conn.execute(
+            "SELECT 1 FROM sites WHERE name = ? AND name != ?", (new_name, old_name)
+        ).fetchone()
+        if clash:
+            raise ValueError(f"There is already a location called {new_name}.")
+        conn.execute("UPDATE sites SET name = ? WHERE name = ?", (new_name, old_name))
+        conn.execute("UPDATE items SET location = ? WHERE location = ?", (new_name, old_name))
+        conn.execute("UPDATE spots SET site = ? WHERE site = ?", (new_name, old_name))
+        conn.execute("UPDATE setups SET site = ? WHERE site = ?", (new_name, old_name))
+        conn.execute("UPDATE sessions SET site = ? WHERE site = ?", (new_name, old_name))
+        conn.commit()
+
+
+def delete_site(name: str) -> None:
+    """Committee action: remove a location for good, and any spots recorded
+    under it (meaningless once the site they describe is gone).
+
+    Refuses a site that still has kit logged against it - deleting it would
+    leave those items pointing at a location the picker no longer offers.
+    """
+    name = (name or "").strip()
+    with connect() as conn:
+        n_items = conn.execute(
+            "SELECT COUNT(*) FROM items WHERE location = ? AND archived = 0", (name,)
+        ).fetchone()[0]
+        if n_items:
+            raise ValueError(
+                f"{name} still has {n_items} piece{'s' if n_items != 1 else ''} "
+                "of kit. Move it out first."
+            )
+        conn.execute("DELETE FROM spots WHERE site = ?", (name,))
+        conn.execute("DELETE FROM sites WHERE name = ?", (name,))
         conn.commit()
 
 
@@ -1392,6 +1617,32 @@ def set_admin(user_id: int, is_admin: bool) -> Optional[dict]:
                      (1 if is_admin else 0, user_id))
         conn.commit()
     return get_user(user_id)
+
+
+def delete_user(user_id: int) -> None:
+    """Remove an account for good: for fake/test accounts, not real members'
+    history. Cascades (schema.sql) take their sessions, ratings, trip votes,
+    favourites and sign-ins with them; comments and trips they made are kept,
+    with the author link cleared, since the kit note/trip itself still stands.
+
+    Refuses on the last committee account, same as standing one down, so the
+    club can never lock itself out of committee tools.
+    """
+    with connect() as conn:
+        row = conn.execute("SELECT is_admin FROM users WHERE id = ?",
+                            (user_id,)).fetchone()
+        if not row:
+            raise AccountError("That account is already gone.")
+        if row["is_admin"]:
+            others = conn.execute(
+                "SELECT COUNT(*) AS n FROM users WHERE is_admin = 1 AND id != ?",
+                (user_id,)
+            ).fetchone()["n"]
+            if not others:
+                raise AccountError("That is the only committee account left. "
+                                   "Make somebody else committee first.")
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
 
 
 def member_admin_list() -> list:

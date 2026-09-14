@@ -428,26 +428,25 @@ def bootstrap(request: Request):
         "types": [{"key": key, "label": db.COMPONENT_LABELS[key],
                    "count": counts.get(key, 0)} for key in db.CATALOGUE_TYPES],
         "conditions": db.FIELD_META["condition"]["choices"],
-        "box_types": db.FIELD_META["box_type"]["choices"],
         "role_labels": db.ROLE_LABELS,
         # The add/edit form is generated from these: for each type, the ordered
         # fields and, for each field, how to label and render it. The form knows
         # no windsurfing itself — it just draws what db.py says a type is made of.
-        "forms": {ctype: [_field_meta(field) for field in fields]
+        "forms": {ctype: [_field_meta(ctype, field) for field in fields]
                   for ctype, fields in db.COMPONENT_FIELDS.items()},
         "required": validation.REQUIRED_FIELDS,
         "type_labels": db.COMPONENT_LABELS,
     }
 
 
-def _field_meta(field: str) -> dict:
+def _field_meta(ctype: str, field: str) -> dict:
     meta = db.FIELD_META[field]
     return {
         "name": field,
-        "label": meta["label"],
+        "label": db.field_label(ctype, field),
         "kind": meta["kind"],
         "optional": meta.get("optional", False),
-        "choices": meta.get("choices"),
+        "choices": db.field_choices(ctype, field),
     }
 
 
@@ -573,6 +572,25 @@ def reset_member_password(user_id: int, request: Request, payload: dict = Body(.
     return {"ok": True}
 
 
+@app.delete("/api/members/{user_id}")
+def delete_member(user_id: int, request: Request):
+    """Remove an account for good: for a fake/test account, not a real
+    member's history. Cascades take their sessions, ratings, trip votes and
+    favourites with them (schema.sql); comments and trips they made stay,
+    with the author link cleared.
+    """
+    admin = require_committee(request)
+    if not db.get_user(user_id):
+        raise HTTPException(404, "No such member.")
+    if user_id == admin["id"]:
+        raise HTTPException(422, "You can't delete your own account while signed in.")
+    try:
+        db.delete_user(user_id)
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+    return {"ok": True}
+
+
 @app.get("/api/members/{user_id}/ratings")
 def member_ratings(user_id: int, request: Request):
     """One member's rating history, which is what a spam claim is judged on."""
@@ -634,7 +652,8 @@ def list_items(request: Request,
         if needle:
             haystack = " ".join(str(item.get(f) or "") for f in
                                 ("manufacturer", "model", "type", "diameter",
-                                 "location", "spot", "notes", "size_generic")).lower()
+                                 "location", "spot", "notes", "size_generic",
+                                 "misc_item")).lower()
             if needle not in haystack:
                 continue
         rows.append(item_card(item, ratings.get(item["id"]), faults.get(item["id"]),
@@ -680,8 +699,9 @@ def read_item(item_id: int, request: Request):
 
 @app.post("/api/items")
 def create_item(request: Request, payload: dict = Body(...)):
-    """Add a piece of kit. Requires an account; any signed-in member can add."""
-    require_user(request)
+    """Add a piece of kit. Committee only for now (misc/spec.md future idea:
+    open this back up for members adding their own personal kit)."""
+    require_committee(request)
     record = dict(payload.get("item") or {})
     ctype = record.get("component_type")
     if ctype not in db.COMPONENT_FIELDS:
@@ -784,6 +804,45 @@ def edit_spot(request: Request, payload: dict = Body(...)):
     except ValueError as error:
         raise HTTPException(400, str(error))
     return {"spots": db.get_spots()}
+
+
+@app.post("/api/sites/coords")
+def set_site_coords(request: Request, payload: dict = Body(...)):
+    """Committee: set (or clear, by sending null for both) a location's map
+    pin - what the forecast strip on its trips and logbook entries reads."""
+    require_committee(request)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Pick a location.")
+    lat, lon = payload.get("lat"), payload.get("lon")
+    if (lat is None) != (lon is None):
+        raise HTTPException(400, "A pin needs both a latitude and a longitude.")
+    db.set_site_coords(name, lat, lon)
+    return {"sites": db.get_sites()}
+
+
+@app.post("/api/sites/rename")
+def rename_site(request: Request, payload: dict = Body(...)):
+    """Committee: rename a location everywhere it is stored by name (kit,
+    spots, past setups and sessions)."""
+    require_committee(request)
+    try:
+        db.rename_site(payload.get("name") or "", payload.get("new_name") or "")
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return {"sites": db.get_sites(), "spots": db.get_spots()}
+
+
+@app.post("/api/sites/delete")
+def delete_site(request: Request, payload: dict = Body(...)):
+    """Committee: remove an empty location for good. Refuses one with kit
+    still logged against it."""
+    require_committee(request)
+    try:
+        db.delete_site(payload.get("name") or "")
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return {"sites": db.get_sites()}
 
 
 @app.post("/api/items/{item_id}/vote")

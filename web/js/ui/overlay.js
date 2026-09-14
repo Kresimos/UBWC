@@ -63,8 +63,11 @@ function present(markup, { centred = false, onClose = null, onDismiss = null } =
 }
 
 /**
- * A list to choose from. `rows` are {value, label, sub, avatar, on}; picking
- * one closes the sheet and resolves.
+ * A list to choose from. `rows` are {value, label, sub, avatar, on, indent},
+ * or {heading} for an unclickable section label (e.g. "Spots" over a
+ * location's own spot rows) - `indent` on the rows under it lines them, and
+ * an action row among them, up under that heading rather than the sheet's own
+ * top-level actions. Picking a row closes the sheet and resolves its value.
  */
 export function chooser({ title, sub, rows, footer }) {
   return new Promise((resolve) => {
@@ -74,12 +77,14 @@ export function chooser({ title, sub, rows, footer }) {
         <h2>${title}</h2>
         ${sub ? html`<p class="sub">${sub}</p>` : ''}
         <div class="list">
-          ${rows.map((row) => html`
-            <button class="sheetrow ${row.on ? 'on' : ''}" data-value="${row.value}">
-              ${row.avatar ? html`<span class="av">${row.avatar}</span>` : ''}
-              <span class="rowlabel"><b>${row.label}</b>${row.sub ? html`<span>${row.sub}</span>` : ''}</span>
-              <span class="tick">${icon('tick')}</span>
-            </button>`)}
+          ${rows.map((row) => (row.heading
+            ? html`<div class="sechead">${row.heading}</div>`
+            : html`
+              <button class="sheetrow ${row.on ? 'on' : ''} ${row.indent ? 'indent' : ''}" data-value="${row.value}">
+                ${row.avatar ? html`<span class="av">${row.avatar}</span>` : ''}
+                <span class="rowlabel"><b>${row.label}</b>${row.sub ? html`<span>${row.sub}</span>` : ''}</span>
+                <span class="tick">${icon('tick')}</span>
+              </button>`))}
         </div>
         ${footer ? html`<div class="foot">${raw(footer)}</div>` : ''}
       </div>`, { onDismiss: () => resolve(null) });
@@ -282,24 +287,34 @@ export function confirmSheet({ title, sub, confirmLabel = 'Confirm', cancelLabel
  * that explains what is being shown. `tone` recolours the band for a caller
  * that carries a severity of its own: "crit" for a fault that has taken the
  * piece out of action.
+ *
+ * Resolves once the card is gone, whichever way it went - closed outright, or
+ * (once `action.onClick` itself has finished, so anything it opens has had
+ * its own turn) after the action. A caller that does not need to know when is
+ * free to not await it, exactly as every caller before this did.
  */
 export function lightbox({ title, sub, image, glyph = 'camera', tone = '', action = null }) {
-  present(html`
-    <div class="lbcard" role="dialog" aria-label="${title}">
-      <div class="lbphoto ${glyph === 'camera' ? '' : glyph} ${tone}">
-        ${image ? html`<img src="${image}" alt="">` : icon(glyph)}
-      </div>
-      <div class="lbcap"><b>${title}</b>${sub ? html`<span>${sub}</span>` : ''}</div>
-      ${action ? html`<button class="lbaction" data-lbaction>${action.label}</button>` : ''}
-      <button class="lbclose">Close</button>
-    </div>`, { centred: true });
-  layer().querySelector('.lbclose').addEventListener('click', closeOverlay);
-  if (action) {
-    layer().querySelector('[data-lbaction]').addEventListener('click', () => {
-      closeOverlay();
-      action.onClick();
-    });
-  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(); } };
+    present(html`
+      <div class="lbcard" role="dialog" aria-label="${title}">
+        <div class="lbphoto ${glyph === 'camera' ? '' : glyph} ${tone}">
+          ${image ? html`<img src="${image}" alt="">` : icon(glyph)}
+        </div>
+        <div class="lbcap"><b>${title}</b>${sub ? html`<span>${sub}</span>` : ''}</div>
+        ${action ? html`<button class="lbaction" data-lbaction>${action.label}</button>` : ''}
+        <button class="lbclose">Close</button>
+      </div>`, { centred: true, onDismiss: finish });
+    layer().querySelector('.lbclose').addEventListener('click', () => { closeOverlay(); finish(); });
+    if (action) {
+      layer().querySelector('[data-lbaction]').addEventListener('click', async () => {
+        closeOverlay();
+        await action.onClick();
+        finish();
+      });
+    }
+  });
 }
 
 

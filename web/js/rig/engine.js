@@ -28,6 +28,14 @@
 const EXT_MAX = 50; // the physical travel of a mast extension, in cm
 const STD_MASTS = [370, 400, 430, 460];
 
+// The two box strings that make a board (or a foil) foil kit rather than
+// windsurf kit (CLAUDE.md-adjacent: see docs/kit_options.md). Everything else
+// about "is this a windfoil board" or "is this a wingfoil board" reads off
+// these two constants rather than a component type of its own.
+export const FOIL_BOX_WINDFOIL = 'Deep Tuttle (foil ready)';
+export const FOIL_BOX_WINGFOIL = 'Double US Box (wingfoil)';
+const FOIL_BOXES = [FOIL_BOX_WINDFOIL, FOIL_BOX_WINGFOIL];
+
 const known = (value) => value !== null && value !== undefined;
 
 export const fmt = (value) => String(Math.round(value * 10) / 10);
@@ -53,9 +61,109 @@ export const TARGETS = {
     step: 5, dp: 0, min: 50, max: 260, fallback: 120,
     size: (piece) => piece.vol,
   },
+  wing: {
+    k: 'wing', kind: 'wing', label: 'Wing', noun: 'wing', unit: 'm²',
+    step: 0.5, dp: 1, min: 2.0, max: 8.0, fallback: 5.0,
+    size: (piece) => piece.m2,
+  },
 };
 
-export const TARGET_KEYS = ['sail', 'board'];
+// Wingfoil boards run far smaller than windsurf ones (roughly 40-110L), so the
+// shared board config's 120L fallback would open the stepper above anything
+// the club owns. The suggester's board figure (learned from windsurf sessions)
+// is also the wrong number for a wing board, so wingfoil never reads it.
+const TARGET_OVERRIDES = {
+  wingfoil: { board: { min: 30, max: 140, fallback: 85 } },
+};
+
+/** A target's config for the discipline in play — only the board differs. */
+export function targetConfig(key, disciplineKey) {
+  const override = TARGET_OVERRIDES[disciplineKey] && TARGET_OVERRIDES[disciplineKey][key];
+  return override ? { ...TARGETS[key], ...override } : TARGETS[key];
+}
+
+/**
+ * The three rig pipelines. Each has exactly two Build targets (what a member
+ * picks) and a discipline-specific list of derived slots — see CLAUDE.md /
+ * docs/kit_options.md. `boxes` is which board boxes the discipline's board
+ * step shows: `null` means "any board except the two foil-only boxes" (the
+ * windsurf case), an array means "only these" (windfoil, wingfoil). A board
+ * with no box recorded is never excluded — NULL never blocks a pick.
+ */
+export const DISCIPLINES = {
+  windsurf: {
+    k: 'windsurf', label: 'Windsurf', targets: ['sail', 'board'],
+    slots: ['mast', 'ext', 'boom', 'fin'], boxes: null, uj: true,
+  },
+  windfoil: {
+    k: 'windfoil', label: 'Windfoil', targets: ['sail', 'board'],
+    slots: ['mast', 'ext', 'boom', 'foil'], boxes: [FOIL_BOX_WINDFOIL], uj: true,
+  },
+  wingfoil: {
+    k: 'wingfoil', label: 'Wingfoil', targets: ['board', 'wing'],
+    slots: ['foil'], boxes: [FOIL_BOX_WINGFOIL], uj: false,
+  },
+};
+
+export const DISCIPLINE_KEYS = ['windsurf', 'windfoil', 'wingfoil'];
+export const DEFAULT_DISCIPLINE = 'windsurf';
+
+/**
+ * Whether a board's box belongs on this discipline's board step. Windsurf is
+ * the "everything else" bucket — an unrecorded box is assumed windsurf-safe,
+ * since that is nearly every board the club owns and box type is only ever
+ * entered for the rare foil ones. Windfoil and wingfoil are the opposite: a
+ * board with no box recorded has never been set up as a foil board, so unlike
+ * every other NULL-never-blocks rule in the app, an unset box does not pass
+ * here — only the discipline's own foil box does.
+ */
+export function boardBoxOk(disciplineKey, box) {
+  const disc = DISCIPLINES[disciplineKey] || DISCIPLINES[DEFAULT_DISCIPLINE];
+  if (!disc.boxes) return !box || !FOIL_BOXES.includes(box);
+  return Boolean(box) && disc.boxes.includes(box);
+}
+
+/**
+ * Which Build picks survive a discipline switch. `picks` is `{ key: piece }`
+ * for whatever the *previous* discipline's targets were; the return is the
+ * subset still legal in `next` — a sail survives windsurf <-> windfoil and
+ * dies going to wingfoil (it is not one of wingfoil's targets), a board
+ * survives only if its box still suits the new sport, and a wing likewise
+ * only exists as a wingfoil target. NULL/unrecorded box never blocks a pick.
+ */
+export function survivingPicks(prevDisciplineKey, nextDisciplineKey, picks) {
+  const prevTargets = DISCIPLINES[prevDisciplineKey].targets;
+  const nextTargets = DISCIPLINES[nextDisciplineKey].targets;
+  const kept = {};
+  prevTargets.forEach((key) => {
+    if (!nextTargets.includes(key)) return;
+    const piece = picks[key];
+    if (!piece) return;
+    if (key === 'board' && !boardBoxOk(nextDisciplineKey, piece.box)) return;
+    kept[key] = piece;
+  });
+  return kept;
+}
+
+/**
+ * Which pipeline a catalogue item belongs to — the rule behind "Rig this kit"
+ * and the `?pin=` shortcut (docs/kit_options.md). Reads either a rigkit piece
+ * (`kind`/`box`) or a card from `/api/items` (`rig_kind`/`box_type`).
+ */
+export function sportFor(item) {
+  const kind = item.kind || item.rig_kind;
+  const box = item.box || item.box_type;
+  if (kind === 'wing') return 'wingfoil';
+  if (kind === 'board') {
+    if (box === FOIL_BOX_WINGFOIL) return 'wingfoil';
+    if (box === FOIL_BOX_WINDFOIL) return 'windfoil';
+    return 'windsurf';
+  }
+  // A sail is ambiguous between windsurf and windfoil (docs/kit_options.md
+  // line 32) - windsurf wins.
+  if (kind === 'sail') return 'windsurf';
+  return null;
+}
 
 /**
  * The filter chips, in the order a member reaches for them. Riding style,
@@ -69,6 +177,7 @@ export const TARGET_KEYS = ['sail', 'board'];
 const TAG_ORDER = {
   sail: ['Freewave', 'Freeride', 'Wave', 'Freestyle', 'Slalom', 'Cammed', 'RDM', 'SDM', 'Adjustable top'],
   board: ['Freewave', 'Freeride', 'Slalom', 'Wave', 'Formula', 'Foil'],
+  wing: ['Freeride', 'Freestyle', 'Wave'],
 };
 
 function tagMatches(tag, piece) {
@@ -96,12 +205,17 @@ const ratingScore = (piece) => (piece.rate ? piece.rate.avg : 3);
 /**
  * Everything of one kind, nearest the target first. Ties break on condition
  * and then on how the club rates it, so the first tile is the one worth taking.
+ *
+ * `disciplineKey` narrows the board step by box (a windfoil board list should
+ * not be full of Powerbox freeride boards that will suggest no foil) — it is
+ * only ever consulted for `key === 'board'`.
  */
-export function matches(kit, key, target, tags) {
+export function matches(kit, key, target, tags, disciplineKey) {
   const config = TARGETS[key];
   const active = tags || [];
   return kit
     .filter((piece) => piece.kind === config.kind)
+    .filter((piece) => key !== 'board' || !disciplineKey || boardBoxOk(disciplineKey, piece.box))
     .filter((piece) => active.every((tag) => tagMatches(tag, piece)))
     .map((piece) => ({ piece, delta: distance(config, piece, target) }))
     .sort((a, b) => a.delta - b.delta
@@ -137,8 +251,8 @@ export function nearestStocked(kit, key, wanted) {
     (Math.abs(size - wanted) < Math.abs(best - wanted) ? size : best), sizes[0]);
 }
 
-export function clampTarget(key, value) {
-  const config = TARGETS[key];
+export function clampTarget(key, value, disciplineKey) {
+  const config = targetConfig(key, disciplineKey);
   const stepped = Math.round(value / config.step) * config.step;
   return Number(Math.min(config.max, Math.max(config.min, stepped)).toFixed(config.dp));
 }
@@ -202,18 +316,30 @@ export function finBand(volume) {
 /* --------------------------------------------------- the recommendation */
 
 /**
- * The four slots Your rig fills in, in the order they are rigged. Each knows
- * which picks it depends on, so a skipped sail simply leaves the three rig
- * slots asking for one rather than guessing.
+ * Every slot any discipline can derive, keyed by name. Each knows which pick
+ * it depends on, so a skipped sail simply leaves the rig slots asking for one
+ * rather than guessing. Which of these a given rig actually fills is
+ * `DISCIPLINES[discipline].slots` — see the discipline table above.
  */
-export const SLOTS = [
-  { k: 'mast', kind: 'mast', label: 'MAST', noun: 'mast', needs: 'sail' },
-  { k: 'ext', kind: 'ext', label: 'EXTENSION', noun: 'extension', needs: 'sail' },
-  { k: 'boom', kind: 'boom', label: 'BOOM', noun: 'boom', needs: 'sail' },
-  { k: 'fin', kind: 'fin', label: 'FIN', noun: 'fin', needs: 'board' },
-];
+const SLOT_DEFS = {
+  mast: { k: 'mast', kind: 'mast', label: 'MAST', noun: 'mast', needs: 'sail' },
+  ext: { k: 'ext', kind: 'ext', label: 'EXTENSION', noun: 'extension', needs: 'sail' },
+  boom: { k: 'boom', kind: 'boom', label: 'BOOM', noun: 'boom', needs: 'sail' },
+  fin: { k: 'fin', kind: 'fin', label: 'FIN', noun: 'fin', needs: 'board' },
+  foil: { k: 'foil', kind: 'foil', label: 'FOIL', noun: 'foil', needs: 'board' },
+};
 
-const slotFor = (key) => SLOTS.find((slot) => slot.k === key);
+/** The windsurf slot list, kept as the old export name for the trip solver
+ * and tests that only ever reasoned about mast/ext/boom/fin. */
+export const SLOTS = DISCIPLINES.windsurf.slots.map((k) => SLOT_DEFS[k]);
+
+/** The slots Your rig fills in, in rig order, for one discipline. */
+export function slotsFor(disciplineKey) {
+  const disc = DISCIPLINES[disciplineKey] || DISCIPLINES[DEFAULT_DISCIPLINE];
+  return disc.slots.map((k) => SLOT_DEFS[k]);
+}
+
+const slotFor = (key) => SLOT_DEFS[key];
 
 /**
  * Everything of this kind that legally fits what is already chosen. `picks`
@@ -230,7 +356,7 @@ function candidates(kit, key, picks) {
       return extFitsMast(piece, mast, sail);
     }
     if (key === 'boom') return Boolean(sail) && boomFits(sail, piece);
-    if (key === 'fin') {
+    if (key === 'fin' || key === 'foil') {
       if (!board) return false;
       if (!board.box || !piece.box) return true;
       return board.box === piece.box;
@@ -239,13 +365,16 @@ function candidates(kit, key, picks) {
   });
 }
 
+/** The kit the piece being ranked is scored against a brand/spot match with. */
+const partnerFor = (key, picks) => ((key === 'fin' || key === 'foil') ? picks.board : picks.sail);
+
 /**
  * Ranked candidates for a slot. Everything in here is a nudge rather than a
  * rule — the hard rules already decided who is in the list at all — so the
  * weights only ever reorder kit that would rig equally well.
  */
 export function ranked(kit, key, picks) {
-  const partner = key === 'fin' ? picks.board : picks.sail;
+  const partner = partnerFor(key, picks);
   return candidates(kit, key, picks)
     .map((piece) => ({ piece, score: score(key, piece, picks, partner) }))
     .sort((a, b) => b.score - a.score)
@@ -307,7 +436,7 @@ export const fitsExt = (sail, mast, ext) => extFitsMast(ext, mast, sail);
 
 /** One piece's ranking score for one slot: the nudges `ranked` sorts on. */
 export function pieceScore(key, piece, picks) {
-  return score(key, piece, picks, key === 'fin' ? picks.board : picks.sail);
+  return score(key, piece, picks, partnerFor(key, picks));
 }
 
 /* --------------------------------------------------------- trip packing */
@@ -395,23 +524,32 @@ export function packList(kit, chosen) {
 }
 
 /**
- * The board half of a trip's kit: one fin and one base per board, plus a few
- * spares scaled by how full the kit sec wants to pack.
+ * The board half of a trip's kit: one fin or foil and (unless the board is a
+ * wingfoil board) one base per board, plus a few spares scaled by how full the
+ * kit sec wants to pack.
  *
  * The trailer solver (`web/js/rig/pack.js`) only reasons about the three rig
- * slots; the board side has no combinatorics in it. A fin is either the right
- * box for the board or it is not, so each board simply takes its top-ranked
- * free fin through the same `ranked` the rig assistant uses, and a base has no
- * rule at all, so it is only ever a count.
+ * slots; the board side has no combinatorics in it. A fin/foil is either the
+ * right box for the board or it is not, so each board simply takes its
+ * top-ranked free piece through the same `ranked` the rig assistant uses, and
+ * a base has no rule at all, so it is only ever a count — except a wingfoil
+ * board takes no base at all, since a wing has no UJ.
  *
  * `preset` is the wizard's "how full to pack" dial. `light` carries nothing
- * spare; `standard` a fin and a base for the sizes people swap between;
- * `generous` a couple more bases, since a UJ is small and cheap to over-pack.
+ * spare; `standard` a fin/base for the sizes people swap between; `generous` a
+ * couple more bases and, for a trip actually carrying foil boards, one spare
+ * foil — a spare fin is a cheap hedge, a spare foil is most of the fleet.
  * `usedIds` is everything the rig solve and any pinned kit already claimed, so
  * nothing is handed out twice.
  */
 const FIN_SPARES = { light: 0, standard: 1, generous: 2 };
+const FOIL_SPARES = { light: 0, standard: 0, generous: 1 };
 const UJ_SPARES = { light: 0, standard: 1, generous: 3 };
+
+/** Which slot a board's box asks the trailer for: a fin, or a foil. */
+const boardKitRole = (board) => (FOIL_BOXES.includes(board.box) ? 'foil' : 'fin');
+/** A wingfoil board takes no base — a wing has no UJ to bolt in. */
+const boardNeedsBase = (board) => board.box !== FOIL_BOX_WINGFOIL;
 
 export function packBoardKit(kit, boards, preset, usedIds = []) {
   const used = new Set(usedIds);
@@ -427,26 +565,41 @@ export function packBoardKit(kit, boards, preset, usedIds = []) {
   const bases = () => kit.filter((piece) => piece.kind === 'uj');
 
   boards.forEach((board) => {
-    const finOptions = ranked(kit, 'fin', { board });
-    const fin = finOptions.find(free);
-    if (fin) take('fin', fin, board);
-    else short.push({ role: 'fin', for: board, noun: 'fin',
-                      why: finOptions.length ? 'all taken' : 'none fits' });
+    const role = boardKitRole(board);
+    const options = ranked(kit, role, { board });
+    const pick = options.find(free);
+    if (pick) take(role, pick, board);
+    else short.push({ role, for: board, noun: role,
+                      why: options.length ? 'all taken' : 'none fits' });
 
-    const base = bases().find(free);
-    if (base) take('uj', base, board);
-    else short.push({ role: 'uj', for: board, noun: 'base', why: 'all taken' });
+    if (boardNeedsBase(board)) {
+      const base = bases().find(free);
+      if (base) take('uj', base, board);
+      else short.push({ role: 'uj', for: board, noun: 'base', why: 'all taken' });
+    }
   });
 
-  // A handful of spares, never many. Fins for the box most of the boards use,
-  // bases for anyone.
+  // A handful of spares, never many, split by the slot the boards in this
+  // trip actually use.
   const key = FIN_SPARES[preset] === undefined ? 'standard' : preset;
-  const commonBox = mode(boards.map((board) => board.box).filter(Boolean));
-  ranked(kit, 'fin', { board: { box: commonBox, vol: null } })
-    .filter(free).slice(0, FIN_SPARES[key])
-    .forEach((fin) => take('fin', fin, null));
-  bases().filter(free).slice(0, UJ_SPARES[key])
-    .forEach((base) => take('uj', base, null));
+  const finBoards = boards.filter((board) => boardKitRole(board) === 'fin');
+  const foilBoards = boards.filter((board) => boardKitRole(board) === 'foil');
+  if (finBoards.length) {
+    const commonBox = mode(finBoards.map((board) => board.box).filter(Boolean));
+    ranked(kit, 'fin', { board: { box: commonBox, vol: null } })
+      .filter(free).slice(0, FIN_SPARES[key])
+      .forEach((fin) => take('fin', fin, null));
+  }
+  if (foilBoards.length) {
+    const commonBox = mode(foilBoards.map((board) => board.box).filter(Boolean));
+    ranked(kit, 'foil', { board: { box: commonBox, vol: null } })
+      .filter(free).slice(0, FOIL_SPARES[key])
+      .forEach((foil) => take('foil', foil, null));
+  }
+  if (boards.some(boardNeedsBase)) {
+    bases().filter(free).slice(0, UJ_SPARES[key])
+      .forEach((base) => take('uj', base, null));
+  }
 
   return { assigned, short };
 }
@@ -499,6 +652,7 @@ export function sizeBits(kind, piece) {
     return known(piece.max) ? { v: `${fmt(piece.min || 0)}-${fmt(piece.max)}`, u: 'cm' } : null;
   }
   if (kind === 'board') return known(piece.vol) ? { v: fmt(piece.vol), u: 'L' } : null;
+  if (kind === 'foil') return known(piece.area) ? { v: fmt(piece.area), u: 'cm²' } : null;
   return null;
 }
 
@@ -528,7 +682,7 @@ export function setting(key, piece, picks) {
 export function collapsedSub(key, piece, picks) {
   const set = setting(key, piece, picks);
   if (set) return `set to ${set}`;
-  if (key === 'fin' && piece.box) return String(piece.box).toLowerCase();
+  if ((key === 'fin' || key === 'foil') && piece.box) return String(piece.box).toLowerCase();
   if (key === 'mast' && piece.diam) return piece.diam;
   return '';
 }
@@ -554,8 +708,9 @@ export function altSub(key, piece, picks) {
       else bits.push(`covers ${fmt(wanted)}`);
     }
   }
-  if (key === 'fin') {
+  if (key === 'fin' || key === 'foil') {
     if (piece.box) bits.push(String(piece.box).toLowerCase());
+    if (key === 'foil' && known(piece.area)) bits.push(`${fmt(piece.area)}cm² front wing`);
   }
   if (piece.spot) bits.push(piece.spot);
   return bits.join(' · ');
@@ -570,10 +725,10 @@ export function altSub(key, piece, picks) {
  */
 export function tagsForPiece(key, piece, picks, isBest) {
   const tags = [];
-  const partner = key === 'fin' ? picks.board : picks.sail;
+  const partner = partnerFor(key, picks);
 
   if (partner && partner.mfr && piece.mfr === partner.mfr) tags.push({ t: 'brand match' });
-  if (key === 'fin' && piece.box && picks.board && picks.board.box === piece.box) {
+  if ((key === 'fin' || key === 'foil') && piece.box && picks.board && picks.board.box === piece.box) {
     tags.push({ t: 'box match' });
   }
   // Green, because it is the one chip that is a verdict rather than a fact:
@@ -587,7 +742,7 @@ export function tagsForPiece(key, piece, picks, isBest) {
     tags.push({ t: piece.diam, tick: !clash, warn: clash });
   }
   if (partner && partner.spot && piece.spot === partner.spot) {
-    tags.push({ t: `same rack as your ${key === 'fin' ? 'board' : 'sail'}` });
+    tags.push({ t: `same rack as your ${(key === 'fin' || key === 'foil') ? 'board' : 'sail'}` });
   }
   if (piece.cond) tags.push({ t: piece.cond, cond: true });
   return tags;
@@ -598,7 +753,14 @@ export function tagsForPiece(key, piece, picks, isBest) {
  * deliberately names a total rather than one mast, because any mast and
  * extension reaching the luff rigs the sail equally well.
  */
-export function shoppingList(picks) {
+export function shoppingList(picks, disciplineKey = DEFAULT_DISCIPLINE) {
+  if (disciplineKey === 'wingfoil') {
+    const { board } = picks;
+    return [board && board.box
+      ? `A ${String(board.box).toLowerCase()} foil.`
+      : 'A foil matching the board\'s box. The box is not recorded, so check the board.'];
+  }
+
   const lines = [];
   const { sail, board } = picks;
 
@@ -627,26 +789,35 @@ export function shoppingList(picks) {
   }
   if (sail) lines.push('A standard UJ.');
   if (board) {
+    const noun = disciplineKey === 'windfoil' ? 'foil' : 'fin';
     lines.push(board.box
-      ? `A ${String(board.box).toLowerCase()} fin.`
-      : 'A fin matching the board\'s box. The box is not recorded, so check the board.');
+      ? `A ${String(board.box).toLowerCase()} ${noun}.`
+      : `A ${noun} matching the board's box. The box is not recorded, so check the board.`);
   }
   return lines;
 }
 
 /**
- * The eight steps, in the club's own order (Garden, "How to rig (template)"),
- * carrying this rig's numbers rather than describing rigging in the abstract.
- * The rig is built first and the board last, which is why the UJ and the fin
- * are two steps at the end rather than one line about the extension.
+ * The rigging steps for one discipline, carrying this rig's numbers rather
+ * than describing rigging in the abstract. Windsurf and windfoil share the
+ * same eight steps (Garden, "How to rig (template)") — the rig is built first
+ * and the board last — with only the last step differing (a fin bolts into a
+ * box, a foil bolts in the same way). Wingfoil shares nothing: no mast, boom
+ * or UJ, just a wing and a foil.
  */
-export function riggingSteps(picks) {
+export function riggingSteps(picks, disciplineKey = DEFAULT_DISCIPLINE) {
+  if (disciplineKey === 'wingfoil') return wingfoilSteps(picks);
+
   const { sail, board, mast, ext } = picks;
   const plan = rigPlan(sail, mast, ext);
   const extText = plan ? `+${fmt(plan.ext)}cm` : null;
   const headText = plan && plan.head > 0 ? `${fmt(plan.head)}cm` : null;
   const boomText = sail && known(sail.boom) ? `${fmt(sail.boom)}cm` : null;
   const boxText = board && board.box ? String(board.box).toLowerCase() : null;
+  const isFoil = disciplineKey === 'windfoil';
+  const finStep = boxText
+    ? { text: `${isFoil ? "Slot the foil's mast" : 'Place the fin'} into the ${boxText} on the underside of the board and bolt it in with a screwdriver.` }
+    : { text: `${isFoil ? "Slot the foil's mast" : 'Place the fin'} into the box on the underside of the board and bolt it in with a screwdriver.` };
 
   return [
     { text: 'Unroll the sail out downwind from you.' },
@@ -658,9 +829,21 @@ export function riggingSteps(picks) {
       : { text: 'Set the boom to the sail\'s boom length, slide it onto the sail, then clamp it at shoulder height.' },
     { text: 'At the other end of the boom, attach and tension the outhaul.' },
     { text: 'Slot your UJ into the board, and twist to secure.' },
+    finStep,
+  ];
+}
+
+/** Wingfoil's four steps: inflate, leash, foil in, board leash. No rig at all. */
+function wingfoilSteps(picks) {
+  const { board } = picks;
+  const boxText = board && board.box ? String(board.box).toLowerCase() : null;
+  return [
+    { text: 'Inflate the wing to its recommended pressure and check the strut and leading edge are firm.' },
+    { text: 'Attach the wing\'s leash to your wrist or harness.' },
     boxText
-      ? { text: `Place the fin into the ${boxText} on the underside of the board and bolt it in with a screwdriver.` }
-      : { text: 'Place the fin into the fin box on the underside of the board and bolt it in with a screwdriver.' },
+      ? { text: `Slot the foil's mast into the ${boxText} on the underside of the board and bolt it in with a screwdriver.` }
+      : { text: 'Slot the foil\'s mast into the box on the underside of the board and bolt it in with a screwdriver.' },
+    { text: 'Attach the board leash.' },
   ];
 }
 

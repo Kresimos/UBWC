@@ -28,9 +28,14 @@ import { haptic, CONFIRM } from '../ui/haptics.js';
 import { go } from '../router.js';
 import { building } from '../rig/session.js';
 import {
-  SLOTS, ranked, rigPlan, rowName, shortName, sizeBits, collapsedSub, altSub, setting,
-  tagsForPiece, shoppingList, riggingSteps, camsNote, finBand, fmt, span,
+  DISCIPLINES, slotsFor, ranked, rigPlan, rowName, shortName, sizeBits,
+  collapsedSub, altSub, setting, tagsForPiece, shoppingList, riggingSteps,
+  camsNote, finBand, fmt, span, FOIL_BOX_WINDFOIL, FOIL_BOX_WINGFOIL,
 } from '../rig/engine.js';
+
+// The Selected-kit label for each of the three possible Build targets — the
+// slots (mast, ext, boom, fin, foil) already carry their own labels.
+const TARGET_LABELS = { sail: 'SAIL', board: 'BOARD', wing: 'WING' };
 
 export async function render(root) {
   const known = store.setup || (store.user ? await refreshSetup() : null);
@@ -82,8 +87,9 @@ export async function render(root) {
    */
   function resolve() {
     const raw = building.raw;
-    const picks = { sail: byId(raw.sail), board: byId(raw.board) };
-    const rows = SLOTS.map((slot) => {
+    const picks = {};
+    DISCIPLINES[building.discipline].targets.forEach((key) => { picks[key] = byId(raw[key]); });
+    const rows = slotsFor(building.discipline).map((slot) => {
       if (!picks[slot.needs]) return { slot, blocked: slot.needs, list: [], current: null };
       const list = ranked(kit, slot.k, picks);
       const confirmedId = raw.slots[slot.k];
@@ -98,14 +104,21 @@ export async function render(root) {
 
   // ---------------------------------------------------------------- painting
   function paint() {
+    const disc = DISCIPLINES[building.discipline];
     const { picks, rows } = resolve();
 
-    mount(howtoNode, howtoCard(picks));
+    const ttlNode = root.querySelector('[data-ttl]');
+    if (ttlNode) {
+      ttlNode.textContent = disc.k === 'windsurf' ? 'Your rig' : `Your ${disc.label.toLowerCase()} rig`;
+    }
+
+    mount(howtoNode, howtoCard(picks, building.discipline));
     if (ui.howto) howtoNode.querySelector('.howto').classList.add('open');
 
     const selected = [];
-    if (picks.sail) selected.push({ key: 'sail', label: 'SAIL', kind: 'sail', piece: picks.sail });
-    if (picks.board) selected.push({ key: 'board', label: 'BOARD', kind: 'board', piece: picks.board });
+    disc.targets.forEach((key) => {
+      if (picks[key]) selected.push({ key, label: TARGET_LABELS[key], kind: key, piece: picks[key] });
+    });
     rows.filter((row) => row.confirmed).forEach((row) => selected.push({
       key: row.slot.k, label: row.slot.label, kind: row.slot.kind, piece: row.current, slot: row.slot,
     }));
@@ -113,7 +126,7 @@ export async function render(root) {
     mount(selNode, selected.map((entry) => selectedRow(entry, picks)));
     mount(recNode, html`
       ${rows.filter((row) => !row.confirmed).map((row) => recRow(row, picks))}
-      ${picks.sail ? ujRow() : ''}`);
+      ${disc.uj && (picks.sail || picks.board) ? ujRow() : ''}`);
 
     selected.forEach((entry) => { if (ui.openSel[entry.key]) fillSelected(entry.key, picks); });
     rows.forEach((row) => { if (!row.confirmed && ui.openRec[row.slot.k]) fillRec(row.slot.k); });
@@ -154,6 +167,10 @@ export async function render(root) {
     if (entry.key === 'mast') {
       if (piece.diam) lines.push({ text: piece.diam, strong: true });
     }
+    if (entry.key === 'foil') {
+      if (piece.box) lines.push({ text: piece.box, plain: true });
+      if (piece.area != null) lines.push({ text: `${fmt(piece.area)} cm² front wing` });
+    }
     const set = entry.slot ? setting(entry.key, piece, picks) : null;
     if (set) lines.push({ text: `set to ${set}` });
     return lines.map((line) => html`
@@ -174,9 +191,10 @@ export async function render(root) {
   }
 
   function entryFor(key, picks) {
-    if (key === 'sail' && picks.sail) return { key, label: 'SAIL', kind: 'sail', piece: picks.sail };
-    if (key === 'board' && picks.board) return { key, label: 'BOARD', kind: 'board', piece: picks.board };
-    const slot = SLOTS.find((s) => s.k === key);
+    if (TARGET_LABELS[key] && picks[key]) {
+      return { key, label: TARGET_LABELS[key], kind: key, piece: picks[key] };
+    }
+    const slot = slotsFor(building.discipline).find((s) => s.k === key);
     if (slot && picks[key]) return { key, label: slot.label, kind: slot.kind, piece: picks[key], slot };
     return null;
   }
@@ -258,7 +276,8 @@ export async function render(root) {
       pairs.push(['Rec. mast', `${item.recommended.mast_cm} cm`]);
       pairs.push(['Rec. extension', `${item.recommended.extension_cm} cm`]);
     }
-    if (entry.key === 'board') {
+    if (entry.key === 'board'
+        && entry.piece.box !== FOIL_BOX_WINDFOIL && entry.piece.box !== FOIL_BOX_WINGFOIL) {
       const band = finBand(entry.piece.vol);
       if (band) pairs.push(['Rec. fin', `${band[0]} to ${band[1]} cm`]);
     }
@@ -298,7 +317,7 @@ export async function render(root) {
           <span class="namerow"><span class="nm">Pick a ${slot.needs} first</span></span>
           <span class="subline">${slot.needs === 'sail'
             ? 'the mast, extension and boom all come from the sail'
-            : 'the fin has to match the board\'s box'}</span>
+            : `the ${slot.kind} has to match the board's box`}</span>
         </span>
         <span class="kchev rot">${icon('chevronRight')}</span>
       </button>`;
@@ -326,7 +345,9 @@ export async function render(root) {
     if (slot.k === 'boom' && picks.sail && picks.sail.boom != null) {
       return `no boom here covers ${fmt(picks.sail.boom)} cm`;
     }
-    if (slot.k === 'fin' && picks.board) return `no ${String(picks.board.box || '').toLowerCase()} fin is here`;
+    if ((slot.k === 'fin' || slot.k === 'foil') && picks.board) {
+      return `no ${String(picks.board.box || '').toLowerCase()} ${slot.k} is here`;
+    }
     return 'try another location';
   }
 
@@ -412,6 +433,11 @@ export async function render(root) {
       if (piece.box) pairs.push(['Box type', piece.box]);
       if (piece.type) pairs.push(['Type', piece.type]);
     }
+    if (slot.k === 'foil') {
+      if (piece.box) pairs.push(['Box type', piece.box]);
+      if (piece.area != null) pairs.push(['Front wing', `${fmt(piece.area)} cm²`]);
+      if (piece.type) pairs.push(['Type', piece.type]);
+    }
     // The maker on its own, not the full name: the row heading above already
     // says "430 Neil Pryde X6", so repeating it here would be a wasted cell.
     if (piece.mfr) pairs.push(['Make', piece.mfr]);
@@ -436,9 +462,9 @@ export async function render(root) {
 
   /* -- the how-to card ---------------------------------------------------- */
 
-  function howtoCard(picks) {
-    const find = shoppingList(picks);
-    const steps = riggingSteps(picks);
+  function howtoCard(picks, discipline) {
+    const find = shoppingList(picks, discipline);
+    const steps = riggingSteps(picks, discipline);
     return html`
       <div class="howto">
         <div class="hhead" data-howtotoggle role="button">
@@ -569,7 +595,7 @@ export async function render(root) {
   });
 
   onClick(root, 'data-change', async (key) => {
-    if (key === 'sail' || key === 'board') {
+    if (DISCIPLINES[building.discipline].targets.includes(key)) {
       // Change means "I have not chosen this": clear the pick so Build opens on
       // an empty step with a hollow badge, not the old one still ticked.
       building.reopen(key);
@@ -649,10 +675,9 @@ export async function render(root) {
     const add = (role, piece, settings) => {
       if (piece) pieces.push({ role, item_id: piece.id, custom: null, settings: settings || {} });
     };
-    add('sail', picks.sail);
-    add('board', picks.board);
+    DISCIPLINES[building.discipline].targets.forEach((key) => add(key, picks[key]));
     const confirmed = building.confirmed();
-    SLOTS.forEach((slot) => {
+    slotsFor(building.discipline).forEach((slot) => {
       if (!confirmed[slot.k]) return;
       const piece = picks[slot.k];
       const settings = {};
@@ -670,7 +695,7 @@ export async function render(root) {
     const setupSite = trip ? (trip.destination || null)
       : (store.site === 'all' ? null : store.site);
     try {
-      const saved = await api.saveSetup(setupSite, pieces, trip ? trip.id : null);
+      const saved = await api.saveSetup(setupSite, pieces, trip ? trip.id : null, building.discipline);
       setSetup(saved.setup);
     } catch (error) {
       toast(error.message, true);
@@ -679,7 +704,7 @@ export async function render(root) {
 
   async function derig() {
     if (!(await needUser('Your setup is saved to your account so you can de-rig and log it.'))) return;
-    const missing = SLOTS.filter((slot) => !building.confirmed()[slot.k]).length;
+    const missing = slotsFor(building.discipline).filter((slot) => !building.confirmed()[slot.k]).length;
     if (missing) {
       const yes = await confirmSheet({
         title: `${missing} ${missing === 1 ? 'part is' : 'parts are'} still only suggested`,
@@ -716,10 +741,14 @@ function savedMark(piece) {
 
 function seedFrom(setup) {
   building.clear();
+  building.setDiscipline(setup.discipline || 'windsurf');
+  const targets = DISCIPLINES[building.discipline].targets;
   setup.pieces.forEach((piece) => {
     if (!piece.item) return;
-    if (piece.role === 'sail' || piece.role === 'board') building.pick(piece.role, piece.item.id);
-    else if (SLOTS.some((slot) => slot.k === piece.role)) building.confirm(piece.role, piece.item.id);
+    if (targets.includes(piece.role)) building.pick(piece.role, piece.item.id);
+    else if (slotsFor(building.discipline).some((slot) => slot.k === piece.role)) {
+      building.confirm(piece.role, piece.item.id);
+    }
   });
 }
 
@@ -740,7 +769,7 @@ function shell() {
     <div class="appbar">
       <div class="row">
         <button class="backbtn" data-back aria-label="Back">${icon('back')}</button>
-        <span class="ttl">Your rig</span>
+        <span class="ttl" data-ttl>Your rig</span>
         <button class="derigbtn" data-derig>${icon('logout')}De-rig</button>
       </div>
     </div>

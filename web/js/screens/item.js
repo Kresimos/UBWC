@@ -224,12 +224,14 @@ function tripPill(name) {
 // ------------------------------------------------------------------ markup
 
 /**
- * Build only asks two questions, a sail and a board, and works the rest out
- * from them. So "Rig this kit" is only offered on the two things it can
- * actually honour — on a mast or a boom it would promise a screen that has
- * nowhere to put the piece.
+ * Every pipeline asks for exactly two things — a sail, a board, or a wing —
+ * and works the rest out from them. So "Rig this kit" is only offered on the
+ * three things a pipeline can actually pick: on a mast or a boom it would
+ * promise a screen that has nowhere to put the piece. Which pipeline it opens
+ * is `sportFor`'s rule (a sail's ambiguity with windfoil resolved to windsurf,
+ * a board's discipline read off its box) — the button itself does not decide.
  */
-const buildable = (item) => item.rig_kind === 'sail' || item.rig_kind === 'board';
+const buildable = (item) => ['sail', 'board', 'wing'].includes(item.rig_kind);
 
 function screen(item, historyOpen) {
   const open = item.fault_history.filter((f) => f.status === 'open');

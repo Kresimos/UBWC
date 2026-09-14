@@ -94,8 +94,10 @@ CREATE TABLE items (
                                    -- everywhere else in the app shows size instead
 
     -- forward-looking: fins / foils (hard box-fit constraint, see CLAUDE.md)
-    box_type            TEXT,    -- US Box | Powerbox | Tuttle | Deep Tuttle
+    box_type            TEXT,    -- US Box | Powerbox | Tuttle | Deep Tuttle |
+                                  -- Deep Tuttle (foil ready) | Double US Box (wingfoil)
     fin_length_cm       REAL,
+    foil_area_cm2       REAL,    -- foil's front wing area; optional, display-only (never a match rule)
 
     -- wetsuits, and boots (same neoprene spec shape: size, gender, thickness —
     -- size uses the misc catch-all's size_generic column above)
@@ -290,6 +292,11 @@ CREATE TABLE setups (
     -- Set when the rig was built with a club trip as the chosen location, so
     -- the logbook can pull wind for the trip's pin even after a de-rig.
     trip_id       INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+    -- Which of the three rig pipelines built this setup: windsurf, windfoil or
+    -- wingfoil. Not CHECK-constrained (unlike component_type) since it names a
+    -- UI pipeline, not a physical fact about an item — a new one is a label,
+    -- not a migration.
+    discipline    TEXT NOT NULL DEFAULT 'windsurf',
     rigged_at     TEXT NOT NULL DEFAULT (datetime('now')),
     derigged_at   TEXT,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -306,7 +313,7 @@ CREATE TABLE setup_items (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     setup_id   INTEGER NOT NULL REFERENCES setups(id) ON DELETE CASCADE,
     role       TEXT NOT NULL
-               CHECK (role IN ('sail','mast','ext','boom','board','fin','uj')),
+               CHECK (role IN ('sail','mast','ext','boom','board','fin','uj','wing','foil')),
     item_id    INTEGER REFERENCES items(id) ON DELETE SET NULL,
     custom     TEXT,
     settings   TEXT,

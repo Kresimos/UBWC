@@ -10,7 +10,7 @@
  * all; the browser never reads it.)
  */
 import assert from 'node:assert/strict';
-import { packList } from './engine.js';
+import { packList, packBoardKit, FOIL_BOX_WINDFOIL, FOIL_BOX_WINGFOIL } from './engine.js';
 
 const sail = (id, luff, boom, extra = {}) => ({
   id, kind: 'sail', mfr: 'Test', model: `Sail ${id}`, cond: 'Good',
@@ -38,6 +38,9 @@ const fin = (id, box = 'Powerbox') => ({
 });
 const uj = (id) => ({ id, kind: 'uj', mfr: 'Test', model: `UJ ${id}`,
                       cond: 'Good', fit: 'Standard', faults: [] });
+const foil = (id, box = FOIL_BOX_WINDFOIL) => ({
+  id, kind: 'foil', mfr: 'Test', model: `Foil ${id}`, cond: 'Good', box, area: null, faults: [],
+});
 
 const of = (result, role) => result.assigned.filter((a) => a.role === role);
 
@@ -99,6 +102,31 @@ const of = (result, role) => result.assigned.filter((a) => a.role === role);
   assert.equal(fins[0].piece.id, 40);
   assert.equal(short.filter((s) => s.role === 'fin').length, 1);
   assert.equal(of({ assigned }, 'uj').length, 2, 'one base per board');
+}
+
+// 5. packBoardKit: a windfoil board takes a box-matched foil in place of a
+//    fin, and still takes a base; a wingfoil board takes a foil and NO
+//    base at all — a wing has no UJ to bolt in.
+{
+  const windfoilBoard = board(1, FOIL_BOX_WINDFOIL);
+  const wingfoilBoard = board(2, FOIL_BOX_WINGFOIL);
+  const kit = [
+    windfoilBoard, wingfoilBoard,
+    foil(40, FOIL_BOX_WINDFOIL), foil(41, FOIL_BOX_WINGFOIL),
+    uj(50), uj(51),
+  ];
+  const { assigned, short } = packBoardKit(kit, [windfoilBoard, wingfoilBoard], 'standard');
+
+  const foilFor = (b) => assigned.find((a) => a.role === 'foil' && a.for.id === b.id);
+  assert.equal(foilFor(windfoilBoard).piece.id, 40, 'the windfoil board gets the matching foil');
+  assert.equal(foilFor(wingfoilBoard).piece.id, 41, 'the wingfoil board gets the matching foil');
+  assert.equal(assigned.filter((a) => a.role === 'fin').length, 0, 'neither board asks for a fin');
+
+  const basesTaken = assigned.filter((a) => a.role === 'uj' && a.for);
+  assert.equal(basesTaken.length, 1, 'only the windfoil board takes a base');
+  assert.equal(basesTaken[0].for.id, windfoilBoard.id);
+  assert.equal(short.some((s) => s.role === 'uj' && s.for.id === wingfoilBoard.id), false,
+    'the wingfoil board never asked for a base, so it is not a shortfall either');
 }
 
 console.log('pack.test.mjs: ok');

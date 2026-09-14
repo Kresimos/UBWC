@@ -502,6 +502,20 @@
    Catalogue's own vocabulary — the same chips, the same grid/list switch, the
    same borderless product tiles — because Build is browsing with a number
    attached, not a different app. */
+/* Which of the three rig pipelines: windsurf, windfoil or wingfoil. Same
+   track-and-pill recipe as the log screen's .seg, one row above the step pair
+   it decides the shape of (docs/kit_options.md). */
+[data-screen="build"] .sportseg {
+  display: flex; gap: 4px; background: var(--app-bg2); border-radius: 11px; padding: 3px;
+}
+[data-screen="build"] .sportseg button {
+  flex: 1; border: 0; background: transparent; font-size: 12.5px; font-weight: 700;
+  color: var(--app-muted); padding: 7px; border-radius: 8px; cursor: pointer;
+}
+[data-screen="build"] .sportseg button.on {
+  background: var(--app-bg); color: var(--teal-ink); box-shadow: 0 1px 3px rgba(10, 80, 92, .15);
+}
+
 [data-screen="build"] .steps {
   display: flex; gap: 6px; background: var(--app-bg2); border-radius: 11px; padding: 3px;
 }

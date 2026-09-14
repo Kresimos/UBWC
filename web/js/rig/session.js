@@ -10,11 +10,29 @@
  * kit list every time, so a fault reported while you were choosing shows up
  * rather than being frozen into a stale copy.
  */
+import { DEFAULT_DISCIPLINE } from './engine.js';
+
 const KEY = 'ubwc.building';
+// Which sport was last built, remembered across visits (most members only
+// ever build one). A Rig button from an item overrides it for that visit
+// without overwriting what is remembered (build.js decides that, not here).
+const SPORT_KEY = 'ubwc.sport';
+
+const readSport = () => {
+  try {
+    const stored = localStorage.getItem(SPORT_KEY);
+    return stored || DEFAULT_DISCIPLINE;
+  } catch {
+    return DEFAULT_DISCIPLINE;
+  }
+};
 
 // A factory, not a constant: the arrays and objects inside it are mutated, so
 // every session has to get its own.
-const empty = () => ({ sail: null, board: null, skipped: [], targets: {}, slots: {} });
+const empty = () => ({
+  discipline: readSport(), sail: null, board: null, wing: null,
+  skipped: [], targets: {}, slots: {},
+});
 
 function load() {
   try {
@@ -31,22 +49,46 @@ function save() {
   try { sessionStorage.setItem(KEY, JSON.stringify(held)); } catch { /* private mode */ }
 }
 
+// The target whose change unsettles the derived slots. In every discipline
+// exactly one target drives them (sail for windsurf/windfoil's mast/ext/boom,
+// wing standing in for wingfoil's single foil slot) — the other target
+// (board) is what a slot's `needs` actually reads, but changing it is rare
+// enough mid-flow that only the driving target forces a re-derive.
+const DRIVES_SLOTS = (key) => key === 'sail' || key === 'wing';
+
 export const building = {
   get raw() { return held; },
 
-  /** The two Build picks, as ids. */
+  /** Which of the three pipelines is being built. */
+  get discipline() { return held.discipline || DEFAULT_DISCIPLINE; },
+
+  /**
+   * Switch pipeline. This only ever changes `held.discipline` and persists it
+   * as the remembered sport — it does not know which picks still fit the new
+   * discipline, since that needs the actual kit (box types, etc.), which only
+   * the screen holding the fetched kit list has. build.js applies the
+   * keep/drop rule (docs/kit_options.md) with `pick`/`reopen` before calling
+   * this, using the discipline this getter still reports as "the old one".
+   */
+  setDiscipline(next) {
+    held.discipline = next;
+    try { localStorage.setItem(SPORT_KEY, next); } catch { /* private mode */ }
+    save();
+  },
+
+  /** The Build picks, as ids, keyed by target ('sail'/'board'/'wing'). */
   pick(key, id) {
     held[key] = id;
     held.skipped = held.skipped.filter((k) => k !== key);
-    // Changing the sail unsettles everything the sail decided.
-    if (key === 'sail') held.slots = {};
+    // Changing the target that drives the rig unsettles everything it decided.
+    if (DRIVES_SLOTS(key)) held.slots = {};
     save();
   },
 
   skip(key) {
     held[key] = null;
     if (!held.skipped.includes(key)) held.skipped.push(key);
-    if (key === 'sail') held.slots = {};
+    if (DRIVES_SLOTS(key)) held.slots = {};
     save();
   },
 
@@ -60,7 +102,7 @@ export const building = {
   reopen(key) {
     held[key] = null;
     held.skipped = held.skipped.filter((k) => k !== key);
-    if (key === 'sail') held.slots = {};
+    if (DRIVES_SLOTS(key)) held.slots = {};
     save();
   },
 
@@ -85,5 +127,5 @@ export const building = {
   },
 
   /** Is there anything worth showing on Your rig? */
-  started: () => Boolean(held.sail || held.board),
+  started: () => Boolean(held.sail || held.board || held.wing),
 };

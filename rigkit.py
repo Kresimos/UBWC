@@ -18,13 +18,13 @@ from typing import Optional
 import db
 
 # Which wizard step a row belongs to. Sails and wings both rig, but a wing has
-# no luff or boom, so it is not offered as a rig sail.
+# no luff or boom, so a wingfoil rig picks it as a target rather than deriving
+# it the way a windsurf rig derives a fin.
 #
-# Wings and foils have no wizard step at all — nothing is derived from them and
-# nothing derives them — but they are here because the trip packer offers them
-# to be chosen outright, and it reads the same list. The wizard filters by the
-# kinds it names (TARGETS, SLOTS in web/js/rig/engine.js), so two kinds it has
-# never heard of simply pass it by.
+# Which of these kinds a discipline actually uses is decided in
+# web/js/rig/engine.js's DISCIPLINES table, not here — this list is every kind
+# the wizard or the trip packer might ever ask for, and a kind a given
+# discipline never names simply passes it by.
 _COMPONENT_KINDS = {
     "sail": "sail",
     "mast": "mast",
@@ -104,7 +104,7 @@ def to_piece(item: dict, faults: list, rating: dict, favourite: bool = False) ->
     elif kind == "wing":
         piece.update({"m2": item.get("size_m2")})
     elif kind == "foil":
-        piece.update({"box": item.get("box_type")})
+        piece.update({"box": item.get("box_type"), "area": item.get("foil_area_cm2")})
     elif kind == "uj":
         piece.update({"fit": item.get("size_generic") or "Standard"})
 

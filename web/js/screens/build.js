@@ -31,9 +31,14 @@ import { haptic, TICK, PICK } from '../ui/haptics.js';
 import { go, back, path } from '../router.js';
 import { building } from '../rig/session.js';
 import {
-  TARGETS, TARGET_KEYS, matches, tagsFor, nearestStocked, clampTarget,
-  sizeBits, modelShort,
+  DISCIPLINES, DISCIPLINE_KEYS, targetConfig, matches, tagsFor, nearestStocked,
+  clampTarget, sizeBits, modelShort, sportFor, survivingPicks,
 } from '../rig/engine.js';
+
+// Every target key any discipline can ask for. Chips and remembered/suggested
+// numbers are worked out for all three up front, so switching discipline mid-
+// visit never needs another await — only which two of them are shown changes.
+const ALL_KEYS = ['sail', 'board', 'wing'];
 
 const VIEW_KEY = 'ubwc.buildview';
 // Shown once, to a signed-in member who has never logged a session: what the
@@ -57,7 +62,7 @@ export async function render(root, params) {
   // Coming back to the Rig tab part-way through means "show me my rig", not
   // "start again". An explicit step (the Change link on Your rig) or a pinned
   // item says otherwise, and those are the only ways back into Build.
-  if (!params.step && !params.pin && TARGET_KEYS.every(settled)) {
+  if (!params.step && !params.pin && DISCIPLINES[building.discipline].targets.every(settled)) {
     go('/setup', { replace: true });
     return undefined;
   }
@@ -74,10 +79,19 @@ export async function render(root, params) {
   ]);
   const kit = data.kit;
 
+  // Arriving from a catalogue item ("Rig this kit") picks the pipeline too:
+  // there is no `?sport=` — the sport is a fact about the pinned piece
+  // (sportFor, docs/kit_options.md), read once here rather than duplicated at
+  // the call site.
+  const pinned = params.pin ? kit.find((piece) => piece.id === Number(params.pin)) : null;
+  const discipline = (pinned && sportFor(pinned)) || building.discipline;
+
   const state = {
-    step: 'sail',
+    discipline,
+    targetKeys: DISCIPLINES[discipline].targets,
+    step: DISCIPLINES[discipline].targets[0],
     view: localStorage.getItem(VIEW_KEY) || 'grid',
-    tags: { sail: [], board: [] },
+    tags: { sail: [], board: [], wing: [] },
     target: {},
     chips: {},
     // Which wheels are still sitting where the app opened them. Moving one
@@ -93,20 +107,22 @@ export async function render(root, params) {
   const resolvedPiece = (key) => kit.find((piece) => piece.id === building.raw[key]) || null;
   const resolved = (key) => Boolean(resolvedPiece(key)) || building.isSkipped(key);
 
-  TARGET_KEYS.forEach((key) => {
-    state.chips[key] = tagsFor(kit.filter((piece) => piece.kind === TARGETS[key].kind), key);
+  ALL_KEYS.forEach((key) => {
+    const config = targetConfig(key, state.discipline);
+    state.chips[key] = tagsFor(kit.filter((piece) => piece.kind === config.kind), key);
     const remembered = building.target(key);
     // Three answers to "what size", in order of how much they know about this
     // member: what they were last on in this build, what their own logbook says
-    // they rig in today's wind (suggest.py), and failing both the club default.
+    // they rig in today's wind (suggest.py — sail and board only, nobody has
+    // logged a wingfoil session yet), and failing both the club default.
     const suggested = hint && hint[key] ? hint[key].value : null;
     if (remembered != null) {
-      state.target[key] = clampTarget(key, remembered);
+      state.target[key] = clampTarget(key, remembered, state.discipline);
     } else if (suggested != null) {
-      state.target[key] = clampTarget(key, suggested);
+      state.target[key] = clampTarget(key, suggested, state.discipline);
       state.hinted[key] = hint[key];
     } else {
-      state.target[key] = clampTarget(key, nearestStocked(kit, key, TARGETS[key].fallback));
+      state.target[key] = clampTarget(key, nearestStocked(kit, key, config.fallback), state.discipline);
     }
   });
 
@@ -115,22 +131,23 @@ export async function render(root, params) {
   // the sail step if a board was. Landing on the step you just filled would
   // leave you hunting for the one still to answer. If the other half is already
   // resolved (came back to Build with a rig underway) stay on the pinned step.
-  if (params.pin) {
-    const pinned = kit.find((piece) => piece.id === Number(params.pin));
-    const key = pinned && TARGET_KEYS.find((k) => TARGETS[k].kind === pinned.kind);
+  if (pinned) {
+    if (discipline !== building.discipline) building.setDiscipline(discipline);
+    const key = state.targetKeys.includes(pinned.kind) ? pinned.kind : null;
     if (key) {
       building.pick(key, pinned.id);
-      state.target[key] = clampTarget(key, TARGETS[key].size(pinned) ?? state.target[key]);
+      const config = targetConfig(key, state.discipline);
+      state.target[key] = clampTarget(key, config.size(pinned) ?? state.target[key], state.discipline);
       building.setTarget(key, state.target[key]);
-      const other = TARGET_KEYS.find((k) => k !== key);
+      const other = state.targetKeys.find((k) => k !== key);
       state.step = resolved(other) ? key : other;
     }
   }
 
   // Open on the step asked for, or on the first one still to answer, so coming
   // back to change one thing does not start over.
-  if (params.step && TARGET_KEYS.includes(params.step)) state.step = params.step;
-  else if (!params.pin) state.step = TARGET_KEYS.find((key) => !resolved(key)) || 'sail';
+  if (params.step && state.targetKeys.includes(params.step)) state.step = params.step;
+  else if (!pinned) state.step = state.targetKeys.find((key) => !resolved(key)) || state.targetKeys[0];
 
   // A member who walked here from Your rig (its back arrow, or a Change link)
   // gets a back arrow of their own, so they can return without being forced to
@@ -152,11 +169,14 @@ export async function render(root, params) {
   // ---------------------------------------------------------------- painting
   function paint() {
     const key = state.step;
-    const config = TARGETS[key];
+    const config = targetConfig(key, state.discipline);
     const active = state.tags[key];
-    const found = matches(kit, key, state.target[key], active);
+    const found = matches(kit, key, state.target[key], active, state.discipline);
 
-    mount(stepsNode, TARGET_KEYS.map(stepTab));
+    root.querySelectorAll('[data-sport]').forEach((button) => {
+      button.classList.toggle('on', button.getAttribute('data-sport') === state.discipline);
+    });
+    mount(stepsNode, state.targetKeys.map(stepTab));
     valueNode.textContent = state.target[key].toFixed(config.dp);
     unitNode.textContent = config.unit;
 
@@ -198,13 +218,13 @@ export async function render(root, params) {
 
   /** The number alone, for the frames of a drag between full repaints. */
   function paintValue() {
-    valueNode.textContent = state.target[state.step].toFixed(TARGETS[state.step].dp);
+    valueNode.textContent = state.target[state.step].toFixed(targetConfig(state.step, state.discipline).dp);
   }
 
   function stepTab(key) {
     const piece = resolvedPiece(key);
-    const config = TARGETS[key];
-    const index = TARGET_KEYS.indexOf(key) + 1;
+    const config = targetConfig(key, state.discipline);
+    const index = state.targetKeys.indexOf(key) + 1;
     let cls = 'step';
     if (state.step === key) cls += ' on';
     if (piece) cls += ' done';
@@ -221,7 +241,7 @@ export async function render(root, params) {
   }
 
   function tile(key, piece) {
-    const config = TARGETS[key];
+    const config = targetConfig(key, state.discipline);
     const size = sizeBits(config.kind, piece);
     return itemTile({
       grid: state.view === 'grid',
@@ -239,14 +259,14 @@ export async function render(root, params) {
   }
 
   function countLabel(count, key, active) {
-    const config = TARGETS[key];
+    const config = targetConfig(key, state.discipline);
     const near = `near ${state.target[key].toFixed(config.dp)} ${config.unit}`;
     if (active.length) return html`<b>${count}</b> match, ${near}`;
     return html`<b>${count}</b> ${config.noun}${count === 1 ? '' : 's'} ${near}`;
   }
 
   function emptyState(key, active) {
-    const config = TARGETS[key];
+    const config = targetConfig(key, state.discipline);
     return html`
       <div class="emptystate">
         ${icon('box')}
@@ -289,7 +309,7 @@ export async function render(root, params) {
   function nudge(steps, { settle = true } = {}) {
     if (!steps) return;
     const key = state.step;
-    const next = clampTarget(key, state.target[key] + steps * TARGETS[key].step);
+    const next = clampTarget(key, state.target[key] + steps * targetConfig(key, state.discipline).step, state.discipline);
     if (next === state.target[key]) return; // already at the end of the range
     state.target[key] = next;
     delete state.hinted[key];
@@ -462,8 +482,8 @@ export async function render(root, params) {
     if (key === state.step) return;
     // Stepping past something unanswered leaves it open rather than silently
     // forgotten: the badge becomes a dashed ring, and it can be filled any time.
-    const from = TARGET_KEYS.indexOf(state.step);
-    const to = TARGET_KEYS.indexOf(key);
+    const from = state.targetKeys.indexOf(state.step);
+    const to = state.targetKeys.indexOf(key);
     if (to > from && !resolved(state.step)) building.skip(state.step);
     state.step = key;
     paint();
@@ -480,6 +500,30 @@ export async function render(root, params) {
   onClick(root, 'data-view', (value) => {
     state.view = value;
     localStorage.setItem(VIEW_KEY, value);
+    paint();
+  });
+
+  /**
+   * Switch pipeline. Keeps a pick that is still legal in the new discipline —
+   * a sail survives windsurf <-> windfoil, a board survives only if its box
+   * still suits the new sport — and drops everything else (docs/kit_options.md
+   * "switching mid-build"). NULL box never blocks a pick either way.
+   */
+  onClick(root, 'data-sport', (next) => {
+    if (next === state.discipline) return;
+    const picks = {};
+    state.targetKeys.forEach((key) => { picks[key] = resolvedPiece(key); });
+    const kept = survivingPicks(state.discipline, next, picks);
+    state.targetKeys.forEach((key) => {
+      if (!kept[key] && (building.raw[key] != null || building.isSkipped(key))) building.reopen(key);
+    });
+    building.setDiscipline(next);
+    state.discipline = next;
+    state.targetKeys = DISCIPLINES[next].targets;
+    state.targetKeys.forEach((key) => {
+      state.target[key] = clampTarget(key, state.target[key], next);
+    });
+    state.step = state.targetKeys.find((key) => !resolved(key)) || state.targetKeys[0];
     paint();
   });
 
@@ -510,7 +554,7 @@ export async function render(root, params) {
     // an answer: a step that was skipped past still has to be picked, so land
     // on it (dropping the skip so it reads as the live step, not a stepped-past
     // one) rather than falling through to the rig with a hole in it.
-    const next = TARGET_KEYS.find((k) => !resolvedPiece(k));
+    const next = state.targetKeys.find((k) => !resolvedPiece(k));
     if (next) {
       building.reopen(next);
       state.step = next;
@@ -569,6 +613,10 @@ function shell(showBack) {
         ${showBack ? html`<button class="backbtn" data-back aria-label="Back to your rig">${icon('back')}</button>` : ''}
         <span class="ttl">Build</span>
         <button class="site" data-pick-site>${icon('pin')}<span data-sitelabel>${siteLabel()}</span></button>
+      </div>
+      <div class="sportseg">
+        ${DISCIPLINE_KEYS.map((key) => html`
+          <button data-sport="${key}">${DISCIPLINES[key].label}</button>`)}
       </div>
       <div class="steps" data-steps></div>
     </div>

@@ -1147,10 +1147,16 @@ export async function renderWizard(root, params) {
     if (chosen.wings.length) rows.push(['Wings', chosen.wings.length, false]);
     if (chosen.boards.length) {
       rows.push(['Boards', chosen.boards.length, false]);
-      rows.push(['Bases', nBoard('uj'), shortOf('uj')]);
-      rows.push(['Fins', nBoard('fin'), shortOf('fin')]);
+      // A wingfoil board takes no base, and a foil-ready or wingfoil board
+      // takes a foil instead of a fin (packBoardKit), so each row only
+      // appears when this trip's boards actually asked for it.
+      if (nBoard('uj') || shortOf('uj')) rows.push(['Bases', nBoard('uj'), shortOf('uj')]);
+      if (nBoard('fin') || shortOf('fin')) rows.push(['Fins', nBoard('fin'), shortOf('fin')]);
     }
-    if (chosen.foils.length) rows.push(['Foils', chosen.foils.length, false]);
+    // Foils requested outright and foils packBoardKit derived for a board
+    // are the same line in the packing list.
+    const foilCount = chosen.foils.length + nBoard('foil');
+    if (foilCount || shortOf('foil')) rows.push(['Foils', foilCount, shortOf('foil')]);
     if (chosen.misc.length) rows.push(['Misc', chosen.misc.length, false]);
 
     return rows;

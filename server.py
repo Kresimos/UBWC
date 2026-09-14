@@ -990,7 +990,8 @@ def write_setup(request: Request, payload: dict = Body(...)):
     trip_id = payload.get("trip_id")
     setup = db.save_setup(user["id"], payload.get("site"),
                           payload.get("pieces") or [],
-                          int(trip_id) if trip_id else None)
+                          int(trip_id) if trip_id else None,
+                          payload.get("discipline") or "windsurf")
     return {"setup": _expand_setup(setup)}
 
 

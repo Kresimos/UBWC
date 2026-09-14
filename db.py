@@ -65,8 +65,10 @@ FIELD_META = {
     "size_generic":       {"label": "Size", "kind": "text"},
     "misc_item":          {"label": "Item", "kind": "text", "optional": True},
     "box_type":           {"label": "Box type", "kind": "select",
-                           "choices": ["US Box", "Powerbox", "Tuttle", "Deep Tuttle"]},
+                           "choices": ["US Box", "Powerbox", "Tuttle", "Deep Tuttle",
+                                       "Deep Tuttle (foil ready)", "Double US Box (wingfoil)"]},
     "fin_length_cm":      {"label": "Fin length (cm)", "kind": "number"},
+    "foil_area_cm2":      {"label": "Front wing area (cm²)", "kind": "number", "optional": True},
     "gender":             {"label": "Gender", "kind": "select",
                            "choices": ["Mens", "Womens", "Unisex"]},
     "thickness":          {"label": "Thickness (mm)", "kind": "text"},
@@ -130,7 +132,7 @@ COMPONENT_FIELDS = {
               "condition", "location", "spot", "notes"],
     "fin":   ["manufacturer", "model", "type", "box_type", "fin_length_cm",
               "condition", "location", "spot", "notes"],
-    "foil":  ["manufacturer", "model", "type", "box_type",
+    "foil":  ["manufacturer", "model", "type", "box_type", "foil_area_cm2",
               "condition", "location", "spot", "notes"],
     "wetsuit": ["manufacturer", "model", "size_generic", "gender", "thickness",
                 "condition", "location", "spot", "notes"],
@@ -392,6 +394,10 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
         # A misc item's own headline text, replacing size_generic as the hero
         # everywhere else in the app shows for it.
         conn.execute("ALTER TABLE items ADD COLUMN misc_item TEXT")
+    if "foil_area_cm2" not in item_cols:
+        # The foil's front wing area. Optional and display-only - box_type is
+        # the only thing that ever decides a foil match.
+        conn.execute("ALTER TABLE items ADD COLUMN foil_area_cm2 REAL")
 
     if "sites" not in tables:
         conn.execute("""
@@ -442,23 +448,30 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                             CHECK (status IN ('active','derigged','logged','binned')),
                 site        TEXT,
                 trip_id     INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+                discipline  TEXT NOT NULL DEFAULT 'windsurf',
                 rigged_at   TEXT NOT NULL DEFAULT (datetime('now')),
                 derigged_at TEXT,
                 created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_setups_user ON setups(user_id, status)")
-    elif "trip_id" not in _columns(conn, "setups"):
-        # A rig built while a trip was the chosen location remembers the trip, so
-        # the logbook can pull wind for the trip's pin even after a de-rig.
-        conn.execute("ALTER TABLE setups ADD COLUMN trip_id INTEGER "
-                     "REFERENCES trips(id) ON DELETE SET NULL")
+    else:
+        setup_cols = _columns(conn, "setups")
+        if "trip_id" not in setup_cols:
+            # A rig built while a trip was the chosen location remembers the trip, so
+            # the logbook can pull wind for the trip's pin even after a de-rig.
+            conn.execute("ALTER TABLE setups ADD COLUMN trip_id INTEGER "
+                         "REFERENCES trips(id) ON DELETE SET NULL")
+        if "discipline" not in setup_cols:
+            # Which rig pipeline (windsurf/windfoil/wingfoil) built this setup.
+            conn.execute("ALTER TABLE setups ADD COLUMN discipline TEXT "
+                         "NOT NULL DEFAULT 'windsurf'")
     if "setup_items" not in tables:
         conn.execute("""
             CREATE TABLE setup_items (
                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
                 setup_id INTEGER NOT NULL REFERENCES setups(id) ON DELETE CASCADE,
                 role     TEXT NOT NULL
-                         CHECK (role IN ('sail','mast','ext','boom','board','fin','uj')),
+                         CHECK (role IN ('sail','mast','ext','boom','board','fin','uj','wing','foil')),
                 item_id  INTEGER REFERENCES items(id) ON DELETE SET NULL,
                 custom   TEXT,
                 settings TEXT,
@@ -555,6 +568,7 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
     _migrate_wetsuit_type(conn)
     _migrate_boots_type(conn)
     _migrate_misc_wetsuits(conn)
+    _migrate_setup_items_role(conn)
     _seed_locations(conn)
 
 
@@ -591,6 +605,7 @@ _ITEMS_DDL = """
         misc_item            TEXT,
         box_type             TEXT,
         fin_length_cm        REAL,
+        foil_area_cm2        REAL,
         gender               TEXT CHECK (gender IS NULL OR gender IN ('Mens','Womens','Unisex')),
         thickness            TEXT,
         notes                TEXT,
@@ -689,6 +704,47 @@ def _migrate_boots_type(conn: sqlite3.Connection) -> None:
     if row and "'boots'" not in (row["sql"] or ""):
         _rebuild_items(conn)
         _rebuild_views(conn)
+
+
+def _migrate_setup_items_role(conn: sqlite3.Connection) -> None:
+    """Widen setup_items.role's CHECK to accept 'wing' and 'foil'.
+
+    A wingfoil rig's only slot is a foil, and its picks are a board and a wing
+    — both illegal `role`s until now, since the wizard only ever saved the
+    original seven-role rig. No view sits over setup_items, so this is a plain
+    column-copy rebuild, same shape as _migrate_boots_type.
+    """
+    if "setup_items" not in _tables(conn):
+        return
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'setup_items'"
+    ).fetchone()
+    if not row or "'wing'" in (row["sql"] or ""):
+        return
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("DROP TABLE IF EXISTS setup_items_new")
+        conn.execute("""
+            CREATE TABLE setup_items_new (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                setup_id INTEGER NOT NULL REFERENCES setups(id) ON DELETE CASCADE,
+                role     TEXT NOT NULL
+                         CHECK (role IN ('sail','mast','ext','boom','board','fin','uj','wing','foil')),
+                item_id  INTEGER REFERENCES items(id) ON DELETE SET NULL,
+                custom   TEXT,
+                settings TEXT,
+                UNIQUE (setup_id, role)
+            )""")
+        columns = ", ".join(_columns(conn, "setup_items"))
+        conn.execute(f"INSERT INTO setup_items_new ({columns}) "
+                     f"SELECT {columns} FROM setup_items")
+        conn.execute("DROP TABLE setup_items")
+        conn.execute("ALTER TABLE setup_items_new RENAME TO setup_items")
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 # Historic misc "Wetsuit" rows crammed thickness onto the front of size_generic
@@ -2149,10 +2205,12 @@ def comment_summary(item_id: int) -> dict:
 # --------------------------------------------------------------------------- #
 ROLE_LABELS = {"sail": "Sail", "mast": "Mast", "ext": "Extension", "boom": "Boom",
                "board": "Board", "fin": "Fin", "uj": "Base",
-               # Only a trip packs these: a wing rigs on nothing and a foil is
-               # chosen outright, so the rig wizard has no slot for either.
+               # A windfoil rig has a foil in place of a fin, and a wingfoil
+               # rig has a wing and a foil in place of everything else - both
+               # legal setup_items roles now, alongside the trip packer's use
+               # of the same two labels.
                "wing": "Wing", "foil": "Foil"}
-ROLE_ORDER = ["sail", "mast", "ext", "boom", "board", "fin", "uj"]
+ROLE_ORDER = ["sail", "mast", "ext", "boom", "board", "fin", "uj", "wing", "foil"]
 
 
 def _setup_row(conn: sqlite3.Connection, setup_id: int) -> Optional[dict]:
@@ -2186,13 +2244,15 @@ def current_setup(user_id: int, statuses=("active", "derigged")) -> Optional[dic
 
 
 def save_setup(user_id: int, site: Optional[str], pieces: list,
-               trip_id: Optional[int] = None) -> dict:
+               trip_id: Optional[int] = None, discipline: str = "windsurf") -> dict:
     """Start a new active setup, replacing any earlier one for this member.
 
     One active setup at a time: the previous one is binned here, and the UI is
     what asks first whether it should be logged instead. `trip_id` is set when
     the rig was built with a club trip as the chosen location, so the logbook
-    can pull wind for the trip's pin after a de-rig.
+    can pull wind for the trip's pin after a de-rig. `discipline` records which
+    of the three rig pipelines built this setup - a windfoil rig and a windsurf
+    rig missing its fin would otherwise be indistinguishable once saved.
     """
     with connect() as conn:
         conn.execute(
@@ -2200,9 +2260,9 @@ def save_setup(user_id: int, site: Optional[str], pieces: list,
             (user_id,),
         )
         cur = conn.execute(
-            "INSERT INTO setups (user_id, status, site, trip_id) "
-            "VALUES (?, 'active', ?, ?)",
-            (user_id, site, trip_id),
+            "INSERT INTO setups (user_id, status, site, trip_id, discipline) "
+            "VALUES (?, 'active', ?, ?, ?)",
+            (user_id, site, trip_id, discipline),
         )
         setup_id = cur.lastrowid
         for piece in pieces:

@@ -219,6 +219,7 @@ FIELD_NAMES = {
     "ext_min_cm": "shortest setting", "ext_max_cm": "longest setting",
     "diameter": "diameter", "length_cm": "length",
     "fin_length_cm": "fin length", "box_type": "box type",
+    "foil_area_cm2": "front wing area",
     "size_generic": "size", "misc_item": "item", "gender": "gender", "thickness": "thickness",
     "condition": "condition", "location": "site",
 }
@@ -236,6 +237,7 @@ PLAUSIBLE = {
     "top_extension_max_cm": (0, 60, "cm"),
     "ext_min_cm": (0, 40, "cm"),
     "ext_max_cm": (10, 60, "cm"),
+    "foil_area_cm2": (500, 3000, "cm²"),
 }
 
 

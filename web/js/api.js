@@ -130,8 +130,8 @@ export const api = {
   rigSuggest: (site) => get('/api/rig/suggest', { site }),
   profile: (site) => get('/api/profile', { site }),
   setup: () => get('/api/setup'),
-  saveSetup: (site, pieces, tripId) =>
-    request('POST', '/api/setup', { site, pieces, trip_id: tripId || null }),
+  saveSetup: (site, pieces, tripId, discipline) =>
+    request('POST', '/api/setup', { site, pieces, trip_id: tripId || null, discipline }),
   derig: (setupId) => request('POST', `/api/setup/${setupId}/derig`, {}),
   binSetup: (setupId) => request('POST', `/api/setup/${setupId}/bin`, {}),
 

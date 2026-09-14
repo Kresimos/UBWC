@@ -230,30 +230,34 @@ function renderFields(type, fields, required, values) {
   // Group the numeric rig-spec of a sail into its own card, as the sketch does.
   // A sail's diameter only matters once it is cambered, so it is pulled out of
   // the inline grid and rendered conditionally below the Cambered switch instead.
+  // A misc item's own headline (misc_item) is pulled out too: it gets its own
+  // full-width row above everything else rather than pairing up with model.
   const inline = fields.filter((f) => !['condition', 'location', 'spot', 'notes', 'cams',
-    'luff_cm', 'top_extension_max_cm', 'req_boom_cm'].includes(f.name)
+    'luff_cm', 'top_extension_max_cm', 'req_boom_cm', 'misc_item'].includes(f.name)
     && !(type === 'sail' && f.name === 'diameter'));
 
   const rows = [];
   // Pair up manufacturer/model, size/type, into two-up rows where they exist.
   for (let i = 0; i < inline.length; i += 2) {
     const pair = inline.slice(i, i + 2);
-    rows.push(html`<div class="two">${pair.map((f) => field(f, required, values))}</div>`);
+    rows.push(html`<div class="two">${pair.map((f) => field(f, required, values, type))}</div>`);
   }
 
   const diameterField = fields.find((f) => f.name === 'diameter');
+  const itemField = fields.find((f) => f.name === 'misc_item');
 
   return html`
+    ${type === 'misc' && itemField ? field(itemField, required, values, type) : ''}
     ${rows}
     ${type === 'sail' ? camsSwitch(values) : ''}
-    ${type === 'sail' && values.cams && diameterField ? field(diameterField, required, values) : ''}
+    ${type === 'sail' && values.cams && diameterField ? field(diameterField, required, values, type) : ''}
     ${type === 'sail' ? sailRigCard(required, values) : ''}
     ${conditionField(required, values)}
     ${locationFields(required, values)}
     ${notesField(values)}`;
 }
 
-function field(f, required, values) {
+function field(f, required, values, type) {
   const req = required.has(f.name);
   const value = values[f.name];
   const unit = UNITS[f.name] || '';
@@ -266,13 +270,14 @@ function field(f, required, values) {
         </button>
       </div>`;
   }
+  const placeholder = PLACEHOLDER_OVERRIDES[type]?.[f.name] ?? PLACEHOLDERS[f.name] ?? '';
   return html`
     <div class="grp">
       <span class="lab">${req ? html`<span class="req"></span>` : ''}${f.label}</span>
       <div class="inp">
         <input data-field="${f.name}" type="text"
                inputmode="${f.kind === 'number' ? 'decimal' : 'text'}"
-               value="${value ?? ''}" placeholder="${PLACEHOLDERS[f.name] || ''}">
+               value="${value ?? ''}" placeholder="${placeholder}">
         ${unit ? html`<span class="unit">${unit}</span>` : ''}
       </div>
     </div>`;
@@ -376,5 +381,13 @@ const UNITS = {
 };
 const PLACEHOLDERS = {
   manufacturer: 'Neil Pryde', model: 'Fusion', type: 'Freeride',
-  size_generic: '0-30cm, M, Euro pin…',
+  size_generic: '0-30cm, M, Euro pin…', thickness: '4/3',
+  misc_item: 'Rope/harness/whistles…',
+};
+// Per-type overrides, for a field whose example reads wrong borrowed from
+// another type's brand — a wetsuit's manufacturer example should be a
+// wetsuit brand, not a sail one.
+const PLACEHOLDER_OVERRIDES = {
+  wetsuit: { manufacturer: 'Ripcurl', size_generic: 'M' },
+  boots: { size_generic: '7' },
 };

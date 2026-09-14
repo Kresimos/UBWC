@@ -572,6 +572,25 @@ def reset_member_password(user_id: int, request: Request, payload: dict = Body(.
     return {"ok": True}
 
 
+@app.delete("/api/members/{user_id}")
+def delete_member(user_id: int, request: Request):
+    """Remove an account for good: for a fake/test account, not a real
+    member's history. Cascades take their sessions, ratings, trip votes and
+    favourites with them (schema.sql); comments and trips they made stay,
+    with the author link cleared.
+    """
+    admin = require_committee(request)
+    if not db.get_user(user_id):
+        raise HTTPException(404, "No such member.")
+    if user_id == admin["id"]:
+        raise HTTPException(422, "You can't delete your own account while signed in.")
+    try:
+        db.delete_user(user_id)
+    except db.AccountError as error:
+        raise HTTPException(422, str(error))
+    return {"ok": True}
+
+
 @app.get("/api/members/{user_id}/ratings")
 def member_ratings(user_id: int, request: Request):
     """One member's rating history, which is what a spam claim is judged on."""
@@ -633,7 +652,8 @@ def list_items(request: Request,
         if needle:
             haystack = " ".join(str(item.get(f) or "") for f in
                                 ("manufacturer", "model", "type", "diameter",
-                                 "location", "spot", "notes", "size_generic")).lower()
+                                 "location", "spot", "notes", "size_generic",
+                                 "misc_item")).lower()
             if needle not in haystack:
                 continue
         rows.append(item_card(item, ratings.get(item["id"]), faults.get(item["id"]),
@@ -784,6 +804,45 @@ def edit_spot(request: Request, payload: dict = Body(...)):
     except ValueError as error:
         raise HTTPException(400, str(error))
     return {"spots": db.get_spots()}
+
+
+@app.post("/api/sites/coords")
+def set_site_coords(request: Request, payload: dict = Body(...)):
+    """Committee: set (or clear, by sending null for both) a location's map
+    pin - what the forecast strip on its trips and logbook entries reads."""
+    require_committee(request)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Pick a location.")
+    lat, lon = payload.get("lat"), payload.get("lon")
+    if (lat is None) != (lon is None):
+        raise HTTPException(400, "A pin needs both a latitude and a longitude.")
+    db.set_site_coords(name, lat, lon)
+    return {"sites": db.get_sites()}
+
+
+@app.post("/api/sites/rename")
+def rename_site(request: Request, payload: dict = Body(...)):
+    """Committee: rename a location everywhere it is stored by name (kit,
+    spots, past setups and sessions)."""
+    require_committee(request)
+    try:
+        db.rename_site(payload.get("name") or "", payload.get("new_name") or "")
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return {"sites": db.get_sites(), "spots": db.get_spots()}
+
+
+@app.post("/api/sites/delete")
+def delete_site(request: Request, payload: dict = Body(...)):
+    """Committee: remove an empty location for good. Refuses one with kit
+    still logged against it."""
+    require_committee(request)
+    try:
+        db.delete_site(payload.get("name") or "")
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return {"sites": db.get_sites()}
 
 
 @app.post("/api/items/{item_id}/vote")

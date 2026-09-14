@@ -205,6 +205,9 @@ REQUIRED_FIELDS = {
     "fin":   ["manufacturer", "model", "box_type", "fin_length_cm",
               "condition", "location"],
     "foil":  ["manufacturer", "model", "box_type", "condition", "location"],
+    "wetsuit": ["manufacturer", "model", "size_generic", "gender", "thickness",
+                "condition", "location"],
+    "boots": ["manufacturer", "model", "size_generic", "condition", "location"],
     "misc":  ["manufacturer", "model", "type", "condition", "location"],
 }
 
@@ -216,6 +219,7 @@ FIELD_NAMES = {
     "ext_min_cm": "shortest setting", "ext_max_cm": "longest setting",
     "diameter": "diameter", "length_cm": "length",
     "fin_length_cm": "fin length", "box_type": "box type",
+    "size_generic": "size", "misc_item": "item", "gender": "gender", "thickness": "thickness",
     "condition": "condition", "location": "site",
 }
 

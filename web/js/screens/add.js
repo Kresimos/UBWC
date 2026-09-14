@@ -21,6 +21,8 @@ const TYPES = [
   { key: 'fin', name: 'Fin', ex: 'box type, length' },
   { key: 'foil', name: 'Foil', ex: 'box, wing, mast' },
   { key: 'wing', name: 'Wing', ex: 'm² only' },
+  { key: 'wetsuit', name: 'Wetsuit', ex: 'size, gender, thickness' },
+  { key: 'boots', name: 'Wetsuit Boots', ex: 'size, gender, thickness' },
   { key: 'misc', name: 'Misc', ex: 'harness, spares…' },
 ];
 

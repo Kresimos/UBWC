@@ -93,6 +93,7 @@ export const api = {
     request('POST', `/api/members/${id}/password`, { password }),
   voidMemberRatings: (id, restore = false) =>
     request('POST', `/api/members/${id}/ratings/void`, { restore }),
+  deleteMember: (id) => request('DELETE', `/api/members/${id}`),
 
   items: (filters) => get('/api/items', filters),
   item: (id) => get(`/api/items/${id}`),
@@ -107,6 +108,13 @@ export const api = {
   // list so the store can refresh what the spot popup shows.
   upsertSpot: (site, name, fields) =>
     request('POST', '/api/spots', { site, name, ...fields }),
+  // Committee: set (or clear, with null/null) a location's map pin. Both
+  // return the whole site list so the store can refresh at once.
+  setSiteCoords: (name, lat, lon) =>
+    request('POST', '/api/sites/coords', { name, lat, lon }),
+  renameSite: (name, newName) =>
+    request('POST', '/api/sites/rename', { name, new_name: newName }),
+  deleteSite: (name) => request('POST', '/api/sites/delete', { name }),
 
   vote: (id, value) => request('POST', `/api/items/${id}/vote`, { vote: value }),
   favourite: (id, on) => request('POST', `/api/items/${id}/favourite`, { on }),

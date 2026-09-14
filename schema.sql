@@ -38,7 +38,7 @@ CREATE TABLE items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     component_type  TEXT NOT NULL
                     CHECK (component_type IN
-                        ('board','sail','wing','boom','mast','ext','fin','foil','misc')),
+                        ('board','sail','wing','boom','mast','ext','fin','foil','misc','wetsuit','boots')),
     manufacturer    TEXT,
     model           TEXT,
     type            TEXT,        -- sheet "Type" (e.g. Freewave, Wave, Slalom)
@@ -89,10 +89,18 @@ CREATE TABLE items (
 
     -- misc catch-all
     size_generic        TEXT,
+    misc_item            TEXT,    -- what the piece actually is (e.g. "Safety whistles",
+                                   -- "Tow rope, 15m"), a misc item's headline text
+                                   -- everywhere else in the app shows size instead
 
     -- forward-looking: fins / foils (hard box-fit constraint, see CLAUDE.md)
     box_type            TEXT,    -- US Box | Powerbox | Tuttle | Deep Tuttle
     fin_length_cm       REAL,
+
+    -- wetsuits, and boots (same neoprene spec shape: size, gender, thickness —
+    -- size uses the misc catch-all's size_generic column above)
+    gender              TEXT CHECK (gender IS NULL OR gender IN ('Mens','Womens','Unisex')),
+    thickness           TEXT,    -- e.g. "5/4mm", "3/2mm" — free text, combos vary
 
     -- free-text catch-all for anything the typed columns don't cover. This is
     -- the "place for everything" for genuinely weird pieces (spares, oddities,

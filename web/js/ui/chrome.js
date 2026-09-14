@@ -10,8 +10,8 @@
 import { html, mount } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
-import { store, setSite, setTrip, setIdentity, subscribe, emit } from '../store.js';
-import { chooser, formSheet, confirmSheet, toast } from './overlay.js';
+import { store, setSite, setTrip, setIdentity, setSites, setSpots, subscribe, emit } from '../store.js';
+import { chooser, formSheet, confirmSheet, lightbox, toast } from './overlay.js';
 import { avatar } from './bits.js';
 import { go } from '../router.js';
 
@@ -152,6 +152,7 @@ export async function openIdentity() {
   ];
   if (store.committee) {
     rows.push({ value: 'members', label: 'Members', sub: "Manage who's committee, and members' accounts" });
+    rows.push({ value: 'locations', label: 'Locations', sub: 'Every site, its map pin, and the spots kit lives in' });
   }
   rows.push({ value: 'out', label: 'Sign out', sub: 'Browsing carries on working' });
 
@@ -168,6 +169,7 @@ export async function openIdentity() {
   if (choice === 'name') return changeName();
   if (choice === 'password') return changePassword();
   if (choice === 'members') return manageMembers();
+  if (choice === 'locations') return manageLocations();
   if (choice === 'out') {
     const data = await api.logout();
     setIdentity(data.user, data.committee);
@@ -271,9 +273,10 @@ async function changePassword() {
 }
 
 /**
- * The committee's member list: who can sign in, who is committee, and the one
- * moderation tool the club needs: striking out somebody's ratings when they
- * have been spammed to move the numbers. Nothing here deletes anything.
+ * The committee's member list: who can sign in, who is committee, striking
+ * out somebody's ratings when they have been spammed to move the numbers,
+ * and (the one destructive action here) deleting a fake or test account
+ * outright. Everything except delete is reversible.
  */
 async function manageMembers() {
   let members;
@@ -316,6 +319,7 @@ async function memberActions(member) {
       { value: 'password', label: 'Set a password', sub: 'For a forgotten one, or to claim an old roster name' },
       { value: 'void', label: 'Strike out their ratings', sub: 'Stops them counting. Reversible.' },
       { value: 'restore', label: 'Put struck-out ratings back', sub: 'Undoes the above' },
+      { value: 'delete', label: 'Delete this account', sub: 'For a fake or test account. Cannot be undone.' },
     ],
   });
 
@@ -346,11 +350,264 @@ async function memberActions(member) {
     } else if (choice === 'restore') {
       const { restored } = await api.voidMemberRatings(member.id, true);
       toast(`${restored} rating${restored === 1 ? '' : 's'} back in.`);
+    } else if (choice === 'delete') {
+      const sure = await confirmSheet({
+        title: `Delete ${name}?`,
+        sub: 'Their account, ratings, logged sessions, trip requests and favourites are all gone for good. '
+          + 'Only use this for a fake or test account, not a real member’s history.',
+        confirmLabel: 'Delete it',
+      });
+      if (sure) {
+        await api.deleteMember(member.id);
+        toast(`${name} deleted.`);
+      }
     }
   } catch (error) {
     toast(error.message, true);
   }
   return store.user;
+}
+
+/**
+ * The committee's location list: every site the club stores kit at, gathered
+ * with the same two things a member otherwise only finds one item at a time
+ * (an item page's spot pin) - the map pin used for the forecast strip, and
+ * the spots kit lives in, each with its photo and note.
+ *
+ * Every level below here loops back to its own sheet once a sub-action
+ * finishes, and only unwinds a level when that level's own sheet is
+ * dismissed - so closing a section steps back one sheet at a time (list ->
+ * location -> pin/spot) rather than dropping the member straight out of the
+ * whole flow, the way a single dead-end chooser would.
+ */
+async function manageLocations() {
+  for (;;) {
+    const chosen = await chooser({
+      title: 'Locations',
+      sub: 'Tap one for its map pin and the spots kit lives in.',
+      rows: store.sites.map((site) => ({
+        value: site.name,
+        label: site.name,
+        sub: [
+          `${site.n_items} ${site.n_items === 1 ? 'piece' : 'pieces'} of kit`,
+          site.lat != null ? 'pinned' : 'no map pin',
+        ].join(' · '),
+      })),
+    });
+    if (!chosen) return store.user;
+    await locationDetail(chosen);
+  }
+}
+
+async function locationDetail(site) {
+  for (;;) {
+    const info = store.sites.find((s) => s.name === site);
+    if (!info) return;   // renamed or deleted out from under us: back to the list
+    const spots = store.spots.filter((s) => s.site === site);
+
+    const rows = [
+      { value: 'pin', label: 'Map pin', sub: info.lat != null
+        ? `${info.lat.toFixed(4)}, ${info.lon.toFixed(4)} · tap to open in Maps`
+        : `No map pin recorded${store.committee ? ' · tap to add one' : ''}` },
+    ];
+    if (store.committee) {
+      rows.push({ value: 'rename', label: 'Rename this location',
+                  sub: 'Updates every piece of kit and spot filed under it' });
+    }
+    if (spots.length || store.committee) {
+      rows.push({ heading: 'Spots' });
+      rows.push(...spots.map((spot) => ({
+        value: `spot:${spot.name}`,
+        label: spot.name,
+        sub: spot.description || 'No description recorded yet.',
+        avatar: avatar(spot.name, spot.image_path),
+        indent: true,
+      })));
+      if (store.committee) {
+        rows.push({ value: 'addspot', label: 'Add a spot',
+                    sub: 'A rack, shelf or area within this location',
+                    avatar: icon('plus'), indent: true });
+      }
+    }
+    if (store.committee && info.n_items === 0) {
+      rows.push({ value: 'delete', label: 'Delete this location',
+                  sub: 'No kit is stored here. This cannot be undone.' });
+    }
+
+    const choice = await chooser({
+      title: site,
+      sub: `${info.n_items} ${info.n_items === 1 ? 'piece' : 'pieces'} of kit stored here.`,
+      rows,
+    });
+    if (!choice) return;   // back to the location list
+
+    if (choice === 'pin') { await sitePin(info); continue; }
+    if (choice === 'rename') {
+      const renamed = await renameLocation(info);
+      if (renamed) site = renamed;
+      continue;
+    }
+    if (choice === 'addspot') { await editSpotSheet(site, ''); continue; }
+    if (choice === 'delete') { if (await deleteLocation(info)) return; continue; }
+    if (choice.startsWith('spot:')) { await spotDetail(site, choice.slice(5)); continue; }
+  }
+}
+
+/** The map-pin row: open it, change it, or (committee) clear it. Every path
+ *  returns to the location it was opened from - there is nothing under a pin
+ *  worth its own back-step. */
+async function sitePin(info) {
+  if (info.lat == null || info.lon == null) {
+    if (!store.committee) {
+      toast('No map pin set for this location yet.');
+      return;
+    }
+    return editSitePin(info);
+  }
+  const choice = await chooser({
+    title: 'Map pin',
+    sub: `${info.name} · ${info.lat.toFixed(4)}, ${info.lon.toFixed(4)}`,
+    rows: [
+      { value: 'open', label: 'Open in Maps', sub: 'Opens the pin in a new tab' },
+      ...(store.committee ? [
+        { value: 'edit', label: 'Change the pin', sub: 'Paste a new latitude and longitude' },
+        { value: 'clear', label: 'Remove the pin', sub: 'No forecast will show here until it is set again' },
+      ] : []),
+    ],
+  });
+  if (choice === 'open') {
+    window.open(`https://www.google.com/maps?q=${info.lat},${info.lon}`, '_blank', 'noopener');
+  } else if (choice === 'edit') {
+    return editSitePin(info);
+  } else if (choice === 'clear') {
+    const sure = await confirmSheet({
+      title: `Remove the pin for ${info.name}?`,
+      sub: 'No forecast will show for trips or logbook entries here until a pin is set again.',
+      confirmLabel: 'Remove it',
+    });
+    if (sure) {
+      try {
+        const data = await api.setSiteCoords(info.name, null, null);
+        setSites(data.sites);
+        toast('Pin removed.');
+      } catch (error) {
+        toast(error.message, true);
+      }
+    }
+  }
+}
+
+async function editSitePin(info) {
+  const values = await formSheet({
+    title: `Pin ${info.name}`,
+    sub: 'Paste coordinates copied from Maps. Used for the forecast strip on trips and logbook entries here.',
+    fields: [
+      { name: 'lat', label: 'Latitude', value: info.lat != null ? String(info.lat) : '',
+        inputmode: 'decimal', placeholder: '51.4231' },
+      { name: 'lon', label: 'Longitude', value: info.lon != null ? String(info.lon) : '',
+        inputmode: 'decimal', placeholder: '-2.7702' },
+    ],
+    submitLabel: 'Save the pin',
+    onSubmit: async (values) => {
+      const lat = parseFloat(values.lat);
+      const lon = parseFloat(values.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        throw new Error('Enter a latitude and a longitude as numbers.');
+      }
+      const data = await api.setSiteCoords(info.name, lat, lon);
+      setSites(data.sites);
+      return data;
+    },
+  });
+  if (values) toast('Pin saved.');
+}
+
+/** Renames the site everywhere it is stored by name. Returns the new name so
+ *  the caller can keep following the (renamed) location, or null if the
+ *  member backed out. */
+async function renameLocation(info) {
+  const newName = await formSheet({
+    title: `Rename ${info.name}`,
+    sub: 'Updates every piece of kit, spot and past session logged at this location.',
+    fields: [{ name: 'name', label: 'Location name', required: true, value: info.name }],
+    submitLabel: 'Rename',
+    onSubmit: async (values) => {
+      const trimmed = values.name.trim();
+      if (trimmed !== info.name) {
+        const data = await api.renameSite(info.name, trimmed);
+        setSites(data.sites);
+        setSpots(data.spots);
+        if (store.site === info.name) setSite(trimmed);
+      }
+      return trimmed;
+    },
+  });
+  if (!newName) return null;
+  toast('Location renamed.');
+  return newName;
+}
+
+/** Deletes an empty location. Returns whether it actually went, so the
+ *  caller knows whether to keep showing a location that is no longer there. */
+async function deleteLocation(info) {
+  const sure = await confirmSheet({
+    title: `Delete ${info.name}?`,
+    sub: 'No kit is stored here, so this only removes the location and its spots. This cannot be undone.',
+    confirmLabel: 'Delete it',
+  });
+  if (!sure) return false;
+  try {
+    const data = await api.deleteSite(info.name);
+    setSites(data.sites);
+    if (store.site === info.name) setSite('all');
+    toast(`${info.name} deleted.`);
+    return true;
+  } catch (error) {
+    toast(error.message, true);
+    return false;
+  }
+}
+
+/** The spot popup, the same shape as the one an item page opens off its own
+ *  location pin, reached here from the location's own spot list instead. */
+async function spotDetail(site, name) {
+  const spot = store.spots.find((s) => s.site === site && s.name === name);
+  const canEdit = store.committee;
+  await lightbox({
+    title: name,
+    image: spot ? spot.image_path : null,
+    sub: (spot && spot.description) || (canEdit
+      ? 'No description or photo yet. Add one so members can find it and put kit back.'
+      : 'No description recorded for this spot yet.'),
+    action: canEdit ? { label: 'Edit spot', onClick: () => editSpotSheet(site, name) } : null,
+  });
+}
+
+async function editSpotSheet(site, name) {
+  const existing = name ? store.spots.find((s) => s.site === site && s.name === name) : null;
+  const values = await formSheet({
+    title: name ? `${name} · ${site}` : `New spot · ${site}`,
+    sub: 'What the club sees when anyone taps this spot. Committee only.',
+    fields: [
+      ...(name ? [] : [{ name: 'name', label: 'Spot name', required: true,
+                         placeholder: 'Wooden rack' }]),
+      { name: 'description', label: 'Where it is', type: 'textarea', rows: 2,
+        value: (existing && existing.description) || '',
+        placeholder: 'Second bay in from the door, top rack.' },
+      { name: 'image_path', label: 'Photo', type: 'photo', aspect: 4 / 3,
+        value: (existing && existing.image_path) || null,
+        hint: 'A shot of the rack, so kit goes back where it came from.' },
+    ],
+    submitLabel: name ? 'Save the spot' : 'Add the spot',
+  });
+  if (!values) return;
+  const spotName = name || values.name;
+  const data = await api.upsertSpot(site, spotName, {
+    description: values.description || null,
+    image_path: values.image_path || null,
+  });
+  setSpots(data.spots);
+  toast(name ? 'Spot updated.' : 'Spot added.');
 }
 
 /**

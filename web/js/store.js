@@ -156,6 +156,12 @@ export function setSpots(spots) {
   emit();
 }
 
+/** Replace the site list after a committee edits or deletes a location. */
+export function setSites(sites) {
+  store.sites = sites || [];
+  emit();
+}
+
 /** A member's profile photo by the name shown on their comment or fault. */
 export const avatarFor = (name) => (name && store.avatars[name]) || null;
 

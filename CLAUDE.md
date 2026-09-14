@@ -77,7 +77,9 @@ The spreadsheet (and future DB) has one table per component type:
 | Masts | `Size` = length in cm, `Diameter` = RDM or SDM | |
 | Extensions | `Min size` / `Max size` = travel in cm, `Diameter` = RDM or SDM | `ext` component type in the DB (`ext_min_cm`, `ext_max_cm`); the sheet still files these under Misc with Type = "Extension", and the importer splits them out |
 | Booms | `Min size` / `Max size` = adjustable outhaul range in cm | |
-| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, wetsuits, etc.) |
+| Wetsuits | `Size` (`size_generic`), `Gender` (Mens/Womens/Unisex), `Thickness` (free text, e.g. "5/4mm") | `wetsuit` component type in the DB; no sheet of its own, no compatibility rules — it's not part of the rig or the board setup |
+| Wetsuit Boots | `Size` (`size_generic`), `Thickness` (optional) | `boots` component type; shares wetsuits' size/thickness columns (no new ones) but no Gender — boots are sized, not gendered; same no-compatibility-rules note |
+| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, etc.) |
 
 All sheets share `Manufacturer`, `Model`, `Condition`, `Location`, `Faults` —
 this is the common "item" shape referenced in the Item/Faults pages in

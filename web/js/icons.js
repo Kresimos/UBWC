@@ -100,6 +100,8 @@ export const art = {
   fin: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2.2" stroke-linejoin="round"><path d="M7 4c9 1 12 8 11 16-4-1-8-1-11 0Z" fill="#10788A" fill-opacity=".08"/></svg>',
   foil: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M3 9h13a3 3 0 0 0 0-6c-2 0-3 1-3 3" fill="#10788A" fill-opacity=".08"/><path d="M11 9v5l-3 7"/><path d="M11 14l4 7"/></svg>',
   uj: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v7"/><circle cx="12" cy="13" r="3" fill="#10788A" fill-opacity=".1"/><path d="M7 21h10"/><path d="M9 21l1-4M15 21l-1-4"/></svg>',
+  wetsuit: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M9 3 12 6 15 3 19 8 16 9 16 15 16 21 13 21 13 15 12 16 11 15 11 21 8 21 8 15 8 9 5 8Z" fill="#10788A" fill-opacity=".08"/></svg>',
+  boots: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M8 3 14 3 14 12 20 14 20 18 6 18 6 14 8 12Z" fill="#10788A" fill-opacity=".08"/></svg>',
   misc: '<svg class="art" viewBox="0 0 24 24" fill="none" stroke="#10788A" stroke-width="2" stroke-linejoin="round"><path d="M4 7h16v13H4Z" fill="#10788A" fill-opacity=".07"/><path d="M4 7l2-3h12l2 3"/><path d="M10 11h4"/></svg>',
 };
 

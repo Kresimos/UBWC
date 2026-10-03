@@ -68,7 +68,7 @@ const CONTEXT = {
   wing: ['sub'],
   mast: ['diam', 'length'],
   ext: ['diam'],
-  boom: [],
+  boom: ['diam'],
   fin: ['sub', 'box'],
   foil: ['sub', 'box'],
   misc: ['sub'],

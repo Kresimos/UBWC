@@ -76,7 +76,7 @@ The spreadsheet (and future DB) has one table per component type:
 | Sails + Wings | `Size (m^2)`, `Luff`, `Adjustable Top`, `Boom`, `Cams`, `Diameter` | `Type` is `Sail` or `Wing`; wings don't use Luff/Boom/Cams; `Diameter` only means anything on a cambered sail |
 | Masts | `Size` = length in cm, `Diameter` = RDM or SDM | |
 | Extensions | `Min size` / `Max size` = travel in cm, `Diameter` = RDM or SDM | `ext` component type in the DB (`ext_min_cm`, `ext_max_cm`); the sheet still files these under Misc with Type = "Extension", and the importer splits them out |
-| Booms | `Min size` / `Max size` = adjustable outhaul range in cm | |
+| Booms | `Min size` / `Max size` = adjustable outhaul range in cm, `Diameter` = RDM or SDM | `diameter` is required when adding a boom (older booms hold NULL until edited); recorded only, not yet a rig-matching rule |
 | Wetsuits | `Size` (`size_generic`), `Gender` (Mens/Womens/Unisex), `Thickness` (free text, e.g. "5/4mm") | `wetsuit` component type in the DB; no sheet of its own, no compatibility rules — it's not part of the rig or the board setup |
 | Wetsuit Boots | `Size` (`size_generic`), `Thickness` (optional) | `boots` component type; shares wetsuits' size/thickness columns (no new ones) but no Gender — boots are sized, not gendered; same no-compatibility-rules note |
 | Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, etc.) |
@@ -196,7 +196,7 @@ validation error, since rider preference and conditions vary.
 ## Fin and foil boxes
 
 Boards accept fins/foils via a **box standard** (US Box, Powerbox, Tuttle,
-Deep Tuttle for foils) that is a hard compatibility constraint distinct from
+Slot Box, Deep Tuttle for foils) that is a hard compatibility constraint distinct from
 size — a fin/foil is either physically compatible with a board's box or it
 isn't. `items.box_type` already carries this on `board`, `fin` and `foil`
 (choices in `db.FIELD_META["box_type"]`), and the catalogue filter panel

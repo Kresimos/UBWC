@@ -198,7 +198,7 @@ REQUIRED_FIELDS = {
     "sail":  ["manufacturer", "model", "type", "size_m2", "luff_cm",
               "req_boom_cm", "condition", "location"],
     "wing":  ["manufacturer", "model", "size_m2", "condition", "location"],
-    "boom":  ["manufacturer", "model", "min_size_cm", "max_size_cm",
+    "boom":  ["manufacturer", "model", "min_size_cm", "max_size_cm", "diameter",
               "condition", "location"],
     "mast":  ["manufacturer", "model", "length_cm", "condition", "location"],
     "ext":   ["manufacturer", "model", "ext_max_cm", "condition", "location"],

@@ -95,7 +95,7 @@ CREATE TABLE items (
 
     -- forward-looking: fins / foils (hard box-fit constraint, see CLAUDE.md)
     box_type            TEXT,    -- US Box | Powerbox | Tuttle | Deep Tuttle |
-                                  -- Deep Tuttle (foil ready) | Double US Box (wingfoil)
+                                  -- Slot Box | Deep Tuttle (foil ready) | Double US Box (wingfoil)
     fin_length_cm       REAL,
     foil_area_cm2       REAL,    -- foil's front wing area; optional, display-only (never a match rule)
 

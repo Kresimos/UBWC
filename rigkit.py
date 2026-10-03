@@ -96,7 +96,8 @@ def to_piece(item: dict, faults: list, rating: dict, favourite: bool = False) ->
         lo, hi = db.extension_travel(item)
         piece.update({"min": lo, "max": hi, "diam": db.diameter_class(item)})
     elif kind == "boom":
-        piece.update({"min": item.get("min_size_cm"), "max": item.get("max_size_cm")})
+        piece.update({"min": item.get("min_size_cm"), "max": item.get("max_size_cm"),
+                      "diam": db.diameter_class(item)})
     elif kind == "board":
         piece.update({"vol": item.get("size_l"), "box": item.get("box_type")})
     elif kind == "fin":

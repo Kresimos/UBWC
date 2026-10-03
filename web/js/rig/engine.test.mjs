@@ -43,6 +43,7 @@ const wing = (id) => ({ id, kind: 'wing', mfr: 'Test', model: `Wing ${id}`, cond
 // unlike every other NULL-never-blocks rule in the app.
 {
   assert.equal(boardBoxOk('windsurf', 'Powerbox'), true);
+  assert.equal(boardBoxOk('windsurf', 'Slot Box'), true);
   assert.equal(boardBoxOk('windsurf', FOIL_BOX_WINDFOIL), false);
   assert.equal(boardBoxOk('windsurf', FOIL_BOX_WINGFOIL), false);
   assert.equal(boardBoxOk('windsurf', null), true, 'an unset box is assumed windsurf-safe');
@@ -73,6 +74,7 @@ const wing = (id) => ({ id, kind: 'wing', mfr: 'Test', model: `Wing ${id}`, cond
   assert.equal(sportFor(board(1, FOIL_BOX_WINGFOIL)), 'wingfoil');
   assert.equal(sportFor(board(1, 'Deep Tuttle')), 'windsurf', 'the plain Deep Tuttle box is not a foil box');
   assert.equal(sportFor(board(1, null)), 'windsurf', 'no box recorded reads as windsurf');
+  assert.equal(sportFor(board(1, 'Slot Box')), 'windsurf', 'Slot Box is a windsurf box');
   // The /api/items card shape (rig_kind/box_type) works the same way.
   assert.equal(sportFor({ rig_kind: 'board', box_type: FOIL_BOX_WINGFOIL }), 'wingfoil');
 }

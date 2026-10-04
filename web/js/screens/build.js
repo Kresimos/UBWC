@@ -21,7 +21,7 @@
  * and updated in place — only the results below it are re-rendered.
  */
 import { html, mount, on, onClick } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon, artFor, shotFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, subscribe } from '../store.js';
 import { worstFault } from '../ui/bits.js';
@@ -247,7 +247,7 @@ export async function render(root, params) {
       grid: state.view === 'grid',
       pickAttr: 'pick',
       id: piece.id,
-      art: artFor(config.kind),
+      art: shotFor(piece.img, config.kind),
       size: size ? { value: size.v, unit: size.u } : { label: '—' },
       name: `${piece.mfr} ${modelShort(piece)}`,
       type: piece.type,

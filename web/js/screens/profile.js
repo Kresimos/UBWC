@@ -19,7 +19,7 @@
  * that would cost more than it is worth.
  */
 import { html, mount, num, ago, onClick } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon, artFor, shotFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel } from '../store.js';
 import { starRow, avatar } from '../ui/bits.js';
@@ -134,7 +134,7 @@ const stat = (value, label) => html`
 function kitRow(row) {
   return html`
     <button class="userow" data-item="${row.id}">
-      <span class="uthumb">${artFor(row.component_type)}</span>
+      <span class="uthumb">${shotFor(row.image_path, row.component_type)}</span>
       <span class="umid">
         <b>${row.manufacturer} ${row.model}</b>
         <span>${row.times} ${row.times === 1 ? 'session' : 'sessions'} · last ${ago(row.last_used)}</span>
@@ -149,7 +149,7 @@ function kitRow(row) {
 function favRow(card) {
   return html`
     <button class="userow" data-item="${card.id}">
-      <span class="uthumb">${artFor(card.rig_kind || card.component_type)}</span>
+      <span class="uthumb">${shotFor(card.image_path, card.rig_kind || card.component_type)}</span>
       <span class="umid">
         <b>${card.manufacturer} ${card.model}</b>
         <span>${card.size_label || ''}${card.site ? ` · ${card.site}` : ''}</span>

@@ -758,6 +758,7 @@
   justify-content: center; overflow: hidden;
 }
 [data-screen="yourrig"] .kthumb svg { max-width: 60%; max-height: 60%; }
+[data-screen="yourrig"] .kthumb img { width: 100%; height: 100%; object-fit: cover; }
 /* Selected kit grows a square product shot: it is what you go and look for. */
 [data-screen="yourrig"] .kthumb.lg { width: 108px; height: 108px; border-radius: 16px; }
 
@@ -1215,6 +1216,7 @@
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 [data-screen="compose"] .kitcard .ph svg { max-width: 62%; max-height: 70%; }
+[data-screen="compose"] .kitcard .ph img { width: 100%; height: 100%; object-fit: cover; }
 [data-screen="compose"] .kitcard .kk { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 [data-screen="compose"] .kitcard .kk .nm { font-size: 14px; font-weight: 750; }
 [data-screen="compose"] .kitcard .kk .sub { font-size: 11.5px; color: var(--app-muted); }
@@ -1657,6 +1659,7 @@
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 [data-screen="profile"] .uthumb svg.art { width: 72%; height: 72%; }
+[data-screen="profile"] .uthumb img { width: 100%; height: 100%; object-fit: cover; }
 [data-screen="profile"] .umid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 [data-screen="profile"] .umid b {
   font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

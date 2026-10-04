@@ -2878,6 +2878,7 @@ def kit_usage(user_id: int, limit: int = 15) -> list:
             SELECT i.id, i.manufacturer, i.model, i.component_type, i.type,
                    i.size_m2, i.size_l, i.length_cm, i.fin_length_cm,
                    i.min_size_cm, i.max_size_cm, i.size_generic, i.condition,
+                   i.image_path,
                    COUNT(*) AS times,
                    MAX(COALESCE(s.ended_at, s.created_at)) AS last_used,
                    (SELECT vote FROM ({_LIVE_VOTES}) v

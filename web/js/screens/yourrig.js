@@ -18,7 +18,7 @@
  *    Only then does it reach the setup the de-rig checklist reads.
  */
 import { html, mount, numify, num, on, onClick } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon, artFor, shotFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
 import { ratingLine } from '../ui/bits.js';
@@ -140,7 +140,7 @@ export async function render(root) {
     return html`
       <div class="kitem big" data-selrow="${entry.key}">
         <div class="khead" data-selhead="${entry.key}">
-          <span class="kthumb lg">${artFor(kind)}</span>
+          <span class="kthumb lg">${shotFor(piece.img, kind)}</span>
           <span class="kmid">
             <span class="k">${entry.label}</span>
             <span class="brandmodel">${shortName(piece)}${savedMark(piece)}</span>
@@ -296,7 +296,7 @@ export async function render(root) {
     return html`
       <div class="kitem" data-recrow="${slot.k}">
         <div class="khead" data-rechead="${slot.k}">
-          <span class="kthumb">${artFor(slot.kind)}</span>
+          <span class="kthumb">${shotFor(row.current.img, slot.kind)}</span>
           <span class="kmid">
             <span class="k">${slot.label}</span>
             <span class="namerow"><span class="nm">${numify(rowName(slot.kind, row.current))}</span>${savedMark(row.current)}</span>
@@ -393,7 +393,7 @@ export async function render(root) {
             ${others.length
               ? others.map((piece) => html`
                   <button class="altrow" data-alt="${slot.k}:${piece.id}">
-                    <span class="kthumb">${artFor(slot.kind)}</span>
+                    <span class="kthumb">${shotFor(piece.img, slot.kind)}</span>
                     <span class="altmid">
                       <span class="an">${numify(rowName(slot.kind, piece))}${savedMark(piece)}</span>
                       <span class="as">${numify(best && piece.id === best.id

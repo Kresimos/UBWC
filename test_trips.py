@@ -99,6 +99,8 @@ def run() -> None:
     # The picker draws the catalogue's tiles, so every piece needs its card.
     assert {piece["id"] for piece in kit} == set(cards), "a piece has no card to draw"
     assert all("size_value" in card and "image_path" in card for card in cards.values())
+    # Build and Your rig draw their thumbnails from the piece, not the card.
+    assert all(piece["img"] == cards[piece["id"]]["image_path"] for piece in kit)
 
     # What the browser posts: what the kit sec chose, plus what the wizard
     # (web/js/rig/pack.js) worked out from it. The solver has its own check;

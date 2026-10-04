@@ -79,6 +79,8 @@ def to_piece(item: dict, faults: list, rating: dict, favourite: bool = False) ->
         # Bookmarked by the member looking at this list, so the wizard can tag
         # the pieces they already know they like.
         "fav": 1 if favourite else 0,
+        # The uploaded photo, so the picker shows the same shot as the Catalogue.
+        "img": item.get("image_path"),
     }
 
     if kind == "sail":

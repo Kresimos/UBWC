@@ -23,7 +23,7 @@
  * the item page rather than staying buried in the log.
  */
 import { html, mount, num, numFixed, onClick, clockTime } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon, artFor, shotFor } from '../icons.js';
 import { api } from '../api.js';
 import { store, setSetup } from '../store.js';
 import { refreshSetup, needUser } from '../ui/chrome.js';
@@ -268,7 +268,7 @@ function screen(setup, draft) {
       <div class="field">
         <span class="fl">Kit used</span>
         <div class="kitcard">
-          <span class="ph">${artFor(sail && sail.item ? (sail.item.rig_kind || 'sail') : 'sail')}</span>
+          <span class="ph">${sail && sail.item ? shotFor(sail.item.image_path, sail.item.rig_kind || 'sail') : artFor('sail')}</span>
           <span class="kk">
             <span class="nm">${heading || 'Your rig'}</span>
             <span class="sub">Prefilled from your setup · ${setup.pieces.length} pieces</span>

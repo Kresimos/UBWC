@@ -31,7 +31,7 @@
  *             column has been given to the voter stack.
  */
 import { html, num, numFixed } from '../dom.js';
-import { icon, artFor } from '../icons.js';
+import { icon, shotFor } from '../icons.js';
 import { starRow, fullName, worstFault, avatar } from './bits.js';
 import { lightbox } from './overlay.js';
 import { avatarFor } from '../store.js';
@@ -176,9 +176,7 @@ export function cardTile(item, grid, extra = {}) {
     grid,
     pickAttr: 'item',
     id: item.id,
-    art: item.image_path
-      ? html`<img src="${item.image_path}" alt="">`
-      : artFor(item.rig_kind || item.component_type),
+    art: shotFor(item.image_path, item.rig_kind || item.component_type),
     size: item.size_value != null
       ? { value: item.component_type === 'sail' ? numFixed(item.size_value) : num(item.size_value),
           unit: item.size_unit }

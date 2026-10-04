@@ -6,7 +6,7 @@
  * sketches. Colour comes from `currentColor` and size from CSS, so an icon
  * always matches the text it sits beside.
  */
-import { raw } from './dom.js';
+import { html, raw } from './dom.js';
 
 const stroke = (d, width = 2) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -108,6 +108,11 @@ export const art = {
 /** The right artwork for an item, whichever vocabulary the caller is in. */
 export function artFor(kindOrType) {
   return raw(art[kindOrType] || art.misc);
+}
+
+/** The item's uploaded photo if it has one, else its artwork. */
+export function shotFor(imagePath, kindOrType) {
+  return imagePath ? html`<img src="${imagePath}" alt="">` : artFor(kindOrType);
 }
 
 export function icon(name) {

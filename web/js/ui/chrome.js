@@ -153,6 +153,7 @@ export async function openIdentity() {
   if (store.committee) {
     rows.push({ value: 'members', label: 'Members', sub: "Manage who's committee, and members' accounts" });
     rows.push({ value: 'locations', label: 'Locations', sub: 'Every site, its map pin, and the spots kit lives in' });
+    rows.push({ value: 'archived', label: 'Archived kit', sub: 'Retired pieces, to restore or delete' });
   }
   rows.push({ value: 'out', label: 'Sign out', sub: 'Browsing carries on working' });
 
@@ -170,6 +171,7 @@ export async function openIdentity() {
   if (choice === 'password') return changePassword();
   if (choice === 'members') return manageMembers();
   if (choice === 'locations') return manageLocations();
+  if (choice === 'archived') return manageArchived();
   if (choice === 'out') {
     const data = await api.logout();
     setIdentity(data.user, data.committee);
@@ -365,6 +367,35 @@ async function memberActions(member) {
   } catch (error) {
     toast(error.message, true);
   }
+  return store.user;
+}
+
+/**
+ * Archived kit has no home in the catalogue, so this is the way back to it:
+ * pick a piece and its page offers Restore or Delete.
+ */
+async function manageArchived() {
+  let items;
+  try {
+    ({ items } = await api.items({ archived: true }));
+  } catch (error) {
+    toast(error.message, true);
+    return store.user;
+  }
+  if (!items.length) {
+    toast('Nothing archived.');
+    return store.user;
+  }
+  const chosen = await chooser({
+    title: 'Archived kit',
+    sub: 'Pick a piece to restore it or delete it for good.',
+    rows: items.map((item) => ({
+      value: String(item.id),
+      label: [item.manufacturer, item.model, item.size_label].filter(Boolean).join(' '),
+      sub: item.archived_reason || 'No reason given',
+    })),
+  });
+  if (chosen) go(`/item/${chosen}`);
   return store.user;
 }
 

@@ -20,7 +20,7 @@ import { api } from '../api.js';
 import { store, isCommittee, spotImage, setSpots, avatarFor } from '../store.js';
 import { starRow, conditionClass } from '../ui/bits.js';
 import { needUser, needCommittee } from '../ui/chrome.js';
-import { formSheet, lightbox, toast } from '../ui/overlay.js';
+import { chooser, confirmSheet, formSheet, lightbox, toast } from '../ui/overlay.js';
 import { go, back } from '../router.js';
 
 export async function render(root, params) {
@@ -200,6 +200,57 @@ export async function render(root, params) {
       toast('Fault reported.');
     });
 
+    // Archive, restore or delete. Committee's, and the server says so too.
+    onClick(root, 'data-retire', async () => {
+      if (!(await needCommittee('Only committee archives or deletes kit.'))) return;
+      const name = [item.manufacturer, item.model].filter(Boolean).join(' ');
+      const choice = await chooser({
+        title: name,
+        rows: [
+          item.archived
+            ? { value: 'restore', label: 'Restore', sub: 'Back into the catalogue and the rig picker' }
+            : { value: 'archive', label: 'Archive',
+                sub: 'Hidden from the catalogue, rig picker and trips. Faults, notes and ratings are kept. Reversible.' },
+          { value: 'delete', label: 'Delete permanently',
+            sub: 'For a duplicate or a mistake. Its faults, notes, ratings and trip history go too. Cannot be undone.' },
+        ],
+      });
+      try {
+        if (choice === 'archive') {
+          const values = await formSheet({
+            title: `Archive ${name}?`,
+            sub: 'It disappears from the catalogue and rig picker. You can restore it from Archived kit in the account menu.',
+            fields: [{ name: 'reason', label: 'Reason (optional)', type: 'textarea', rows: 2,
+                       placeholder: 'Sold. Snapped at the boom.' }],
+            submitLabel: 'Archive it',
+          });
+          if (!values) return;
+          await api.archiveItem(id, (values.reason || '').trim() || null);
+          item = await api.item(id);
+          paint();
+          toast('Archived.');
+        } else if (choice === 'restore') {
+          await api.unarchiveItem(id);
+          item = await api.item(id);
+          paint();
+          toast('Restored.');
+        } else if (choice === 'delete') {
+          const sure = await confirmSheet({
+            title: `Delete ${name}?`,
+            sub: 'The piece and its faults, notes, ratings and trip history are gone for good. '
+              + 'If it is just retired or broken, archive it instead.',
+            confirmLabel: 'Delete it',
+          });
+          if (!sure) return;
+          await api.deleteItem(id);
+          toast(`${name} deleted.`);
+          back();
+        }
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+
     onClick(root, 'data-history', () => {
       historyOpen = !historyOpen;
       paint();
@@ -376,6 +427,11 @@ function screen(item, historyOpen) {
               ${item.fault_history.map(historyGroup)}
             </div>` : ''}
         </div>
+
+        ${isCommittee() ? html`
+          <div class="faults">
+            <button class="dashbtn" data-retire>${item.archived ? 'Restore or delete…' : 'Archive or delete…'}</button>
+          </div>` : ''}
       </div>
     </div>`;
 }

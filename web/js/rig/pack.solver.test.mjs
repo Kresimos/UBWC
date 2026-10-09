@@ -591,5 +591,32 @@ function randomInstance() {
   console.log('  monotonicity:              adding kit never rigs fewer sails');
 }
 
+// 3f. A big trip must still answer, and quickly. Seventeen sails against a
+//     rack three times the fixture's was the Cardiff trip that left the wizard
+//     on its spinner for good: the exact searches are exponential in sails.
+{
+  const sails = [];
+  for (let copy = 0; copy < 3; copy++) {
+    SAILS.forEach((s, i) => {
+      if (sails.length < 17) {
+        sails.push({ ...s, id: `${s.id}-${copy}`, m2: s.m2 + copy * 0.2, luff: s.luff + copy * 3 });
+      }
+    });
+  }
+  const kit = [];
+  for (let copy = 0; copy < 3; copy++) KIT.forEach((p) => kit.push({ ...p, id: `${p.id}-${copy}` }));
+  const model = buildModel(sails, kit);
+  const t0 = Date.now();
+  const got = chooseTrailer(model, { minRigs: 5 });
+  const took = Date.now() - t0;
+  ok(took < 8000, `17 sails took ${took} ms`);
+  ok(got.rigs >= 1 && got.pieces > 0, '17 sails: the trailer rigs something');
+  // Whatever the fallback decided, the plan it reports must be a real one.
+  const used = new Map();
+  got.plan.forEach((r) => [r.t.m, r.t.e, r.t.b].forEach((c) => used.set(c, (used.get(c) || 0) + 1)));
+  used.forEach((n, c) => ok(n <= got.counts[c], `17 sails: class ${c} is over-used by the plan`));
+  console.log(`  17-sail trip:              answered in ${took} ms, ${got.rigs} rigs, ${got.pieces} pieces`);
+}
+
 console.log();
 console.log(`${checks} checks passed.`);

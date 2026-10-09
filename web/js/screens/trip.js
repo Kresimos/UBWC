@@ -1465,15 +1465,26 @@ export async function renderWizard(root, params) {
   });
 
   // ----------------------------------------------------------------- boot
-  paintShell();
-  try {
-    paint(solve());
-  } catch (error) {
-    mountEl.innerHTML = toHtml(html`
-      <div class="emptystate">${icon('warning')}
-        <b>Could not work the trailer out</b>
-        <span>${error.message || 'The kit list may be incomplete.'}</span></div>`);
-  }
+  // The first solve runs on the page's only thread, so hand the browser a
+  // frame to draw the screen (and make Skip and Back tappable) before it
+  // starts. A big trip could otherwise show a spinner and nothing else.
+  mountEl.innerHTML = toHtml(html`
+    <div class="emptystate"><b>Working it out</b>
+      <span>Finding the masts, extensions and booms for ${chosen.sails.length}
+        ${chosen.sails.length === 1 ? 'sail' : 'sails'}.</span></div>`);
+  solveTimer = setTimeout(() => {
+    solveTimer = null;
+    if (disposed) return;
+    try {
+      paintShell();
+      paint(solve());
+    } catch (error) {
+      mountEl.innerHTML = toHtml(html`
+        <div class="emptystate">${icon('warning')}
+          <b>Could not work the trailer out</b>
+          <span>${error.message || 'The kit list may be incomplete.'}</span></div>`);
+    }
+  }, 30);
 
   return () => {
     disposed = true;

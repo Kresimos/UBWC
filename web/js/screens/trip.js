@@ -951,6 +951,9 @@ export async function renderWizard(root, params) {
     generous: asWeights(nums('--wz-preset-generous')),
   };
   const DEBOUNCE = Number(rootCss.getPropertyValue('--wz-recompute-debounce')) || 90;
+  // Stepping the rigs target is a run of quick taps, and a big trip takes
+  // seconds per solve, so wait for the taps to stop before working it out.
+  const STEP_DEBOUNCE = 600;
   const ROLL_MS = ms('--wz-roll-ms', 440);
   const FILL_HINT = {
     light: 'The smallest trailer that still keeps the promise. Nothing spare.',
@@ -968,7 +971,9 @@ export async function renderWizard(root, params) {
 
   const state = {
     sails: chosen.sails.map((_, i) => i),
-    minRigs: Math.min(5, chosen.sails.length) || 1,
+    // Half the sails on the water at once is a fair start; the kit sec steps it
+    // from there.
+    minRigs: Math.max(1, Math.round(chosen.sails.length / 2)),
     preset: 'standard',
     mustRig: [],
   };
@@ -1359,7 +1364,7 @@ export async function renderWizard(root, params) {
   }
 
   // --------------------------------------------------------- the run loop
-  function schedule() {
+  function schedule(delay = DEBOUNCE) {
     wireControls();
     const wz = $('[data-wz]');
     wz.classList.add('recomputing');
@@ -1379,7 +1384,7 @@ export async function renderWizard(root, params) {
         wz.classList.remove('recomputing');
         paint(result);
       });
-    }, REDUCE ? 0 : DEBOUNCE);
+    }, REDUCE ? 0 : delay);
   }
 
   // --------------------------------------------------------------- events
@@ -1392,7 +1397,12 @@ export async function renderWizard(root, params) {
     if (next === Math.min(state.minRigs, lim)) return;
     state.minRigs = next;
     pick = [];
-    schedule();
+    // Show the new number at once; the trailer catches up when the taps stop.
+    const fig = $('[data-fig="rigs"]');
+    if (fig) fig.textContent = String(next);
+    shown.rigs = next;
+    rollGen.rigs = (rollGen.rigs || 0) + 1;
+    schedule(STEP_DEBOUNCE);
   });
 
   onClick(root, 'data-preset', (value) => {

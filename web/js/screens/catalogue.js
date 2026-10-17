@@ -21,88 +21,43 @@
  * is a long-press on a tile; the picks survive every filter change after that,
  * counted even when a filter has scrolled them out of view.
  */
-import { html, mount, toHtml, onClick, on, stampDate } from '../dom.js';
+import { html, mount, toHtml, onClick, on } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store, siteLabel, setTrip, subscribe } from '../store.js';
-import { fullName, wireWhoPill } from '../ui/bits.js';
+import { wireWhoPill } from '../ui/bits.js';
 import { cardTile, faultPopup } from '../ui/itemTile.js';
 import { pickSite, needCommittee, openIdentity } from '../ui/chrome.js';
 import { chooser, formSheet, toast } from '../ui/overlay.js';
 import { haptic, PICK } from '../ui/haptics.js';
 import { go } from '../router.js';
+import {
+  DEFAULT_FAULTS, createFilterState, resetFilterState, matches, order, activeCount,
+  panelSections, applyPanelClick, syncPanel, clearContextFilters,
+} from '../ui/kitFilter.js';
 
 const VIEW_KEY = 'ubwc.view';
 const SORT_KEY = 'ubwc.catsort';
 const DIR_KEY = 'ubwc.catdir';
 
-// The fault buckets the panel opens on: a clean piece and an amber-flagged
-// one, but not a red "out of action" one. Deliberately not persisted — a
-// member should never come back next session to silently hidden broken kit.
-const DEFAULT_FAULTS = ['none', 'minor'];
-
-const SORTS = [
-  { key: 'added', label: 'Newest' },
-  { key: 'rating', label: 'Rating' },
-  { key: 'size', label: 'Size' },
-  { key: 'name', label: 'Name' },
-  { key: 'condition', label: 'Condition' },
-  { key: 'location', label: 'Location' },
-];
-
-// The subtypes a member reaches for first, in that order; anything else the
-// club actually owns is appended after (mirrors js/rig/engine.js).
-const SUBTYPE_ORDER = {
-  board: ['Freewave', 'Freeride', 'Freestyle', 'Slalom', 'Wave', 'Formula', 'Foil'],
-  sail: ['Freewave', 'Freeride', 'Wave', 'Freestyle', 'Slalom', 'Race'],
-  fin: ['Wave', 'Freeride', 'Freestyle', 'Slalom', 'Weed'],
-};
-
-const CONDITION_RANK = { 'new': 4, 'very good': 3, good: 2, fair: 1, poor: 0 };
-
-// Which extra sections a type shows in the panel. Only ever drawn for options
-// that match something in stock, so the panel never offers a dead filter.
-const CONTEXT = {
-  board: ['sub', 'box'],
-  sail: ['sub', 'cams', 'diam'],
-  wing: ['sub'],
-  mast: ['diam', 'length'],
-  ext: ['diam'],
-  boom: ['diam'],
-  fin: ['sub', 'box'],
-  foil: ['sub', 'box'],
-  misc: ['sub'],
-};
-
 // The panel filters, the sort and the view. Filters live at module scope, so
 // leaving the Catalogue and coming back keeps them; a full reload (a new day)
-// clears them. Sort, direction and view outlast a reload in localStorage.
+// clears them. Sort, direction and view outlast a reload in localStorage. The
+// filters themselves are the shared kitFilter state, so the trip page and the
+// kit picker narrow kit by exactly the same rules.
 const state = {
+  ...createFilterState({
+    sort: localStorage.getItem(SORT_KEY) || 'added',
+    dir: localStorage.getItem(DIR_KEY) || 'desc',
+    faults: DEFAULT_FAULTS,
+  }),
   view: localStorage.getItem(VIEW_KEY) || 'grid',
-  sort: localStorage.getItem(SORT_KEY) || 'added',
-  dir: localStorage.getItem(DIR_KEY) || 'desc',
-  q: '',
-  type: 'all',
-  subs: new Set(),
-  boxes: new Set(),
-  diams: new Set(),
-  cams: new Set(),
-  lens: new Set(),
-  faults: new Set(DEFAULT_FAULTS),
   // Which trip the list is narrowed to (or null) is app-wide state now, held in
-  // store.trip and driven by the location chip — see store.js and chrome.js.
+  // store.trip and driven by the location chip - see store.js and chrome.js.
   panel: null, // null | 'filter' | 'sort'
   selecting: false,
   selected: new Set(),
 };
-
-function clearContextFilters() {
-  state.subs.clear();
-  state.boxes.clear();
-  state.diams.clear();
-  state.cams.clear();
-  state.lens.clear();
-}
 
 export async function render(root) {
   state.panel = null;
@@ -230,96 +185,18 @@ export async function render(root) {
   }
 
   // ------------------------------------------------------------- filtering
-  function bucketOf(item) {
-    if (!item.faults.length) return 'none';
-    return item.faults.some((f) => f.severity === 'out_of_action') ? 'major' : 'minor';
-  }
-
-  function matches(item) {
-    if (state.type !== 'all' && item.component_type !== state.type) return false;
-    if (!state.faults.has(bucketOf(item))) return false;
-    // Narrowed to one trip, the list IS that trip's kit and nothing else.
-    if (store.trip && item.away !== store.trip.name) return false;
-    if (state.subs.size && !state.subs.has(item.raw_type)) return false;
-    if (state.boxes.size && !state.boxes.has(item.box_type)) return false;
-    if (state.diams.size && !state.diams.has(item.diameter)) return false;
-    if (state.cams.size && !state.cams.has(item.cams ? 'Cammed' : 'Camless')) return false;
-    if (state.lens.size && !state.lens.has(String(item.size_value))) return false;
-    const needle = state.q.trim().toLowerCase();
-    if (needle) {
-      const hay = [item.manufacturer, item.model, item.raw_type, item.diameter,
-                   item.site, item.spot, item.size_label].join(' ').toLowerCase();
-      if (!hay.includes(needle)) return false;
-    }
-    return true;
-  }
-
-  function sizeNumber(item) {
-    if (item.size_value == null) return Infinity;
-    const parsed = parseFloat(String(item.size_value));
-    return Number.isNaN(parsed) ? Infinity : parsed;
-  }
-
-  function addedAt(item) {
-    const when = stampDate(item.created_at);
-    return when ? when.getTime() : 0;
-  }
-
-  /**
-   * Where a piece sits on the rating sort. A fault outranks a missing rating
-   * as a reason to sit low: nobody has looked at an unrated piece, but a
-   * flagged one has been looked at and found wrong. So anything carrying an
-   * open fault sorts below every unrated piece, which in turn sorts below one
-   * star. (A red flag is sunk to the very bottom separately, in `shown`.)
-   */
-  function ratingRank(item) {
-    if (bucketOf(item) !== 'none') return -2;
-    if (!item.rating || !item.rating.n) return -1;
-    return item.rating.stars || 0;
-  }
-
-  function compare(a, b) {
-    switch (state.sort) {
-      case 'rating':
-        return ratingRank(a) - ratingRank(b);
-      case 'size':
-        return sizeNumber(a) - sizeNumber(b);
-      case 'name':
-        return fullName(a).localeCompare(fullName(b));
-      case 'condition':
-        return (CONDITION_RANK[String(a.condition || '').toLowerCase()] ?? -1)
-             - (CONDITION_RANK[String(b.condition || '').toLowerCase()] ?? -1);
-      case 'location':
-        return String(a.site || '').localeCompare(String(b.site || ''));
-      default: // 'added' — imported kit shares a stamp, so id breaks the tie
-        return (addedAt(a) - addedAt(b)) || (a.id - b.id);
-    }
-  }
-
+  // The rules are the shared ones (ui/kitFilter.js); the Catalogue adds the one
+  // thing only it has - narrowed to a trip, the list IS that trip's kit.
   function shown() {
-    const rows = items.filter(matches);
-    rows.sort((a, b) => {
-      // A red-flagged piece always sinks to the bottom of the list, whatever
-      // the sort — then the sort orders within each group.
-      const majorA = bucketOf(a) === 'major';
-      const majorB = bucketOf(b) === 'major';
-      if (majorA !== majorB) return majorA ? 1 : -1;
-      const d = compare(a, b);
-      return state.dir === 'desc' ? -d : d;
-    });
-    return rows;
+    const rows = items.filter((item) =>
+      matches(state, item) && (!store.trip || item.away === store.trip.name));
+    // A red-flagged piece always sinks to the bottom of the list, whatever the
+    // sort - then the sort orders within each group.
+    return order(state, rows, { sinkMajor: true });
   }
 
   function activeFilterCount() {
-    let n = 0;
-    if (state.type !== 'all') n += 1;
-    if (store.trip) n += 1;
-    n += state.subs.size + state.boxes.size + state.diams.size
-       + state.cams.size + state.lens.size;
-    const faultsDefault = state.faults.size === DEFAULT_FAULTS.length
-      && DEFAULT_FAULTS.every((k) => state.faults.has(k));
-    if (!faultsDefault) n += 1;
-    return n;
+    return activeCount(state) + (store.trip ? 1 : 0);
   }
 
   // ------------------------------------------------------------- painting
@@ -441,113 +318,7 @@ export async function render(root) {
 
   // ----------------------------------------------------------- the panel
   function renderPanelBody() {
-    mount(panelBody, panelSections());
-  }
-
-  function poolOf(type) {
-    return type === 'all' ? items : items.filter((i) => i.component_type === type);
-  }
-
-  function distinct(type, field) {
-    const seen = [];
-    poolOf(type).forEach((item) => {
-      const value = item[field];
-      if (value != null && value !== '' && !seen.includes(value)) seen.push(value);
-    });
-    return seen;
-  }
-
-  function orderedSubtypes(type) {
-    const found = distinct(type, 'raw_type');
-    const order = SUBTYPE_ORDER[type] || [];
-    return [...order.filter((t) => found.includes(t)),
-            ...found.filter((t) => !order.includes(t))];
-  }
-
-  function optButton(setName, value, label, tone = '') {
-    const on = state[setName].has(value) ? 'on' : '';
-    return html`<button class="fpopt ${tone} ${on}"
-      data-fpset="${setName}" data-fpval="${value}">${label}</button>`;
-  }
-
-  function fpSection(label, options) {
-    if (!options || !options.length) return '';
-    return html`
-      <div class="fpsect">
-        <div class="fplab">${label}</div>
-        <div class="fpopts">${options}</div>
-      </div>`;
-  }
-
-  function contextSections() {
-    const type = state.type;
-    const wanted = CONTEXT[type] || [];
-    const out = [];
-
-    if (wanted.includes('sub')) {
-      const subs = orderedSubtypes(type);
-      out.push(fpSection(type === 'misc' ? 'Category' : 'Subtype',
-        subs.map((s) => optButton('subs', s, s))));
-    }
-    if (wanted.includes('cams')) {
-      const pool = poolOf('sail');
-      const opts = [];
-      if (pool.some((i) => i.cams)) opts.push(optButton('cams', 'Cammed', 'Cammed'));
-      if (pool.some((i) => !i.cams)) opts.push(optButton('cams', 'Camless', 'Camless'));
-      out.push(fpSection('Cams', opts));
-    }
-    if (wanted.includes('diam')) {
-      const diams = distinct(type, 'diameter');
-      out.push(fpSection('Diameter', diams.map((d) => optButton('diams', d, d))));
-    }
-    if (wanted.includes('box')) {
-      const boxes = distinct(type, 'box_type');
-      out.push(fpSection('Box type', boxes.map((b) => optButton('boxes', b, b))));
-    }
-    if (wanted.includes('length')) {
-      const lengths = distinct(type, 'size_value')
-        .map(Number).filter((n) => !Number.isNaN(n))
-        .sort((a, b) => a - b);
-      out.push(fpSection('Length',
-        lengths.map((n) => optButton('lens', String(n), `${n} cm`))));
-    }
-    return out;
-  }
-
-  function panelSections() {
-    return html`
-      <div class="fpsect">
-        <div class="fplab">Type</div>
-        <div class="fpopts">
-          <button class="fpopt ${state.type === 'all' ? 'on' : ''}" data-fptype="all">All</button>
-          ${store.types.map((type) => html`
-            <button class="fpopt ${state.type === type.key ? 'on' : ''}"
-              data-fptype="${type.key}">${type.label}s</button>`)}
-        </div>
-      </div>
-      ${contextSections()}
-      <div class="fpsect">
-        <div class="fplab">Faults</div>
-        <div class="fpopts">
-          <button class="fpopt ${state.faults.has('none') ? 'on' : ''}" data-fpfault="none">No faults</button>
-          <button class="fpopt amber ${state.faults.has('minor') ? 'on' : ''}" data-fpfault="minor">Minor faults</button>
-          <button class="fpopt red ${state.faults.has('major') ? 'on' : ''}" data-fpfault="major">Major faults</button>
-        </div>
-      </div>
-      <div class="fpsect" data-sortsect>
-        <div class="fplab">Sort by</div>
-        <div class="fpopts">
-          ${SORTS.map((s) => html`
-            <button class="fpopt ${state.sort === s.key ? 'on' : ''}" data-fpsort="${s.key}">${s.label}</button>`)}
-        </div>
-      </div>
-      <div class="fpsect">
-        <div class="fplab">Sort order</div>
-        <div class="fpopts">
-          <button class="fpopt wide ${state.dir === 'asc' ? 'on' : ''}" data-fpdir="asc">Ascending</button>
-          <button class="fpopt wide ${state.dir === 'desc' ? 'on' : ''}" data-fpdir="desc">Descending</button>
-        </div>
-      </div>`;
+    mount(panelBody, panelSections(state, items));
   }
 
   /**
@@ -612,12 +383,7 @@ export async function render(root) {
 
   function resetFilters() {
     const wasTrip = Boolean(store.trip);
-    state.type = 'all';
-    clearContextFilters();
-    state.faults = new Set(DEFAULT_FAULTS);
-    state.sort = 'added';
-    state.dir = 'desc';
-    state.q = '';
+    resetFilterState(state, { sort: 'added', dir: 'desc', faults: DEFAULT_FAULTS });
     localStorage.setItem(SORT_KEY, 'added');
     localStorage.setItem(DIR_KEY, 'desc');
     mainSearch.value = '';
@@ -805,7 +571,7 @@ export async function render(root) {
 
   onClick(root, 'data-chip', (value) => {
     state.type = value;
-    clearContextFilters();
+    clearContextFilters(state);
     if (state.panel) renderPanelBody();
     paint();
   });
@@ -871,45 +637,16 @@ export async function render(root) {
   grabZone.addEventListener('pointerup', endSheetDrag);
   grabZone.addEventListener('pointercancel', endSheetDrag);
 
-  onClick(root, 'data-fptype', (value) => {
-    state.type = state.type === value ? 'all' : value;
-    clearContextFilters();
-    renderPanelBody();
-    paint();
-  });
-  onClick(root, 'data-fpset', (setName, node) => {
-    const value = node.getAttribute('data-fpval');
-    const set = state[setName];
-    if (set.has(value)) set.delete(value);
-    else set.add(value);
-    node.classList.toggle('on');
-    paint();
-  });
-  onClick(root, 'data-fpfault', (value, node) => {
-    if (state.faults.has(value)) {
-      if (state.faults.size === 1) return; // one bucket must always be on
-      state.faults.delete(value);
-      node.classList.remove('on');
-    } else {
-      state.faults.add(value);
-      node.classList.add('on');
-    }
-    paint();
-  });
-  onClick(root, 'data-fpsort', (value) => {
-    state.sort = value;
-    localStorage.setItem(SORT_KEY, value);
-    panelBody.querySelectorAll('[data-fpsort]').forEach((button) => {
-      button.classList.toggle('on', button.getAttribute('data-fpsort') === value);
-    });
-    paint();
-  });
-  onClick(root, 'data-fpdir', (value) => {
-    state.dir = value;
-    localStorage.setItem(DIR_KEY, value);
-    panelBody.querySelectorAll('[data-fpdir]').forEach((button) => {
-      button.classList.toggle('on', button.getAttribute('data-fpdir') === value);
-    });
+  // Every option in the panel answers to the one shared handler. A type change
+  // alters which sections there are, so the body is rebuilt; any other option
+  // only moves a highlight, which is done in place so the sheet doesn't jump.
+  panelBody.addEventListener('click', (event) => {
+    const kind = applyPanelClick(state, event.target);
+    if (!kind) return;
+    if (kind === 'type') renderPanelBody();
+    else syncPanel(panelBody, state);
+    if (kind === 'sort') localStorage.setItem(SORT_KEY, state.sort);
+    if (kind === 'dir') localStorage.setItem(DIR_KEY, state.dir);
     paint();
   });
 

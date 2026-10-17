@@ -378,7 +378,8 @@ CREATE TABLE trips (
     created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     packed_at   TEXT,
-    returned_at TEXT
+    returned_at TEXT,
+    archived_at TEXT       -- set when a finished trip is tucked away; NULL = shown
 );
 
 CREATE INDEX idx_trips_status ON trips(status, id);

@@ -161,6 +161,9 @@ export const api = {
   // Ending a trip is one act: every piece on the list goes back to being
   // available at the rack it never left. There is no per-piece return tick.
   closeTrip: (id, payload) => request('POST', `/api/trips/${id}/close`, payload || {}),
+  archiveTrip: (id) => request('POST', `/api/trips/${id}/archive`, {}),
+  unarchiveTrip: (id) => request('POST', `/api/trips/${id}/unarchive`, {}),
+  deleteTrip: (id) => request('DELETE', `/api/trips/${id}`),
   tripRequest: (id, itemId, on) =>
     request('POST', `/api/trips/${id}/request`, { item_id: itemId, on }),
 

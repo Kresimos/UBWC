@@ -509,7 +509,7 @@ def _migrate_in_place(conn: sqlite3.Connection) -> None:
                          "INTEGER NOT NULL DEFAULT 0")
     if "trips" in tables:
         trip_cols = _columns(conn, "trips")
-        for column in ("notes", "image_path", "packed_at"):
+        for column in ("notes", "image_path", "packed_at", "archived_at"):
             if column not in trip_cols:
                 conn.execute(f"ALTER TABLE trips ADD COLUMN {column} TEXT")
         if "lat" not in trip_cols:
@@ -848,7 +848,8 @@ _TRIPS_DDL = """
         created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at  TEXT NOT NULL DEFAULT (datetime('now')),
         packed_at   TEXT,
-        returned_at TEXT
+        returned_at TEXT,
+        archived_at TEXT
     )
 """
 
@@ -1129,6 +1130,10 @@ def size_label(item: dict) -> str:
             return f"{lo:g}-{hi:g} cm"
     if ctype == "fin" and item.get("fin_length_cm") is not None:
         return f"{item['fin_length_cm']:g} cm"
+    if ctype == "foil":
+        # Front wing area only; an unrecorded one reads as no size, not size_generic.
+        area = item.get("foil_area_cm2")
+        return f"{area:g} cm²" if area is not None else ""
     if ctype == "misc":
         return item.get("misc_item") or ""
     return item.get("size_generic") or ""
@@ -2616,6 +2621,11 @@ def set_trip_stage(trip_id: int, status: str) -> Optional[dict]:
         if status == "done":
             conn.execute("UPDATE trips SET returned_at = COALESCE(returned_at, "
                          "datetime('now')) WHERE id = ?", (trip_id,))
+        # Only a finished trip can be archived, so one wound back to a live
+        # stage comes out of the archive with it.
+        if status not in ("done", "cancelled"):
+            conn.execute("UPDATE trips SET archived_at = NULL WHERE id = ?",
+                         (trip_id,))
         conn.commit()
         return _trip_row(conn, trip_id)
 
@@ -2644,6 +2654,34 @@ def close_trip(trip_id: int, status: str = "done") -> Optional[dict]:
     if status not in ("done", "cancelled"):
         raise TripError("A trip ends done or cancelled.")
     return set_trip_stage(trip_id, status)
+
+
+def archive_trip(trip_id: int) -> Optional[dict]:
+    """Tuck a finished trip out of the way. Its kit list and requests are kept."""
+    with connect() as conn:
+        row = conn.execute("SELECT status FROM trips WHERE id = ?",
+                           (trip_id,)).fetchone()
+        if row and row["status"] not in ("done", "cancelled"):
+            raise TripError("Only a finished or called-off trip can be archived.")
+        conn.execute("UPDATE trips SET archived_at = COALESCE(archived_at, "
+                     "datetime('now')) WHERE id = ?", (trip_id,))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def unarchive_trip(trip_id: int) -> Optional[dict]:
+    with connect() as conn:
+        conn.execute("UPDATE trips SET archived_at = NULL WHERE id = ?", (trip_id,))
+        conn.commit()
+        return _trip_row(conn, trip_id)
+
+
+def delete_trip(trip_id: int) -> None:
+    """Remove a trip for good. Its kit list and requests cascade with the row,
+    which also lets go of any kit it was holding away."""
+    with connect() as conn:
+        conn.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+        conn.commit()
 
 
 def trip_request_counts(trip_id: int) -> dict:

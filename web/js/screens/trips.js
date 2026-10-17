@@ -9,15 +9,18 @@
  * from each other rather than dividing one trip's kit into sections.
  *
  * A finished trip is kept, not deleted. It is the record of what was packed,
- * which is the only way the club ever finds out where the 5.2 went.
+ * which is the only way the club ever finds out where the 5.2 went. Once it is
+ * old news the committee can press and hold it to archive it, which folds it
+ * into a closed group at the bottom of the list; delete is for a trip started
+ * by mistake, and works at any stage.
  */
-import { html, mount, onClick, stampDate } from '../dom.js';
+import { html, mount, on, onClick, stampDate } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
-import { store } from '../store.js';
+import { store, setTrip } from '../store.js';
 import { wireWhoPill } from '../ui/bits.js';
 import { openIdentity, needCommittee } from '../ui/chrome.js';
-import { toast } from '../ui/overlay.js';
+import { chooser, confirmSheet, toast } from '../ui/overlay.js';
 import { go } from '../router.js';
 
 // The four groups the stages fall into. Packing and active are separate
@@ -30,30 +33,137 @@ const GROUPS = [
   { label: 'Past trips', stages: ['done', 'cancelled'] },
 ];
 
+const LONG_PRESS_MS = 420;
+
 export async function render(root) {
   let trips = [];
-  try {
-    ({ trips } = await api.trips());
-  } catch (error) {
-    toast(error.message, true);
+  let showArchived = false;
+  let unwire = () => {};
+  let press = null;
+  let suppressClick = false;
+
+  async function load() {
+    try {
+      ({ trips } = await api.trips());
+    } catch (error) {
+      toast(error.message, true);
+    }
+    paint();
   }
 
-  mount(root, screen(trips));
-  const unwire = wireWhoPill(root, openIdentity, { compact: true });
+  function paint() {
+    unwire();
+    mount(root, screen(trips, showArchived));
+    unwire = wireWhoPill(root, openIdentity, { compact: true });
+  }
 
-  onClick(root, 'data-trip', (value) => go(`/trip/${value}`));
+  await load();
+
+  onClick(root, 'data-trip', (value) => {
+    if (suppressClick) { suppressClick = false; return; }
+    go(`/trip/${value}`);
+  });
+  onClick(root, 'data-archtoggle', () => {
+    showArchived = !showArchived;
+    paint();
+  });
   onClick(root, 'data-newtrip', async () => {
     if (!(await needCommittee('Starting a trip is a committee action.'))) return;
     go('/newtrip');
   });
 
-  return unwire;
+  // Press and hold a trip to archive or delete it - the same gesture the
+  // Catalogue and a trip's own kit list use. Committee only: for anybody else
+  // the press is just a slow tap.
+  on(root, 'pointerdown', '[data-trip]', (event, node) => {
+    suppressClick = false;
+    if (press || !store.committee) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const trip = trips.find((t) => t.id === Number(node.getAttribute('data-trip')));
+    if (!trip) return;
+    press = { x: event.clientX, y: event.clientY };
+    press.timer = setTimeout(() => {
+      press = null;
+      suppressClick = true;
+      tripActions(trip);
+    }, LONG_PRESS_MS);
+  });
+  on(root, 'pointermove', '[data-trip]', (event) => {
+    if (!press) return;
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) {
+      clearTimeout(press.timer);
+      press = null;
+    }
+  });
+  const endPress = () => {
+    if (!press) return;
+    clearTimeout(press.timer);
+    press = null;
+  };
+  on(root, 'pointerup', '[data-trip]', endPress);
+  on(root, 'pointercancel', '[data-trip]', endPress);
+  // A held touch raises the browser's context menu; the hold is ours.
+  on(root, 'contextmenu', '[data-trip]', (event) => {
+    if (store.committee) event.preventDefault();
+  });
+
+  /** What a held trip offers, depending on its stage and whether it is archived. */
+  async function tripActions(trip) {
+    const finished = ['done', 'cancelled'].includes(trip.status);
+    const rows = [];
+    if (trip.archived_at) {
+      rows.push({ value: 'restore', label: 'Restore',
+        sub: 'Back in the Trips list with the rest' });
+    } else if (finished) {
+      rows.push({ value: 'archive', label: 'Archive',
+        sub: 'Folded away at the bottom of Trips. Its kit list and requests are kept. Reversible.' });
+    }
+    rows.push({ value: 'delete', label: 'Delete permanently',
+      sub: ['packing', 'active'].includes(trip.status)
+        ? 'For a trip started by mistake. Its kit becomes available again. Cannot be undone.'
+        : 'For a trip started by mistake. Its kit list and requests go too. Cannot be undone.' });
+
+    const choice = await chooser({ title: trip.name, rows });
+    try {
+      if (choice === 'archive') {
+        await api.archiveTrip(trip.id);
+        toast('Archived.');
+      } else if (choice === 'restore') {
+        await api.unarchiveTrip(trip.id);
+        toast('Restored.');
+      } else if (choice === 'delete') {
+        const sure = await confirmSheet({
+          title: `Delete ${trip.name}?`,
+          sub: 'The trip, its kit list and every request on it are gone for good. '
+            + 'If it is just over, archive it instead.',
+          confirmLabel: 'Delete it',
+        });
+        if (!sure) return;
+        await api.deleteTrip(trip.id);
+        // The app-bar location toggle lists packing/active trips; drop this one
+        // from it, and from the selection if the club was working off it.
+        store.trips = store.trips.filter((t) => t.id !== trip.id);
+        if (store.trip && store.trip.id === trip.id) setTrip(null);
+        toast(`${trip.name} deleted.`);
+      } else {
+        return;
+      }
+    } catch (error) {
+      toast(error.message, true);
+      return;
+    }
+    await load();
+  }
+
+  return () => unwire();
 }
 
 // ------------------------------------------------------------------ markup
-function screen(trips) {
+function screen(trips, showArchived) {
+  const live = trips.filter((t) => !t.archived_at);
+  const archived = trips.filter((t) => t.archived_at);
   const groups = GROUPS
-    .map((group) => ({ ...group, rows: trips.filter((t) => group.stages.includes(t.status)) }))
+    .map((group) => ({ ...group, rows: live.filter((t) => group.stages.includes(t.status)) }))
     .filter((group) => group.rows.length);
 
   return html`
@@ -68,11 +178,16 @@ function screen(trips) {
         <div style="padding:2px 0 4px">
           <button class="askbtn" data-newtrip>${icon('plusCircle')}Start a new trip</button>
         </div>` : ''}
-      ${groups.length
+      ${groups.length || archived.length
         ? groups.map((group) => html`
             <div class="grouplab stage">${group.label}</div>
             ${group.rows.map(row)}`)
         : emptyState()}
+      ${archived.length ? html`
+        <button class="grouplab stage archtoggle${showArchived ? ' open' : ''}" data-archtoggle>
+          <span>Archived (${archived.length})</span>${icon('chevronRight')}
+        </button>
+        ${showArchived ? archived.map(row) : ''}` : ''}
     </div>`;
 }
 

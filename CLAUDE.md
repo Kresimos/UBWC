@@ -313,11 +313,23 @@ setup:
     a forecast that cannot be had (dates out of range, no network) is never an
     error. The logbook's auto-wind (`wind.for_window`) resolves coordinates the
     same way, so it is no longer limited to the three seeded sites.
+  - **archive and delete**: a committee long-press on a Trips row offers Archive
+    (done or cancelled trips only; sets `trips.archived_at`, folds the trip into a
+    closed "Archived (N)" group at the bottom of the index, Restore brings it back)
+    and Delete permanently (any stage; `trip_items`/`trip_votes` cascade, which
+    frees any kit the trip was holding away).
   Reading trips is open to everyone; every write except a request is committee.
   The screens are `web/js/screens/trips.js` (index), `trip.js` (one trip, all
   four stages, plus Confirm the kit and the wizard) and `tripform.js` (new and
   edit); the kit picker they share is `web/js/ui/kitpicker.js`, which is the
-  Catalogue's own filter sheet doing a second job.
+  Catalogue's own filter sheet doing a second job. The Catalogue's filter and sort
+  rules live in `web/js/ui/kitFilter.js` and are used three times, each with a
+  **state of its own** (filtering the Catalogue never hides kit on a packing list):
+  the Catalogue; the trip's kit list at every stage (search + filter button under
+  the title, opening on all fault buckets and "Packing order", with "Showing N of M"
+  while filtered - the `X of Y packed` count and Complete packing stay whole-trip);
+  and the picker (behind a Filters button, faults limited to none/minor because
+  out-of-action kit is never offered).
 - **Item page "known faults"**: faults are per physical item, not per
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
   Location), matching the `faults` table and the Faults page spec. Each fault

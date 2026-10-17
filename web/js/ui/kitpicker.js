@@ -8,7 +8,11 @@
  * location opens on everything, because a trailer is loaded from wherever kit
  * lives; the sort opens on size, because that is how anybody thinks about a
  * board; and the type rail opens on sails, which is what nearly every pick
- * starts from. The rows are always the list, never the grid - a picker is read
+ * starts from. The rest of the Catalogue's narrowing - subtype, box, diameter,
+ * cams, length, faults and the sort - sits behind a Filters button on the count
+ * row, the very same rules (ui/kitFilter.js). Faults offers only "no faults"
+ * and "minor": out-of-action kit cannot go on a trailer, so it is never
+ * listed, not even greyed. The rows are always the list, never the grid - a picker is read
  * top to bottom looking for one size, and a name-per-line beats a wall of
  * cards for that, so the view toggle the Catalogue carries is not offered.
  *
@@ -28,6 +32,13 @@ import { store } from '../store.js';
 import { cardTile } from './itemTile.js';
 import { toast } from './overlay.js';
 import { fullName } from './bits.js';
+import {
+  createFilterState, matches, order, activeCount, panelSections,
+  applyPanelClick, syncPanel, clearContextFilters,
+} from './kitFilter.js';
+
+// Out-of-action kit is never on offer, so the bucket is simply not a choice.
+const PICK_FAULTS = ['none', 'minor'];
 
 /**
  * @param {object} options
@@ -40,10 +51,10 @@ import { fullName } from './bits.js';
  * @param {() => void} [options.onClose]
  */
 export function kitPicker({ root, items, chosen, onPick, multi = false, onClose }) {
-  const state = {
-    q: '',
-    type: 'sail',
-  };
+  const state = createFilterState({
+    type: 'sail', sort: 'size', dir: 'asc', faults: PICK_FAULTS,
+  });
+  let panelOpen = false;
 
   const node = el(html`
     <div class="filterpanel" data-kitpicker>
@@ -62,7 +73,11 @@ export function kitPicker({ root, items, chosen, onPick, multi = false, onClose 
           <div class="chips" data-chips></div>
           <div class="kitbar">
             <span class="count" data-count></span>
+            <button class="pickfilterbtn" data-filtertoggle aria-expanded="false">
+              ${icon('filter')}Filters<span class="fsdot" data-fsdot hidden>0</span>
+            </button>
           </div>
+          <div class="pickpanel" data-pickpanel hidden></div>
           <div data-list></div>
         </div>
         ${multi ? html`
@@ -76,26 +91,18 @@ export function kitPicker({ root, items, chosen, onPick, multi = false, onClose 
   const sheet = node.querySelector('.fp-sheet');
   const search = node.querySelector('[data-search]');
   const listNode = node.querySelector('[data-list]');
+  const panelNode = node.querySelector('[data-pickpanel]');
 
-  // Size is the sort, always: a rack of boards is read 86, 96, 111, and the
-  // one thing a trip is picking between is how big.
-  const sizeOf = (item) => {
-    const parsed = parseFloat(String(item.size_value));
-    return Number.isNaN(parsed) ? Infinity : parsed;
-  };
+  // Name breaks a tie on any sort, as it always has on size: the sort below is
+  // stable, so ordering by name first leaves equal sizes in name order.
+  const byName = (a, b) => fullName(a).localeCompare(fullName(b));
 
   function shown() {
-    const needle = state.q.trim().toLowerCase();
-    return items.filter((item) => {
-      if (state.type !== 'all' && item.component_type !== state.type) return false;
-      // Kit that is out of action cannot go on a trailer at all, so unlike the
-      // Catalogue this list does not offer it even greyed out.
-      if (item.faults.some((f) => f.severity === 'out_of_action')) return false;
-      if (!needle) return true;
-      return [item.manufacturer, item.model, item.raw_type, item.diameter,
-              item.site, item.spot, item.size_label]
-        .join(' ').toLowerCase().includes(needle);
-    }).sort((a, b) => sizeOf(a) - sizeOf(b) || fullName(a).localeCompare(fullName(b)));
+    // The fault filter can never include "major" here, so out-of-action kit
+    // never passes `matches` - unlike the Catalogue this list does not offer it
+    // even greyed out.
+    const rows = items.filter((item) => matches(state, item)).sort(byName);
+    return order(state, rows);
   }
 
   function countLabel(count) {
@@ -119,6 +126,10 @@ export function kitPicker({ root, items, chosen, onPick, multi = false, onClose 
                 data-chip="${type.key}">${type.label}s</button>`)}`);
     const rows = shown();
     mount(node.querySelector('[data-count]'), countLabel(rows.length));
+    const dot = node.querySelector('[data-fsdot]');
+    const active = activeCount(state, { countType: false, faults: PICK_FAULTS });
+    dot.hidden = active === 0;
+    dot.textContent = active;
     paintPicked(on);
     if (skipList) return;
     mount(listNode, rows.length
@@ -142,6 +153,19 @@ export function kitPicker({ root, items, chosen, onPick, multi = false, onClose 
       : html`Done`);
   }
 
+  function paintPanel() {
+    mount(panelNode, panelSections(state, items, {
+      showType: false, faultBuckets: PICK_FAULTS,
+    }));
+  }
+
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    panelNode.hidden = !panelOpen;
+    node.querySelector('[data-filtertoggle]').setAttribute('aria-expanded', String(panelOpen));
+    if (panelOpen) paintPanel();
+  }
+
   // ------------------------------------------------------------- events
   node.addEventListener('click', async (event) => {
     // The sheet is mounted inside a screen that runs its own delegated click
@@ -154,8 +178,25 @@ export function kitPicker({ root, items, chosen, onPick, multi = false, onClose 
 
     if (event.target.closest('[data-close]')) { close(); return; }
 
+    if (event.target.closest('[data-filtertoggle]')) { togglePanel(); return; }
+    if (event.target.closest('[data-pickpanel]')) {
+      const kind = applyPanelClick(state, event.target);
+      if (!kind) return;
+      if (kind === 'type') paintPanel();
+      else syncPanel(panelNode, state);
+      paint();
+      return;
+    }
+
     const chip = event.target.closest('[data-chip]');
-    if (chip) { state.type = chip.getAttribute('data-chip'); paint(); return; }
+    if (chip) {
+      state.type = chip.getAttribute('data-chip');
+      // What a type narrows by is that type's own, so a new type starts clean.
+      clearContextFilters(state);
+      if (panelOpen) paintPanel();
+      paint();
+      return;
+    }
 
     const card = event.target.closest('[data-item]');
     if (!card) return;

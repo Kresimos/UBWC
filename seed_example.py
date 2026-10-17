@@ -387,6 +387,7 @@ ITEMS = {
     # ---------------------------------------------------------------------- #
     "foil_starboard": ("foil", dict(manufacturer="Starboard", model="GT-R 900",
         type="Freeride Foil", box_type="Deep Tuttle", condition="Very Good",
+        foil_area_cm2=900,
         location=STORE, notes="900cm^2 front wing, 95cm mast. Deep Tuttle only.")),
     "foil_slingshot": ("foil", dict(manufacturer="Slingshot", model="Hover Glide FWind",
         type="Freeride Foil", box_type="Deep Tuttle", condition="Good",

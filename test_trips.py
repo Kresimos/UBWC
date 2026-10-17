@@ -169,6 +169,33 @@ def run() -> None:
     assert before == {k: v for k, v in after.items() if k in before}, \
         "an item moved during the trip"
 
+    # --------------------------------------------------- archive and delete
+    live = server.create_trip(admin, {"name": "Scratch", "requesting": True,
+                                      "items": []})["trip"]
+    try:
+        server.archive_trip(live["id"], admin)
+        raise AssertionError("a trip still being asked about was archived")
+    except server.HTTPException as error:
+        assert error.status_code == 422, error.status_code
+    server.delete_trip(live["id"], admin)
+
+    archived = server.archive_trip(trip["id"], admin)["trip"]
+    assert archived["archived_at"], "archiving did not stamp the trip"
+    listed = {t["id"]: t for t in server.list_trips(admin)["trips"]}
+    assert listed[trip["id"]]["archived_at"], "an archived trip drops out of the list"
+    assert server.unarchive_trip(trip["id"], admin)["trip"]["archived_at"] is None
+
+    doomed = server.create_trip(admin, {"name": "Doomed", "requesting": False,
+                                        "items": [{"item_id": first}]})["trip"]
+    assert first in db.away_item_ids(), "a packing trip holds its kit away"
+    server.delete_trip(doomed["id"], admin)
+    assert first not in db.away_item_ids(), "deleting a trip left its kit away"
+    try:
+        server.read_trip(doomed["id"], admin)
+        raise AssertionError("a deleted trip is still readable")
+    except server.HTTPException as error:
+        assert error.status_code == 404, error.status_code
+
     # ------------------------------------------------------- who may do what
     member = db.create_user("test_member", "notcommittee", "Member")
     ordinary = _Request(db.start_session(member["id"], "test"))
@@ -188,6 +215,9 @@ def run() -> None:
                                                   {"items": []}),
                  lambda: server.drop_trip_request(trip["id"], ordinary,
                                                   {"item_id": first}),
+                 lambda: server.archive_trip(trip["id"], ordinary),
+                 lambda: server.unarchive_trip(trip["id"], ordinary),
+                 lambda: server.delete_trip(trip["id"], ordinary),
                  lambda: server.close_trip(trip["id"], ordinary, {"all": True})):
         try:
             call()

@@ -32,13 +32,18 @@
  * is committee - packing the trailer is the kit sec's job - with the one
  * exception of a request, which is any member's to make.
  */
-import { html, toHtml, mount, onClick, on, stampDate } from '../dom.js';
+import { html, toHtml, mount, onClick, on, el, stampDate } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
 import { store, spotNote } from '../store.js';
 import { fullName } from '../ui/bits.js';
 import { cardTile, faultPopup, whoPopup } from '../ui/itemTile.js';
 import { kitPicker } from '../ui/kitpicker.js';
+import {
+  ALL_FAULTS, SORTS, createFilterState, resetFilterState, matches, order,
+  activeCount, panelSections, applyPanelClick, syncPanel,
+} from '../ui/kitFilter.js';
+import { dragToDismiss } from '../ui/sheetDrag.js';
 import { needUser, needCommittee } from '../ui/chrome.js';
 import { confirmSheet, lightbox, toast } from '../ui/overlay.js';
 import { packBoardKit, shortName } from '../rig/engine.js';
@@ -68,6 +73,16 @@ const STAGE = {
   cancelled: { title: 'What was picked' },
 };
 
+// The kit list's filters. The same rules and panel as the Catalogue (ui/kitFilter.js)
+// but a state of their own, so narrowing the shelf never hides a thing on a
+// packing list. A trip opens showing everything - faults included, because a
+// red-flagged piece that is already on the trailer is not one to hide - in the
+// packing order. They outlast a visit to an item page, and reset on another trip.
+const TRIP_START = { sort: 'packing', dir: 'asc', faults: ALL_FAULTS };
+const TRIP_SORTS = [{ key: 'packing', label: 'Packing order' }, ...SORTS];
+let tripFilter = createFilterState(TRIP_START);
+let tripFilterId = null;
+
 /* ========================================================== the trip page */
 
 export async function render(root, params) {
@@ -78,12 +93,17 @@ export async function render(root, params) {
   let catalogue = null;        // /api/items cards: every site's kit, for the picker
   let cataloguePending = null; // the in-flight fetch, so two taps don't run it twice
   let picker = null;
+  let filterNode = null; // the filter sheet while it is up
   let unwireParallax = () => {};
   let press = null;
   let suppressClick = false;
   let disposed = false;
 
   trip = (await api.trip(id)).trip;
+  if (tripFilterId !== id) {
+    tripFilter = createFilterState(TRIP_START);
+    tripFilterId = id;
+  }
 
   // Packing is the one stage that is a checklist. Coming home is a single act
   // on the app bar, not a second list to work through.
@@ -116,6 +136,7 @@ export async function render(root, params) {
     if (disposed) return;
     mount(root.querySelector('[data-kit]'), kitSection());
     paintCount();
+    paintFind();
   }
 
   function paintCount() {
@@ -178,6 +199,7 @@ export async function render(root, params) {
             </div>
           </span>
         </div>
+        <div data-find>${findBar()}</div>
         <div data-kit>${kitSection()}</div>
         ${addButton()}
         ${skipButton()}
@@ -244,16 +266,30 @@ export async function render(root, params) {
    */
   function kitSection() {
     const grid = state.view === 'grid';
-    if (trip.status === 'requesting') {
-      const rows = [...trip.pending, ...trip.items];
-      if (!rows.length) return emptyKit();
-      return html`
-        <div class="${grid ? 'itemgrid' : 'itemlist'}">${rows.map((row) => tile(row, grid))}</div>`;
-    }
-    if (!trip.items.length) return emptyKit();
-    const sorted = sortKit(trip.items);
+    if (!listRows().length) return emptyKit();
+    const rows = visibleRows();
+    if (!rows.length) return noMatch();
     return html`
-      <div class="${grid ? 'itemgrid' : 'itemlist'}">${sorted.map((row) => tile(row, grid))}</div>`;
+      <div class="${grid ? 'itemgrid' : 'itemlist'}">${rows.map((row) => tile(row, grid))}</div>`;
+  }
+
+  /** Everything on the list at this stage, before any filter. */
+  function listRows() {
+    return trip.status === 'requesting' ? [...trip.pending, ...trip.items] : [...trip.items];
+  }
+
+  /**
+   * What the filters leave, in the chosen order. "Packing order" is the order
+   * the list has always had: as asked for while requesting (a wishlist is about
+   * who wants what, not which shelf), then by type, size and name from packing
+   * on. Any other sort is the Catalogue's, applied to the piece inside the row.
+   */
+  function visibleRows() {
+    const kept = listRows().filter((row) => matches(tripFilter, row.item));
+    return order(tripFilter, kept, {
+      get: (row) => row.item,
+      custom: { packing: trip.status === 'requesting' ? () => 0 : packingOrder() },
+    });
   }
 
   function tile(row, grid) {
@@ -281,6 +317,176 @@ export async function render(root, params) {
           ? 'Ask for the kit you want and it turns up here, with your name on it.'
           : 'No kit was picked for this trip.'}</span>
       </div>`;
+  }
+
+  /** The list has kit, but the filters have hidden all of it. */
+  function noMatch() {
+    return html`
+      <div class="emptystate">
+        ${icon('box')}
+        <b>Nothing matches</b>
+        <span>No kit on this trip fits those filters.</span>
+        <button class="askbtn ghost" data-kitreset>Clear filters</button>
+      </div>`;
+  }
+
+  // ----------------------------------------------------- search and filter
+  const badge = () => activeCount(tripFilter, { faults: ALL_FAULTS });
+  const narrowing = () => Boolean(tripFilter.q.trim()) || badge() > 0;
+
+  function noteText() {
+    return html`Showing <b>${visibleRows().length}</b> of ${listRows().length}`;
+  }
+
+  /**
+   * Search and the filter button, under the title. Only once there is kit to
+   * look through: an empty wishlist has nothing to narrow.
+   */
+  function findBar() {
+    if (!listRows().length) return '';
+    return html`
+      <div class="kitfind">
+        <label class="searchbar ${tripFilter.q ? 'filled' : ''}">
+          ${icon('search')}
+          <input type="search" data-kitsearch value="${tripFilter.q}"
+                 placeholder="Search this trip's kit…" aria-label="Search this trip's kit">
+          <button class="clearbtn" data-kitclear aria-label="Clear search">${icon('close')}</button>
+        </label>
+        <div class="viewtoggle fsbtn">
+          <button data-kitfilter aria-label="Filter and sort kit">${icon('filter')}</button>
+          <span class="fsdot" data-fsdot ${badge() ? '' : 'hidden'}>${badge()}</span>
+        </div>
+      </div>
+      <div class="kitnote" data-kitnote ${narrowing() ? '' : 'hidden'}>${noteText()}</div>`;
+  }
+
+  /**
+   * Brings the bar, its badge and "Showing N of M" in step with the filters
+   * without rebuilding the search box mid-keystroke. The bar itself only
+   * arrives or leaves when the list gains its first piece or loses its last.
+   */
+  function paintFind() {
+    const wrap = root.querySelector('[data-find]');
+    if (!wrap) return;
+    const has = listRows().length > 0;
+    if (has !== Boolean(wrap.querySelector('.kitfind'))) {
+      mount(wrap, findBar());
+    } else if (has) {
+      const dot = wrap.querySelector('[data-fsdot]');
+      dot.hidden = badge() === 0;
+      dot.textContent = badge();
+      const note = wrap.querySelector('[data-kitnote]');
+      note.hidden = !narrowing();
+      if (narrowing()) mount(note, noteText());
+    }
+    const count = root.querySelector('[data-sheetcount]');
+    if (count) mount(count, html`<b>${visibleRows().length}</b> shown`);
+  }
+
+  function setQuery(value) {
+    tripFilter.q = value;
+    root.querySelectorAll('[data-kitsearch], [data-sheetsearch]').forEach((input) => {
+      if (input.value !== value) input.value = value;
+    });
+    root.querySelectorAll('.kitfind .searchbar').forEach((box) => {
+      box.classList.toggle('filled', Boolean(value));
+    });
+    paintKit();
+  }
+
+  function resetFilters() {
+    resetFilterState(tripFilter, TRIP_START);
+    setQuery('');
+  }
+
+  /**
+   * The Catalogue's filter sheet, over the trip. Offers only what is on this
+   * trip - a type, a diameter, a box nobody packed would be a dead button - and
+   * adds "Packing order" to the sorts. Drawn into this screen's root like the
+   * kit picker, so like the picker it keeps every click to itself.
+   */
+  function openFilter() {
+    if (filterNode && root.contains(filterNode)) return;
+    const pool = listRows().map((row) => row.item);
+    const present = new Set(pool.map((item) => item.component_type));
+    const options = {
+      types: store.types.filter((type) => present.has(type.key)),
+      sorts: TRIP_SORTS,
+    };
+
+    const node = el(html`
+      <div class="filterpanel" data-tripfilter>
+        <div class="fp-scrim" data-close></div>
+        <div class="fp-sheet" role="dialog" aria-label="Filter and sort">
+          <div class="fp-top" data-grab>
+            <div class="fp-grab" aria-hidden="true"></div>
+            <div class="fp-head">
+              <label class="searchbar">
+                ${icon('search')}
+                <input type="search" data-sheetsearch placeholder="Search this trip's kit…"
+                       aria-label="Search this trip's kit">
+              </label>
+            </div>
+          </div>
+          <div class="fp-body" data-body></div>
+          <div class="fp-foot">
+            <button class="fp-reset" data-reset>Reset</button>
+            <span class="fp-count" data-sheetcount></span>
+            <button class="fp-done" data-close>Done</button>
+          </div>
+        </div>
+      </div>`);
+    filterNode = node;
+    root.append(node);
+
+    const sheet = node.querySelector('.fp-sheet');
+    const body = node.querySelector('[data-body]');
+    const search = node.querySelector('[data-sheetsearch]');
+    const paintBody = () => mount(body, panelSections(tripFilter, pool, options));
+    paintBody();
+    search.value = tripFilter.q;
+    paintFind();
+
+    let closing = false;
+    function close() {
+      if (closing) return;
+      closing = true;
+      node.classList.remove('open');
+      sheet.style.transition = 'transform .2s cubic-bezier(.4, 0, 1, 1)';
+      sheet.style.transform = 'translateY(101%)';
+      let settled = false;
+      const finish = (event) => {
+        if (settled || (event && event.target !== sheet)) return;
+        settled = true;
+        sheet.removeEventListener('transitionend', finish);
+        node.remove();
+        if (filterNode === node) filterNode = null;
+      };
+      sheet.addEventListener('transitionend', finish);
+      setTimeout(finish, 300);
+    }
+
+    node.addEventListener('click', (event) => {
+      // The sheet is drawn inside the screen that runs its own delegated
+      // handlers on this root; whatever is tapped in it is the sheet's alone.
+      event.stopPropagation();
+      if (event.target.closest('[data-close]')) { close(); return; }
+      if (event.target.closest('[data-reset]')) {
+        resetFilters();
+        paintBody();
+        return;
+      }
+      const kind = applyPanelClick(tripFilter, event.target);
+      if (!kind) return;
+      if (kind === 'type') paintBody();
+      else syncPanel(body, tripFilter);
+      paintKit();
+    });
+    search.addEventListener('input', () => setQuery(search.value));
+    dragToDismiss({ grab: node.querySelector('[data-grab]'), sheet, search, onClose: close });
+
+    void sheet.offsetHeight; // commit the closed transform before animating open
+    requestAnimationFrame(() => node.classList.add('open'));
   }
 
   /** "Request kit" while asking, "Add kit" once the kit sec owns the list. */
@@ -365,6 +571,10 @@ export async function render(root, params) {
     });
 
     onClick(root, 'data-pick', openPicker);
+    onClick(root, 'data-kitfilter', openFilter);
+    onClick(root, 'data-kitclear', () => setQuery(''));
+    onClick(root, 'data-kitreset', resetFilters);
+    on(root, 'input', '[data-kitsearch]', (_event, node) => setQuery(node.value));
     onClick(root, 'data-confirm', () => go(`/trip/${id}/confirm`));
     onClick(root, 'data-stage', (value) => moveStage(value));
     onClick(root, 'data-skip', skipPacking);
@@ -1633,18 +1843,18 @@ function windChart(days) {
 }
 
 /**
- * The packing list's sort: by type in the order a trailer is loaded, then
- * within a type by size then name so you work along the rack rather than
- * hunting. One flat list, no headers - the checklist is a single run of ticks.
+ * The packing list's sort, as a comparator over trip rows: by type in the
+ * order a trailer is loaded, then within a type by size then name so you work
+ * along the rack rather than hunting. One flat list, no headers - the checklist is a single run of ticks.
  */
-function sortKit(rows) {
-  const order = store.types.map((type) => type.key);
+function packingOrder() {
+  const types = store.types.map((type) => type.key);
   const sizeOf = (row) => {
     const parsed = parseFloat(String(row.item.size_value));
     return Number.isNaN(parsed) ? Infinity : parsed;
   };
-  return [...rows].sort((a, b) =>
-    order.indexOf(a.item.component_type) - order.indexOf(b.item.component_type)
+  return (a, b) =>
+    types.indexOf(a.item.component_type) - types.indexOf(b.item.component_type)
     || sizeOf(a) - sizeOf(b)
-    || fullName(a.item).localeCompare(fullName(b.item)));
+    || fullName(a.item).localeCompare(fullName(b.item));
 }

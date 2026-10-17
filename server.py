@@ -382,7 +382,8 @@ def item_card(item: dict, rating: dict = None, faults: list = None,
 def _size_value(item: dict):
     ctype = item["component_type"]
     for key in (("sail", "size_m2"), ("wing", "size_m2"), ("board", "size_l"),
-                ("mast", "length_cm"), ("fin", "fin_length_cm")):
+                ("mast", "length_cm"), ("fin", "fin_length_cm"),
+                ("foil", "foil_area_cm2")):
         if ctype == key[0]:
             return item.get(key[1])
     if ctype == "boom" and item.get("min_size_cm") is not None:
@@ -396,7 +397,7 @@ def _size_value(item: dict):
 
 def _size_unit(item: dict) -> str:
     return {"sail": "m²", "wing": "m²", "board": "L", "mast": "cm",
-            "fin": "cm", "boom": "cm", "ext": "cm"}.get(item["component_type"], "")
+            "fin": "cm", "boom": "cm", "ext": "cm", "foil": "cm²"}.get(item["component_type"], "")
 
 
 # --------------------------------------------------------------------------- #
@@ -1251,6 +1252,38 @@ def close_trip(trip_id: int, request: Request, payload: dict = Body({})):
     except db.TripError as error:
         raise HTTPException(422, str(error))
     return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/archive")
+def archive_trip(trip_id: int, request: Request):
+    """Tuck a finished or called-off trip away. Reversible."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    try:
+        trip = db.archive_trip(trip_id)
+    except db.TripError as error:
+        raise HTTPException(422, str(error))
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.post("/api/trips/{trip_id}/unarchive")
+def unarchive_trip(trip_id: int, request: Request):
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    trip = db.unarchive_trip(trip_id)
+    return {"trip": _expand_trip(trip, identity(request)["user"])}
+
+
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: int, request: Request):
+    """Any stage. A trip that was holding kit away lets go of it."""
+    require_committee(request)
+    if not db.get_trip(trip_id):
+        raise HTTPException(404, "No such trip.")
+    db.delete_trip(trip_id)
+    return {"ok": True}
 
 
 @app.post("/api/trips/{trip_id}/request")

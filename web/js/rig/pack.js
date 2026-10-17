@@ -269,6 +269,16 @@ export function buildModel(sails, kit, pins = []) {
 
 /* ================================================ 4. the inner assignment */
 
+// Nodes the exact search may spend before the greedy fallback takes over.
+// About 25 ms of work, and plenty for any trip of a handful of sails.
+const DP_BUDGET = 20000;
+// Nodes `allRiggable` may spend backtracking once its one-pass attempt has failed.
+const ALL_RIGGABLE_BUDGET = 60;
+// Groups of one size `sessionCoverage` will test. Past it, an even spread of them.
+const COVERAGE_GROUPS = 60;
+// Largest group `allRiggable` backtracks for after its one-pass attempt misses.
+const BACKTRACK_UP_TO = 3;
+
 /**
  * The exact answer to "with this trailer, how many of these sails can stand up
  * at the same time, and how well does each one match its kit".
@@ -290,9 +300,15 @@ export function buildModel(sails, kit, pins = []) {
  *             "how big a group can this particular sail be part of".
  *   `budget`  caps the nodes explored. At club sizes it is never reached, and
  *             the result carries `exact: false` if it ever is.
+ *
+ * The exact search is exponential in the number of sails on the table, and the
+ * trailer search calls it for every candidate trailer. A trip of 17 sails
+ * against a 220-piece rack never finishes it (the wizard froze on the spinner),
+ * so when it overflows its budget the answer falls back to `greedy` below, and
+ * the model remembers the size so later calls skip the doomed attempt.
  */
 export function solve(model, counts, options = {}) {
-  const { mask, require = 0, budget = 400000 } = options;
+  const { mask, require = 0, budget = DP_BUDGET } = options;
   const rows = model.rows;
   const full = rows.length === 32 ? -1 : (1 << rows.length) - 1;
   const use = mask === undefined ? full : mask;
@@ -306,6 +322,7 @@ export function solve(model, counts, options = {}) {
   const memo = new Map();
   let nodes = 0;
   let overflow = false;
+  const tooBig = idxs.length >= (model.dpLimit ?? Infinity);
 
   // A count past what the club actually owns is a "what if we had one more",
   // which `shortfalls` asks to work out which slot ran out. Such a piece rigs
@@ -332,6 +349,45 @@ export function solve(model, counts, options = {}) {
     + pinOf(t.e, counts[t.e] - caps[t.e])
     + pinOf(t.b, counts[t.b] - caps[t.b]);
 
+  // The fallback: one pass, most-constrained sail first (required sails ahead
+  // of those), each taking the best-scoring triple still in stock. A feasible
+  // arrangement rather than the best one, so `exact` is false, but it costs
+  // microseconds and a rack with kit to spare gives the same answer.
+  function greedy() {
+    const order = idxs.slice().sort((a, b) =>
+      (((require >> b) & 1) - ((require >> a) & 1))
+      || rows[a].triples.length - rows[b].triples.length);
+    const plan = [];
+    let pinTotal = 0;
+    let partTotal = 0;
+    for (const i of order) {
+      let took = null;
+      for (const t of rows[i].triples) {
+        if (caps[t.m] <= 0 || caps[t.e] <= 0 || caps[t.b] <= 0) continue;
+        const gain = gainOf(t);
+        if (!took || gain > took.score) {
+          took = {
+            t, score: gain, bonus: pinPart(t),
+            units: { m: counts[t.m] - caps[t.m], e: counts[t.e] - caps[t.e], b: counts[t.b] - caps[t.b] },
+          };
+        }
+      }
+      if (!took) {
+        if ((require >> i) & 1) return { rigs: 0, part: 0, plan: [], exact: false, impossible: true };
+        continue;
+      }
+      const { t } = took;
+      caps[t.m]--; caps[t.e]--; caps[t.b]--;
+      pinTotal += took.bonus;
+      partTotal += took.score - BIG - took.bonus;
+      plan.push({ sailIdx: i, t, units: took.units, gain: took.score - BIG - took.bonus });
+    }
+    plan.sort((a, b) => a.sailIdx - b.sailIdx);
+    return { rigs: plan.length, part: partTotal, plan, exact: false };
+  }
+
+  if (tooBig) return greedy();
+
   function value(k) {
     if (k === idxs.length) return 0;
     const key = k + '|' + String.fromCharCode.apply(null, caps);
@@ -356,6 +412,12 @@ export function solve(model, counts, options = {}) {
   }
 
   const total = value(0);
+
+  if (overflow) {
+    model.dpLimit = Math.min(model.dpLimit ?? Infinity, idxs.length);
+    caps.splice(0, caps.length, ...counts);
+    return greedy();
+  }
 
   // No arrangement rigs every required sail, so there is nothing to report.
   if (total === -Infinity) return { rigs: 0, part: 0, plan: [], exact: !overflow, impossible: true };
@@ -408,10 +470,35 @@ export function allRiggable(model, counts, mask) {
   const caps = counts.slice();
   const dead = new Set();
 
+  // A yes is a yes however it is found, so try the one-pass answer first (each
+  // sail on the triple that leaves the most stock behind). On a trailer with
+  // kit to spare it succeeds at once; the backtracking below is only for the
+  // tight ones, and it is capped, because a group of a dozen sails against a
+  // thin trailer can otherwise search for minutes. Past the cap the answer is
+  // no, which only ever makes the search pack a little more.
+  const left = counts.slice();
+  let fits = true;
+  for (const i of idxs) {
+    let took = null;
+    let room = -1;
+    for (const t of rows[i].triples) {
+      if (left[t.m] <= 0 || left[t.e] <= 0 || left[t.b] <= 0) continue;
+      const spare = left[t.m] + left[t.e] + left[t.b];
+      if (spare > room) { room = spare; took = t; }
+    }
+    if (!took) { fits = false; break; }
+    left[took.m]--; left[took.e]--; left[took.b]--;
+  }
+  if (fits) return true;
+  // Backtracking is for the small groups, where a miss would be a visible hole.
+  if (idxs.length > BACKTRACK_UP_TO) return false;
+
+  let nodes = 0;
   function rec(k) {
     if (k === idxs.length) return true;
     const key = k + '|' + String.fromCharCode.apply(null, caps);
     if (dead.has(key)) return false;
+    if (++nodes > ALL_RIGGABLE_BUDGET) return false;
     for (const t of rows[idxs[k]].triples) {
       if (caps[t.m] <= 0 || caps[t.e] <= 0 || caps[t.b] <= 0) continue;
       caps[t.m]--; caps[t.e]--; caps[t.b]--;
@@ -506,13 +593,46 @@ export function reachVector(model, counts) {
  * on a well-stocked rack, where the first branch tried usually rigs everything
  * left and the rest of the tree is never opened.
  */
-function maxRigsWith(model, counts, require, ceiling = Infinity, budget = 400000) {
+function maxRigsWith(model, counts, require, ceiling = Infinity, budget = DP_BUDGET) {
   const rows = model.rows;
   const idxs = rows.map((_, i) => i)
     .sort((a, b) => rows[a].triples.length - rows[b].triples.length);
   const caps = counts.slice();
   const memo = new Map();
   let nodes = 0;
+  let overflow = false;
+
+  // The same escape as `solve`: when the exact count is out of reach, take a
+  // feasible group instead. Required sails go first, then the most constrained,
+  // each on the triple that leaves the most stock behind. A lower bound, never
+  // an overcount, and the model remembers so later calls go straight here.
+  function greedyCount() {
+    const left = counts.slice();
+    const order = idxs.slice().sort((a, b) =>
+      (((require >> b) & 1) - ((require >> a) & 1))
+      || rows[a].triples.length - rows[b].triples.length);
+    let set = 0;
+    let count = 0;
+    for (const i of order) {
+      let took = null;
+      let room = -1;
+      for (const t of rows[i].triples) {
+        if (left[t.m] <= 0 || left[t.e] <= 0 || left[t.b] <= 0) continue;
+        const spare = left[t.m] + left[t.e] + left[t.b];
+        if (spare > room) { room = spare; took = t; }
+      }
+      if (!took) {
+        if ((require >> i) & 1) return { count: 0, set: 0 };
+        continue;
+      }
+      left[took.m]--; left[took.e]--; left[took.b]--;
+      set |= 1 << i;
+      count++;
+    }
+    return { count: Math.min(count, ceiling), set };
+  }
+
+  if (model.reachGreedy) return greedyCount();
 
   function rec(k) {
     if (k === idxs.length) return 0;
@@ -522,7 +642,7 @@ function maxRigsWith(model, counts, require, ceiling = Infinity, budget = 400000
     // A rack big enough to exhaust this is past what any club owns, but the
     // answer must still come back: a low count reads as a shortfall the kit sec
     // can see and argue with, where a hung wizard reads as a broken app.
-    if (++nodes > budget) return 0;
+    if (++nodes > budget) { overflow = true; return 0; }
 
     // Rigging this sail is tried before leaving it behind, and the order is the
     // whole performance of this function. `most` is every sail from here down,
@@ -554,6 +674,10 @@ function maxRigsWith(model, counts, require, ceiling = Infinity, budget = 400000
   }
 
   const got = rec(0);
+  if (overflow) {
+    model.reachGreedy = true;
+    return greedyCount();
+  }
   if (got < 0) return { count: 0, set: 0 };
 
   // Replay the decisions to recover which sails were in the group. Every memo
@@ -600,6 +724,13 @@ export function spareByKind(model, counts, datum) {
   };
 }
 
+/** n choose k, as a float (only ever compared against a cap). */
+function choose(n, k) {
+  let out = 1;
+  for (let i = 1; i <= k; i++) out = (out * (n - k + i)) / i;
+  return Math.round(out);
+}
+
 /**
  * The fraction of small sail-groups that actually stand up at once — pairs,
  * then triples, up to `kMax`. Riggability is downward closed (a subset of a
@@ -636,7 +767,20 @@ export function sessionCoverage(model, counts, kMax) {
     let good = 0;
     const idx = [];
     for (let i = 0; i < size; i++) idx.push(i);
+    // Seventeen sails make 6,188 groups of five, each its own search. Past the
+    // cap, test every stride-th group: the same ones on every call, so the
+    // score still only rises as kit is added.
+    const stride = Math.max(1, Math.ceil(choose(n, size) / COVERAGE_GROUPS));
+    let at = 0;
     for (;;) {
+      if (at++ % stride) {
+        let p = size - 1;
+        while (p >= 0 && idx[p] === n - size + p) p -= 1;
+        if (p < 0) break;
+        idx[p] += 1;
+        for (let q = p + 1; q < size; q++) idx[q] = idx[q - 1] + 1;
+        continue;
+      }
       total += 1;
       let ok = true;
       for (let i = 0; i < size && ok; i++) {
@@ -861,6 +1005,14 @@ export function chooseTrailer(model, opts = {}) {
   }
   const counts = seedTrailer({ ...model, floor });
 
+  // A wall-clock backstop. The search is a hill climb that stops when nothing
+  // improves, which on a big trip can be a long time; the wizard runs it on the
+  // page's one thread, so past the deadline each pass stops and the best
+  // trailer found so far is returned (`timedOut`). Generous, since the greedy
+  // fallback in `solve` keeps every normal trip far under it.
+  const deadline = Date.now() + (opts.deadlineMs ?? 4000);
+  const late = () => Date.now() > deadline;
+
   // Local search revisits the same trailer many times over, so score each
   // distinct one once.
   const seen = new Map();
@@ -894,7 +1046,7 @@ export function chooseTrailer(model, opts = {}) {
   // of the list, so kit already packed for somebody else counts towards it.
   const minRigs = opts.minRigs ?? 1;
   for (let guard = 0; guard < rows.length + 1; guard++) {
-    if (cur.keptPromise) break;
+    if (cur.keptPromise || late()) break;
 
     const behind = cur.reaches
       .map((got, i) => ({ i, gap: Math.min(minRigs, model.possible[i]) - got }))
@@ -944,6 +1096,7 @@ export function chooseTrailer(model, opts = {}) {
   //    match reward and the spare capacity of a fuller list have nothing to
   //    climb from.
   for (;;) {
+    if (late()) break;
     let best = cur;
     let move = null;
 
@@ -984,6 +1137,7 @@ export function chooseTrailer(model, opts = {}) {
   // below, to trim whatever that made redundant.
   const polish = () => {
    for (;;) {
+    if (late()) break;
     let moved = false;
     for (let i = 0; i < counts.length && !moved; i++) {
       if (counts[i] <= floor[i]) continue;
@@ -1044,6 +1198,7 @@ export function chooseTrailer(model, opts = {}) {
   // that group needs and keep the change if the score holds; `polish` then trims
   // whatever went redundant, and often lands back on the same piece count.
   for (const group of unriggableGroups(model, counts, { maxSize: minRigs, limit: 30, budget: 4000 })) {
+    if (late()) break;
     let mask = 0;
     for (const i of group) mask |= 1 << i;
     const g = solve(model, cap, { mask, require: mask });
@@ -1068,7 +1223,7 @@ export function chooseTrailer(model, opts = {}) {
     }
   }
 
-  return { ...cur, trace, evaluated: seen.size };
+  return { ...cur, trace, evaluated: seen.size, timedOut: late() };
 }
 
 /**

@@ -1,5 +1,9 @@
 # UBWC: built database (rebuild from data/Kit Inventory.xlsx via migrate.py)
 kit.db
+# Any SQLite file: backups hold accounts and password hashes
+*.db
+*.db-wal
+*.db-shm
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

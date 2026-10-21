@@ -2,33 +2,51 @@
 
 This repo is the University of Bristol Windsurfing Club's kit inventory app: a
 FastAPI JSON API over a SQLite database, with a dependency-free static front
-end. The app's UI/UX plan is in [misc/layout.txt](misc/layout.txt).
+end. **It is live** (members use it on their phones, on Railway) and **the repo
+is public** (MIT, `Kresimos/UBWC`), so treat every commit as published and every
+push to `main` as a deploy. The original UI/UX plan is in
+[misc/layout.txt](misc/layout.txt); the product plan is [misc/spec.md](misc/spec.md).
 
 **Where the kit data actually is** (read this before touching the database, and
 do not infer it from the spreadsheet):
 
-- **The club's real inventory has not been counted yet.** The plan is to enter
-  it through the app's Add kit form once it has, because that validates a rig as
-  it is typed and an import never did.
+- **The repo holds no real kit data.** Real inventory goes in through the app's
+  Add kit form (committee only), because that validates a rig as it is typed and
+  an import never did.
 - **[data/Kit Inventory.xlsx](data/Kit Inventory.xlsx) is a 6-row stub**, not
   ground truth. It was the Google Sheet the schema was designed from, and
   `migrate.py` still seeds from it, so a fresh seed produces an app holding six
   pieces of kit that looks entirely healthy.
-- **The working database is example data.** ~148 items, with faults, ratings,
-  trips and logbooks, in the OS's per-user application data directory (or
-  wherever `UBWC_DB` points). Right order of magnitude for a club fleet, useful
-  to demo and measure against, but nothing in it is real.
+- **A local database is example data.** ~148 items, with faults, ratings,
+  trips and logbooks (`seed_example.py`), in the OS's per-user application data
+  directory (or wherever `UBWC_DB` points). Right order of magnitude for a club
+  fleet, useful to demo and measure against, but nothing in it is real.
+- **The database on the host is the club's record.** Never overwrite, reset or
+  restore it except by the documented routes below, and never from a local copy
+  of the example data.
 
 So "rebuild from the sheet" is never the fix for anything. `python manage.py
 where` says which database is in use and what is in it.
+
+## The repo is public
+
+- Never commit a database or a backup (`*.db*` is ignored: they hold accounts
+  and password hashes), a `.env`, a credential, a member's name or contact
+  details, or the live URL's admin credentials. `UBWC_ADMIN_PASSWORD` and the
+  rest live on the host, not here.
+- Dev screenshots stay out (`/*.png` is ignored). A screenshot worth keeping goes
+  in `docs/`, and only after checking it shows no member data.
+- Seed and test data must be invented people and invented kit.
+- Pushing to `main` redeploys the live app. Run the tests below first, and keep
+  schema changes additive (the host's database already exists and is migrated in
+  place by `db.py` at startup).
 
 ## Running it, and where it is hosted
 
 `./run.sh` on a laptop; hosted on Railway, one process against one disk. The
 runbook is [misc/deploy-railway.md](misc/deploy-railway.md), the platform
 comparison is [misc/hosting.md](misc/hosting.md), and what it measures under
-load (plus what photos would cost, which is the one decision that would change
-the deployment) is [misc/scale.md](misc/scale.md).
+load, with a bigger inventory and with photos, is [misc/scale.md](misc/scale.md).
 
 Six environment variables, documented in [README.md](README.md). Two of them
 are safety interlocks and are worth understanding before changing anything near
@@ -60,7 +78,30 @@ instant, which is right at this size and gets proportionally more expensive as
 the inventory grows. [misc/scale.md](misc/scale.md) has the numbers and the fix
 if it ever matters.
 
-This file documents the **windsurfing domain knowledge** needed to build any
+Photo upload is built (kit, trips, faults and fixes, profiles, storage spots):
+`/api/uploads` resizes with Pillow and writes into `photos/` **next to the
+database**, served from `/photos`, so the one volume and one backup cover both.
+The front end's piece is `web/js/ui/photofield.js`.
+
+## Checks
+
+There is no CI, so run what you touched before pushing (the Python ones need the
+`.venv` that `run.sh` builds):
+
+```
+python test_trips.py            # trips never move kit; away/packing rules
+python test_archive.py          # archive and delete of kit
+python test_uploads.py          # photo upload and resize
+node web/js/rig/engine.test.mjs        # discipline table, foil box rule, sportFor
+node web/js/rig/pack.test.mjs          # trailer packer
+node web/js/rig/pack.solver.test.mjs   # trailer solver
+```
+
+The UI is a handset UI: [TESTING.md](TESTING.md) covers testing on a real phone.
+
+## Domain knowledge
+
+The rest of this file documents the **windsurfing domain knowledge** needed to build any
 feature that suggests, validates, or filters "does this kit go together"
 (add-item validation, a rig builder, search/autocomplete ranking, etc). The
 spreadsheet's columns exist *because* of these compatibility rules — read this
@@ -72,26 +113,32 @@ The spreadsheet (and future DB) has one table per component type:
 
 | Sheet/Type | Key fields | Notes |
 |---|---|---|
-| Boards | `Size (L)` = volume in litres, `Type` (e.g. Freewave) | Board box for fin sold separately per model (not yet tracked as a column) |
-| Sails + Wings | `Size (m^2)`, `Luff`, `Adjustable Top`, `Boom`, `Cams`, `Diameter` | `Type` is `Sail` or `Wing`; wings don't use Luff/Boom/Cams; `Diameter` only means anything on a cambered sail |
+| Boards | `Size (L)` = volume in litres, `Type` (e.g. Freewave) | `box_type` = the fin box standard (see Fin and foil boxes) |
+| Sails + Wings | `Size (m^2)`, `Luff`, `Adjustable Top`, `Boom`, `Cams`, `Diameter` | `Type` is `Sail` or `Wing` on the sheet (the DB splits wings into their own `wing` type, below); wings don't use Luff/Boom/Cams; `Diameter` only means anything on a cambered sail |
 | Masts | `Size` = length in cm, `Diameter` = RDM or SDM | |
 | Extensions | `Min size` / `Max size` = travel in cm, `Diameter` = RDM or SDM | `ext` component type in the DB (`ext_min_cm`, `ext_max_cm`); the sheet still files these under Misc with Type = "Extension", and the importer splits them out |
+| Wings | `Size (m^2)`, `Type` | `wing` component type: wingfoil's "sail". No luff, boom or cams. Sizes, not rig-matched. |
 | Booms | `Min size` / `Max size` = adjustable outhaul range in cm, `Diameter` = RDM or SDM | `diameter` is required when adding a boom (older booms hold NULL until edited); recorded only, not yet a rig-matching rule |
+| Fins | `box_type`, `fin_length_cm` | `fin` component type. Box must match the board's (see Fin and foil boxes). |
+| Foils | `box_type`, `foil_area_cm2` | `foil` component type. `foil_area_cm2` is the front wing area: optional and display-only, never a match rule. |
 | Wetsuits | `Size` (`size_generic`), `Gender` (Mens/Womens/Unisex), `Thickness` (free text, e.g. "5/4mm") | `wetsuit` component type in the DB; no sheet of its own, no compatibility rules — it's not part of the rig or the board setup |
 | Wetsuit Boots | `Size` (`size_generic`), `Thickness` (optional) | `boots` component type; shares wetsuits' size/thickness columns (no new ones) but no Gender — boots are sized, not gendered; same no-compatibility-rules note |
-| Misc | generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, etc.) |
+| Misc | `misc_item` (the headline text), generic Manufacturer/Model/Type/Size | catch-all (harnesses, mast bases/UJs, safety gear, etc.). `misc_item` is what the piece actually is; every other screen shows size where a misc item has no headline. |
 
 All sheets share `Manufacturer`, `Model`, `Condition`, `Location`, `Faults` —
 this is the common "item" shape referenced in the Item/Faults pages in
-[misc/layout.txt](misc/layout.txt). `Fins` and `Foils` are named in the search
-bar spec but have no sheet yet — see "Not yet modelled" below.
+[misc/layout.txt](misc/layout.txt). Every type's ordered field list is
+`db.COMPONENT_FIELDS`; field labels, choices and per-type label overrides are
+`db.FIELD_META` / `db.FIELD_LABEL_OVERRIDES`, and `validation.py` holds the
+required-field and cross-field rules. Adding a field means touching those, the
+schema (`schema.sql` plus an additive migration in `db.py`) and `web/js/screens/form.js`.
 
 ## The two independent kit groups
 
 A full windsurfing setup is really **two separable systems** that both have to
 be individually self-consistent, but don't constrain each other by size:
 
-1. **The rig**: Sail + Mast + Extension + Boom (+ base/UJ, not yet tracked)
+1. **The rig**: Sail + Mast + Extension + Boom (+ base/UJ, which is a count on a trip, not a rule)
 2. **The board setup**: Board + Fin (+ Foil, if foiling)
 
 A rider picks a rig for the wind strength/conditions and a board for their
@@ -172,6 +219,34 @@ form only shows the Diameter field on a sail once **Cambered** is switched on
 distinction only matters for what gets displayed and stored, not for the rig
 assistant's behaviour.
 
+## Three sports, three rig pipelines
+
+UBWC does windsurfing, windsurf foiling (**windfoil**) and wing foiling
+(**wingfoil**). The Rig tab has a picker for the pipeline
+(`web/js/rig/engine.js`, `DISCIPLINES`; stored as `setups.discipline`, a label
+rather than a CHECK-constrained fact). The full brief is
+[docs/kit_options.md](docs/kit_options.md).
+
+| Pipeline | Member picks | App derives | Board box |
+|---|---|---|---|
+| windsurf | sail + board | mast, ext, boom, fin | anything except the two foil boxes (an unrecorded box counts as windsurf) |
+| windfoil | sail + board | mast, ext, boom, foil | `Deep Tuttle (foil ready)` |
+| wingfoil | board + wing | foil only (no UJ, no mast) | `Double US Box (wingfoil)` |
+
+- The rig maths (luff, adjustable top, boom, diameter) is **identical for
+  windsurf and windfoil**; only the last slot differs (a fin or a foil).
+- There is no foil-board component type: "is a foil board" is read from the two
+  box strings (`FOIL_BOX_WINDFOIL`, `FOIL_BOX_WINGFOIL`) on a board or foil.
+- An unrecorded box is **excluded** from the foil pipelines (the opposite of the
+  usual NULL-never-blocks rule), because a board nobody set up as a foil board
+  is not one. It is still allowed in windsurf.
+- `sportFor` decides where a catalogue tile's **Rig** button goes: wings and
+  wingfoil boards to wingfoil, windfoil boards to windfoil, everything else
+  (including sails, which are ambiguous between windsurf and windfoil) to
+  windsurf. It only preselects; it is the same as picking the kit by hand.
+- Switching pipeline keeps only the picks still legal in the new one
+  (`survivingPicks`). Trip packing derives one fin or foil per board by its box.
+
 ## Board sizing: volume vs. sail size and rider
 
 Board `Size (L)` (volume in litres) is chosen from **rider weight, skill, and
@@ -198,15 +273,17 @@ validation error, since rider preference and conditions vary.
 Boards accept fins/foils via a **box standard** (US Box, Powerbox, Tuttle,
 Slot Box, Deep Tuttle for foils) that is a hard compatibility constraint distinct from
 size — a fin/foil is either physically compatible with a board's box or it
-isn't. `items.box_type` already carries this on `board`, `fin` and `foil`
-(choices in `db.FIELD_META["box_type"]`), and the catalogue filter panel
-groups boards/fins/foils by it. Still to build when the `Fins`/`Foils` sheets
-are populated:
+isn't. `items.box_type` carries this on `board`, `fin` and `foil` (choices in
+`db.FIELD_META["box_type"]`: US Box, Powerbox, Tuttle, Deep Tuttle, Slot Box,
+Deep Tuttle (foil ready), Double US Box (wingfoil); a board's field is labelled
+"Fin box type"), and the catalogue filter panel groups them by it.
 
-- Validation rule: `fin.box_type == board.box_type` (exact match, no
-  tolerance — unlike the rig's cm-based checks).
-- Fin/foil **size** (fin: cm length; foil: front wing area, mast/fuselage
-  length) should be suggested from board volume + sail size + wind range,
+- **Built**: `fin.box_type == board.box_type` (exact match, no tolerance, unlike
+  the rig's cm-based checks), in `validation.py` and `engine.js`; the rig
+  assistant ranks fins and foils by it. A fin or board with no box recorded never
+  blocks a pick (except in the foil pipelines, above).
+- **Not built**: fin/foil **size** (fin: cm length; foil: front wing area,
+  mast/fuselage length) suggested from board volume + sail size + wind range,
   the same "soft band" treatment as board-to-sail sizing above, since it's
   about performance not physical fit.
 
@@ -330,6 +407,15 @@ setup:
   while filtered - the `X of Y packed` count and Complete packing stay whole-trip);
   and the picker (behind a Filters button, faults limited to none/minor because
   out-of-action kit is never offered).
+- **Retiring kit** (committee, item page): **Archive** hides a piece from the
+  live inventory and records why, keeping its faults; Restore puts it back.
+  **Delete permanently** removes the piece and its faults and favourites. Prefer
+  archive for anything broken or retired.
+- **Members and locations** (committee, user menu): a member account can be
+  deleted outright (for a test or fake account: it cascades their sessions,
+  ratings, trip votes and favourites, and leaves their comments and trips with
+  the author cleared). The **Locations** screen edits every site's map pin and
+  the spots kit lives in, with photos; a site can only be deleted when empty.
 - **Item page "known faults"**: faults are per physical item, not per
   model — keep them keyed to the individual row (Manufacturer+Model+Size+
   Location), matching the `faults` table and the Faults page spec. Each fault
@@ -350,7 +436,7 @@ setup:
 
 ### Issue tracker
 
-Issues live in the `bm7273/UBWC` GitHub Issues, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in the `Kresimos/UBWC` GitHub Issues (the repo was `bm7273/UBWC`; that name redirects), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
